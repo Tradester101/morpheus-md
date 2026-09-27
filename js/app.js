@@ -78,7 +78,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.5';
+  const VERSION = '1.9.6';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -454,6 +454,7 @@
 
   function secTransop() {
     const to = H.to; ordenarRegs();
+    if (!to.cierre) to.cierre = cfg.cierre || 'recta';
     const tiempos = TIEMPOS.map(([k, t]) => `<label class="campo"><span>${t}</span><div class="con-unidad"><input type="time" data-k="to.t.${k}" value="${esc(val('to.t.' + k))}"><button class="secundario chico" data-acc="ahora" data-p="to.t.${k}">Ahora</button></div></label>`).join('');
     const regs = to.regs.length ? to.regs.map((r, i) => `<div class="registro"><span class="hora">${esc(r.hora)}</span><span class="datos">${resumenReg(r)}</span>
       <button class="secundario chico" data-acc="editarReg" data-i="${i}">Editar</button></div>`).join('') :
@@ -462,7 +463,9 @@
       `<label class="campo"><span>Hora de inicio de la grilla</span><div class="con-unidad"><input type="time" data-k="to.inicio" value="${esc(to.inicio || '')}"><button class="secundario chico" data-acc="ahora" data-p="to.inicio" data-red="5">Ahora</button></div></label>` +
       T('to.posicion', 'Posición del paciente', { ph: 'Decúbito supino…' })) + '</div>' +
       '<p class="nota">Cada hoja cubre 5 h 30 min (11 columnas de 30 min, divididas en 5 min). Si la cirugía dura más, el PDF agrega hojas de continuación.</p>') +
-      card('Tiempos', `<div class="rejilla tiempos">${tiempos}</div>`) +
+      card('Tiempos', `<div class="rejilla tiempos">${tiempos}</div>` +
+        R('to.cierre', 'Cierre de la grilla en el fin de anestesia', [['recta', 'Línea recta'], ['zigzag', 'Zigzag'], ['no', 'No marcar']]) +
+        '<p class="nota">En el PDF se traza una línea gruesa a la hora del fin de anestesia y el espacio que queda a la derecha se raya en diagonal, para que no se agregue nada después.</p>') +
       card('Signos vitales de inicio', rej(Nm('to.base.tas', 'TA sistólica', 'mmHg') + Nm('to.base.tad', 'TA diastólica', 'mmHg') +
         Nm('to.base.fc', 'FC', 'lpm') + Nm('to.base.fr', 'FR', 'rpm') + Nm('to.base.sat', 'SatO2', '%'))) +
       card('Registro de signos, fármacos y ventilación',
@@ -1685,7 +1688,8 @@
   document.addEventListener('click', (e) => {
     const r = e.target.closest('[data-r]');
     if (r && obj()) {
-      const o = obj(), k = r.dataset.r; const nuevo = getP(o, k) === r.dataset.v && k !== 'p.formPmp' ? '' : r.dataset.v; setP(o, k, nuevo);
+      const o = obj(), k = r.dataset.r; const nuevo = getP(o, k) === r.dataset.v && k !== 'p.formPmp' && k !== 'to.cierre' ? '' : r.dataset.v; setP(o, k, nuevo);
+      if (k === 'to.cierre') { cfg.cierre = nuevo; Store.guardarConfig(cfg); }
       $$(`[data-r="${k}"]`).forEach((b) => b.classList.toggle('sel', b.dataset.v === nuevo));
       if (o === D) docCambio(k); else { refrescarCalculos(); guardarPronto(); } return;
     }

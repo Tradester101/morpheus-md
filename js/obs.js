@@ -2,21 +2,21 @@
 window.Obs = (function () {
   'use strict';
   const ESCALAS = [
-    { k: 'glasgow', t: 'Glasgow', max: 15, ops: [15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3].map((v) => [String(v), String(v)]) },
+    { k: 'glasgow', t: 'Glasgow', max: 15, ops: [15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3].map((v) => [String(v), v + ' · ' + (v === 15 ? 'Normal: despierto y orientado' : v >= 13 ? 'Alteración leve de la conciencia' : v >= 9 ? 'Alteración moderada' : v === 8 ? 'Alteración grave: proteger la vía aérea (≤ 8)' : v > 3 ? 'Alteración grave / coma' : 'Sin respuesta (valor mínimo)')]) },
     { k: 'ramsay', t: 'Ramsay', ops: [['1', '1 · Ansioso, agitado'], ['2', '2 · Cooperador, orientado, tranquilo'], ['3', '3 · Responde solo a órdenes'],
       ['4', '4 · Dormido, respuesta rápida'], ['5', '5 · Dormido, respuesta lenta'], ['6', '6 · Sin respuesta']] },
     { k: 'rass', t: 'RASS', ops: [['+4', '+4 · Combativo'], ['+3', '+3 · Muy agitado'], ['+2', '+2 · Agitado'], ['+1', '+1 · Inquieto'], ['0', '0 · Alerta y tranquilo'],
       ['-1', '−1 · Somnoliento'], ['-2', '−2 · Sedación leve'], ['-3', '−3 · Sedación moderada'], ['-4', '−4 · Sedación profunda'], ['-5', '−5 · No despertable']] },
     { k: 'bromage', t: 'Bromage', ops: [['0', '0 · Sin bloqueo motor'], ['1', '1 · No eleva la pierna extendida'], ['2', '2 · No flexiona rodillas'], ['3', '3 · No mueve pies ni rodillas']] },
-    { k: 'aldrete', t: 'Aldrete', max: 10, ops: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((v) => [String(v), String(v)]) },
-    { k: 'eva', t: 'EVA (dolor)', max: 10, ops: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => [String(v), String(v)]) },
+    { k: 'aldrete', t: 'Aldrete', max: 10, ops: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((v) => [String(v), v + ' · ' + (v === 10 ? 'Recuperación completa, apto para alta' : v === 9 ? 'Apto para alta de recuperación' : v === 8 ? 'Casi recuperado, continuar vigilancia' : v >= 6 ? 'Recuperación parcial, vigilar en recuperación' : v >= 3 ? 'Recuperación incompleta, vigilancia estrecha' : 'Deterioro grave, soporte inmediato')]) },
+    { k: 'eva', t: 'EVA (dolor)', max: 10, ops: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => [String(v), v + ' · ' + (v === 0 ? 'Sin dolor' : v <= 3 ? 'Dolor leve' : v <= 6 ? 'Dolor moderado' : 'Dolor intenso')]) },
   ];
   // Grupos de frases: los de "uno" permiten una sola opción; "varios", varias.
   const GRUPOS = [
     { k: 'dest', t: 'Traslado', uno: true, ops: [['ucpa', 'UCPA / Recuperación'], ['uci', 'UCI'], ['hosp', 'Hospitalización'], ['casa', 'Alta a domicilio']] },
     { k: 'cond', t: 'Condición', uno: true, ops: [['estable', 'Estable'], ['inestable', 'Inestable']] },
     { k: 'sc', t: 'Complicaciones', uno: true, ops: [['sc', 'S/C (sin complicaciones)']] },
-    { k: 'va', t: 'Vía aérea', uno: true, ops: [['ext', 'Extubado/a S/C'], ['int', 'Intubado/a'], ['sga', 'Retiro de supraglótico S/C'], ['esp', 'Ventilación espontánea']] },
+    { k: 'va', t: 'Vía aérea', uno: false, ops: [['ext', 'Extubado/a S/C'], ['int', 'Intubado/a'], ['sga', 'Retiro de supraglótico S/C'], ['esp', 'Ventilando espontáneamente']] },
     { k: 'hemo', t: 'Hemodinamia', uno: true, ops: [['est', 'Hemodinámicamente estable'], ['inest', 'Hemodinámicamente inestable'], ['vaso', 'Con soporte vasoactivo']] },
     { k: 'otros', t: 'Otros', uno: false, ops: [['desp', 'Despierto/a y orientado/a'], ['o2', 'Con O2 suplementario'], ['nv', 'Sin náuseas ni vómitos'], ['dolor', 'Sin dolor']] },
   ];
@@ -28,7 +28,12 @@ window.Obs = (function () {
     let m = y - x; if (m < 0) m += 1440;
     return ' (' + (m >= 60 ? Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') + ' min' : m + ' min') + ')';
   }
-  function opc(h) { h.obsOpc = h.obsOpc || {}; const o = h.obsOpc; o.esc = o.esc || {}; o.fr = o.fr || {}; return o; }
+  function opc(h) {
+    h.obsOpc = h.obsOpc || {}; const o = h.obsOpc; o.esc = o.esc || {}; o.fr = o.fr || {};
+    // grupos que pasaron de una opción a varias (vía aérea en 1.9.6): texto → lista
+    GRUPOS.forEach((g) => { if (!g.uno && typeof o.fr[g.k] === 'string') o.fr[g.k] = o.fr[g.k] ? [o.fr[g.k]] : []; });
+    return o;
+  }
   // "Extubado/a" → según el sexo del paciente
   function genero(s, sexo) { return sexo === 'F' ? s.replace(/o\/a\b/g, 'a') : sexo === 'M' ? s.replace(/o\/a\b/g, 'o') : s; }
 

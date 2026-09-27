@@ -348,9 +348,10 @@ window.PDFHistoria = (function () {
       V(tr.v, X(a) + 1, 401.8, { size: 5.6, b: true, maxw: Math.max(12, X(z) - X(a) - 2) });
       if (X(z) - X(a) > w + 5) L(X(a) + w + 2.5, 402, X(z) - 1, 402, 0.5, AZUL);
     });
+    const finA = off(to, (to.t || {}).fa), cerrar = (to.cierre || 'recta') !== 'no' && isFinite(finA);
     for (let c = 0; c < NCOL; c++) {
       const cx = GX0 + (c + 0.5) * MW;
-      if (to.inicio) {
+      if (to.inicio && !(cerrar && ini + c * CMIN > finA)) {
         // flecha que señala la línea donde empieza la hora; la hora va justo a su derecha
         const bx = GX0 + c * MW; d.setFillColor(...AZUL);
         d.triangle(PX(bx), PY(396), PX(bx) - 2.2, PY(396) - 3.4, PX(bx) + 2.2, PY(396) - 3.4, 'F');
@@ -447,6 +448,29 @@ window.PDFHistoria = (function () {
     });
     L(350, 646.5, 350, 711.5, 0.8);
     for (let c = 1; c < NCOL; c++) L(GX0 + c * MW, 646.5, GX0 + c * MW, 711.5, 0.5);
+    Cierre(to, ini, X);
+  }
+  /* Cierre de la grilla: línea gruesa (recta o en zigzag) en el fin de anestesia y rayado diagonal del espacio que queda sin usar */
+  function Cierre(to, ini, X) {
+    const modo = to.cierre || 'recta'; if (modo === 'no') return;
+    const fin = off(to, (to.t || {}).fa); if (!isFinite(fin) || fin < ini || fin >= ini + MINP) return;
+    const x0 = X(fin), Y0 = RY0, Y1 = 711.5;
+    // rayado a 45° (x = c + y) recortado a cada franja con tiempo; se salta la franja VENTILACIÓN / Posición (texto y leyenda)
+    const rayar = (ya0, yb0) => { if (GX1 - x0 <= 1) return;
+      const paso = 7, k0 = Math.floor((x0 - yb0) / paso) * paso;
+      for (let c = k0; c < GX1 - ya0; c += paso) {
+        const ya = Math.max(ya0, x0 - c), yb = Math.min(yb0, GX1 - c);
+        if (yb - ya > 0.5) L(c + ya, ya, c + yb, yb, 0.3, [90, 90, 90]);
+      } };
+    rayar(Y0, 622.5); rayar(646.5, Y1);
+    const linea = (ya, yb) => {
+      if (modo !== 'zigzag') { L(x0, ya, x0, yb, 1.8, NEGRO); return; }
+      const amp = 2.2, per = 6; let y = ya, lado = 1; const pts = [[x0, ya]];
+      while (y + per / 2 < yb) { y += per / 2; pts.push([x0 + amp * lado, y]); lado = -lado; }
+      pts.push([x0, yb]);
+      for (let i = 1; i < pts.length; i++) L(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], 1.3, NEGRO);
+    };
+    linea(Y0, 622.5); linea(646.5, Y1);
   }
   function subCols(y1, y2) {
     for (let c = 0; c <= NSUB; c++) {
