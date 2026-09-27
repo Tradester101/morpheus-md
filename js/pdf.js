@@ -83,7 +83,7 @@ window.PDFHistoria = (function () {
     if (marcado) { d.setFillColor(...AZUL); d.circle(PX(x), PY(y), (r - 1.3) * SX, 'F'); }
   }
   function Opc(x, y, etq, marcado, o = {}) { Caja(x, y, marcado, o.sz || 7); T(etq, x + 7, y + 0.3, { size: o.size || 5.6, b: o.b, fijo: o.fijo }); }
-  function Img(data, x1, y1, x2, y2) {
+  function Img(data, x1, y1, x2, y2, o = {}) {
     if (!data) return;
     try {
       const p = d.getImageProperties(data);
@@ -91,6 +91,7 @@ window.PDFHistoria = (function () {
       const k = Math.min(bw / p.width, bh / p.height);
       const w = p.width * k, h = p.height * k;
       d.addImage(data, 'PNG', bx + (bw - w) / 2, by + (bh - h) / 2, w, h, undefined, 'FAST');
+      if (o.marco) Rc(x1, y1, x2, y2, { w: 0.3 });
     } catch (e) { console.warn('imagen', e); }
   }
   function Sub(x1, y1, x2, y2, etq) { Negro(x1, y1, x2, y2); T(etq, (x1 + x2) / 2, (y1 + y2) / 2 + 0.3, { b: true, size: 5.4, maxw: x2 - x1 - 2, c: [255, 255, 255], align: 'center' }); }
@@ -197,18 +198,36 @@ window.PDFHistoria = (function () {
     const CO = [['ansio', 'Ansiólisis', 'mg', 419], ['gast', 'Protección Gástrica', 'mg', 434], ['emet', 'Antieméticos', 'mg', 449],
       ['analg', 'Analgésicos', 'mg', 480], ['atb', 'Antibióticos', 'mg / g', 526], ['ester', 'Esteroides', 'mg', 556.5],
       ['nebu', 'Nebulización', 'gts/puff', 586], ['otros', 'Otros', 'mg / g', 600.5]];
-    const lim = [426, 442, 464, 510, 541, 571, 593.5, 612];
-    CO.forEach(([k, e, u, y], i) => {
-      const c = (h.coad || {})[k] || {};
+    // Cada fármaco ocupa su propia línea (nombre + dosis a la derecha y su unidad). Si algún ítem lleva varios,
+    // el espacio libre del recuadro se reparte entre los ítems: se usa mejor sin cambiar el tamaño del recuadro.
+    const TXW = 234 - 117, LH = 9.4, YA = 419, YB = 600.5;
+    d.setFont('helvetica', 'normal');
+    const lineasCo = CO.map(([k]) => {
+      const c = (h.coad || {})[k] || {}, ls = [];
+      (c.meds || []).forEach((m) => { const nm = String(m.n || '').trim(), ds = String(m.d || '').trim(); if (nm || ds) ls.push({ t: [nm, ds].filter(Boolean).join(' '), u: m.u || '' }); });
+      if (String(c.det || '').trim()) { d.setFontSize(6.2 * FF); d.splitTextToSize(String(c.det).trim(), TXW * SX).forEach((t) => ls.push({ t, u: '', libre: true })); }
+      return ls;
+    });
+    const hayDatos = lineasCo.some((ls) => ls.length);
+    let ys = CO.map((x) => x[3]);
+    if (hayDatos) {
+      const ext = lineasCo.map((ls) => Math.max(0, ls.length - 1) * LH), tot = ext.reduce((a, b) => a + b, 0);
+      let lh = LH, gap = (YB - YA - tot) / (CO.length - 1);
+      if (gap < 11) { const f = Math.max(0.6, (YB - YA - 11 * (CO.length - 1)) / Math.max(1, tot)); lh = LH * Math.min(1, f); gap = (YB - YA - tot * Math.min(1, f)) / (CO.length - 1); }
+      let y = YA; ys = lineasCo.map((ls) => { const y0 = y; y += Math.max(0, ls.length - 1) * lh + gap; return y0; });
+      CO.forEach((x, i) => (x.lh = lh));
+    }
+    CO.forEach(([k, e, u], i) => {
+      const c = (h.coad || {})[k] || {}, ls = lineasCo[i], y = ys[i], lh = CO[i].lh || LH;
       d.setFont('helvetica', 'normal'); d.setFontSize(6.4 * FF);
-      const largo = c.det && d.getTextWidth(c.det) / SX >= 50 + 136 - 56.5 - 58; // el detalle va en párrafo desde x = 117
-      Caja(47, y, !!c.on); T(e, 56.5, y + 0.3, { b: true, size: 5.4, maxw: largo ? 58 : c.det ? 103 : 128 });
-      if (!c.det) L(187.5, y + 4.6, 235, y + 4.6, 0.5); T(u, 237.5, y + 0.3, { size: 5 });
-      if (c.det) {
-        d.setFont('helvetica', 'normal'); d.setFontSize(6.4 * FF);
-        if (d.getTextWidth(c.det) / SX < 50 + 136 - 56.5 - 58) V(c.det, 234, y - 0.2, { size: 6.4, align: 'right' });
-        else Parrafo(c.det, 117, y - 4.5, 235, lim[i] + 3, { size: 6.2 });
-      }
+      const anchoTxt = ls.length ? Math.min(TXW, Math.max(...ls.map((l) => d.getTextWidth(limpia(l.t)) / SX))) : 50;
+      Caja(47, y, !!c.on || ls.length > 0); T(e, 56.5, y + 0.3, { b: true, size: 5.4, maxw: Math.max(58, 234 - anchoTxt - 56.5 - 4) });
+      if (!ls.length) { L(187.5, y + 4.6, 235, y + 4.6, 0.5); T(u, 237.5, y + 0.3, { size: 5 }); return; }
+      ls.forEach((l, j) => {
+        const yl = y + j * lh;
+        if (l.libre) { V(l.t, 234, yl - 0.2, { size: 6.2, align: 'right', maxw: TXW }); return; }
+        V(l.t, 234, yl - 0.2, { size: 6.4, align: 'right', maxw: TXW }); if (l.u) T(l.u, 237.5, yl + 0.3, { size: 5.2 });
+      });
     });
     // Inducción
     L(FX1, 622.5, 268.5, 622.5, 0.9);
@@ -345,8 +364,10 @@ window.PDFHistoria = (function () {
     const CY0 = 431, CY1 = 587.5;
     Negro(268.5, CY0, 285, 577.5);
     T('Signos vitales de inicio', 279.5, 555, { b: true, size: 6.8, c: [255, 255, 255], angle: 90 });
-    for (let v = 20; v <= 220; v += 20) L(301.5, yv(v), 317.5, yv(v), 0.4);
-    L(301.5, yv(220), 301.5, 577.5, 0.5); L(317.5, yv(220), 317.5, 577.5, 0.5);
+    // columna de inicio con la misma cuadrícula que la gráfica (líneas cada 10, marcadas cada 20; dos subcolumnas)
+    for (let v = 10; v <= 230; v += 10) { const may = v % 20 === 0; L(301.5, yv(v), 317.5, yv(v), may ? 0.4 : 0.2, may ? [120, 120, 120] : [185, 185, 185]); }
+    L(309.5, yv(230), 309.5, 577.5, 0.2, [185, 185, 185]);
+    L(301.5, yv(230), 301.5, 577.5, 0.5); L(317.5, yv(230), 317.5, 577.5, 0.5);
     for (let v = 220; v >= 20; v -= 20) T(String(v), 347, yv(v), { size: 4, align: 'right', b: v % 100 === 0 });
     for (let v = 10; v <= 230; v += 10) { const may = v % 20 === 0; L(GX0, yv(v), GX1, yv(v), may ? 0.4 : 0.2, may ? [120, 120, 120] : [185, 185, 185]); }
     subCols(CY0, CY1);
@@ -355,9 +376,10 @@ window.PDFHistoria = (function () {
     Rc(285, 577.5, 300, 587.5); Negro(300, 577.5, 315, 587.5); T('FR:', 302, 582.8, { b: true, size: 5, c: [255, 255, 255] }); Rc(315, 577.5, 332, 587.5);
     const b = to.base || {};
     V(b.fc, 292.5, 582.8, { size: 5.4, align: 'center' }); V(b.fr, 323.5, 582.8, { size: 5.4, align: 'center' });
-    const bx = 309.5;
-    if (isFinite(n(b.tas))) marca('v', bx, yv(Math.max(10, Math.min(230, n(b.tas)))), ROJO);
-    if (isFinite(n(b.tad))) marca('^', bx, yv(Math.max(10, Math.min(230, n(b.tad)))), ROJO);
+    const bx = 305.5, lim = (v) => yv(Math.max(10, Math.min(230, n(v)))); // TA en la subcolumna izquierda, FC en la derecha
+    if (isFinite(n(b.tas))) marca('v', bx, lim(b.tas), ROJO);
+    if (isFinite(n(b.tad))) marca('^', bx, lim(b.tad), ROJO);
+    if (isFinite(n(b.fc))) marca('.', 313.5, lim(b.fc), AZUL);
     if (isFinite(n(b.sat))) T('Sat ' + b.sat, 309.5, 434.5, { size: 3.6, c: AZUL, align: 'center' });
     // series
     const serie = (k, s, c) => {
@@ -481,7 +503,7 @@ window.PDFHistoria = (function () {
     Opc(688, 764, 'Entrenamiento', !!rz.entren); Opc(688, 773.5, 'Vía aérea difícil', !!rz.dificil);
     Caja(790, 773.5, !!va.pogoOn); T('POGO:', 797, 773.8, { b: true, size: 5.8 }); L(830, 777, 868, 777, 0.5); V(va.pogo, 849, 773.5, { size: 6.4, align: 'center' }); T('%', 871, 773.8, { size: 5.6 });
     const px = [686, 726, 766, 806, 846];
-    ['0', '25', '50', '75', '100'].forEach((k, i) => { Img(window.IMGS['pogo' + k], px[i], 783, px[i] + 32, 815); Opc(px[i] + 3, 823, k + '%', va.pogoCat === k); });
+    ['0', '25', '50', '75', '100'].forEach((k, i) => { Img(window.IMGS['pogo' + k], px[i], 783, px[i] + 32, 815, { marco: true }); Opc(px[i] + 3, 823, k + '%', va.pogoCat === k); });
   }
 
   /* ---- balance, ácido-base ---- */

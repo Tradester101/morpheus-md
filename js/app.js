@@ -78,7 +78,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.1';
+  const VERSION = '1.9.3';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -229,8 +229,9 @@
         '<p class="nota">Elige la fórmula con la que trabajas; la ecuación de arriba muestra el cálculo con los datos del paciente. Tu fórmula preferida y tu Hto mínimo se configuran en ⋮ → Mi perfil y firma. Si escribes un valor propio de volemia o PMP, se usa el tuyo.</p>') +
       card('Equipo quirúrgico', rej(
         T('alergias', 'Alergias', { full: true, ph: 'Niega / …' }) + T('premed', 'Premedicación', { full: true }) +
-        T('anest', 'Anestesiólogo(s)', { full: true }) + T('asist', 'Asistente de anestesia', { full: true }) +
-        T('ciruj', 'Cirujanos', { full: true }) + T('instr', 'Instrumentista', { full: true }), true)) +
+        T('anest', 'Anestesiólogo(s)', { full: true }) + nombresRol('anest') + T('asist', 'Asistente de anestesia', { full: true }) + nombresRol('asist') +
+        T('ciruj', 'Cirujanos', { full: true }) + nombresRol('ciruj') + T('instr', 'Instrumentista', { full: true }) + nombresRol('instr') +
+        '<p class="nota completo" style="grid-column:1/-1;margin-top:0">Los nombres que escribas quedan guardados como botones: tócalos para ponerlos o quitarlos (varios se separan con coma). ✎ permite borrar nombres de la lista.</p>', true)) +
       card('Cirugía', rej(T('dx', 'Dx quirúrgico', { full: true }) + T('intervencion', 'Intervención Qx', { full: true }), true));
   }
 
@@ -250,11 +251,65 @@
   const COAD = [['ansio', 'Ansiólisis', 'mg'], ['gast', 'Protección gástrica', 'mg'], ['emet', 'Antieméticos', 'mg'], ['analg', 'Analgésicos', 'mg'],
     ['atb', 'Antibióticos', 'mg / g'], ['ester', 'Esteroides', 'mg'], ['nebu', 'Nebulización', 'gts/puff'], ['otros', 'Otros', 'mg / g']];
 
+  // Fármacos rápidos por ítem [nombre, dosis, unidad] (dosis de adulto orientativas; se editan en cada historia)
+  const COAD_RAP = {
+    ansio: [['Midazolam', '2', 'mg'], ['Midazolam', '1', 'mg'], ['Diazepam', '5', 'mg']],
+    gast: [['Omeprazol', '40', 'mg'], ['Esomeprazol', '40', 'mg'], ['Pantoprazol', '40', 'mg'], ['Famotidina', '20', 'mg']],
+    emet: [['Ondansetrón', '8', 'mg'], ['Ondansetrón', '4', 'mg'], ['Metoclopramida', '10', 'mg'], ['Granisetrón', '1', 'mg'], ['Droperidol', '0.625', 'mg']],
+    analg: [['Ketorolac', '30', 'mg'], ['Paracetamol', '1', 'g'], ['Metamizol', '1', 'g'], ['Diclofenac', '75', 'mg'], ['Dexketoprofeno', '50', 'mg'], ['Tramadol', '100', 'mg'], ['Morfina', '4', 'mg']],
+    atb: [['Cefazolina', '2', 'g'], ['Cefazolina', '1', 'g'], ['Unasyn', '1.5', 'g'], ['Unasyn', '3', 'g'], ['Ceftriaxona', '1', 'g'], ['Clindamicina', '600', 'mg'], ['Vancomicina', '1', 'g'], ['Metronidazol', '500', 'mg'], ['Ciprofloxacina', '400', 'mg']],
+    ester: [['Dexametasona', '8', 'mg'], ['Dexametasona', '4', 'mg'], ['Hidrocortisona', '100', 'mg'], ['Metilprednisolona', '40', 'mg']],
+    nebu: [['Salbutamol', '10', 'gts'], ['Bromuro de ipratropio', '20', 'gts'], ['Salbutamol', '2', 'puff']],
+    otros: [['Ácido tranexámico', '1', 'g'], ['Sulfato de magnesio', '2', 'g'], ['Atropina', '0.5', 'mg'], ['Lidocaína', '60', 'mg']],
+  };
+  const UNIDADES = ['mg', 'g', 'mcg', 'UI', 'mL', 'gts', 'puff'];
+  function coadItem(k, t) {
+    const c = (H.coad || {})[k] || {}, meds = c.meds || [];
+    const usados = ((cfg.coadUsados || {})[k] || []).filter((u) => !COAD_RAP[k].some((r) => r[0] === u[0] && r[1] === u[1] && r[2] === u[2]));
+    const chip = ([n, d, u]) => `<button type="button" class="opcion chico" data-acc="coadAgregar" data-c="${k}" data-n="${esc(n)}" data-d="${esc(d)}" data-u="${esc(u)}">${esc(n.replace(/ \(.*\)/, ''))} ${esc(d)} ${esc(u)}</button>`;
+    return `<div class="coad"><div class="check"><input type="checkbox" id="c_coad_${k}" data-k="coad.${k}.on"${c.on ? ' checked' : ''}><label for="c_coad_${k}">${t}</label></div>
+      ${meds.map((m, i) => `<div class="coad-med"><input data-k="coad.${k}.meds.${i}.n" value="${esc(m.n || '')}" placeholder="Fármaco" data-coadmed="${k}">
+        <input class="dosis" data-k="coad.${k}.meds.${i}.d" value="${esc(m.d || '')}" placeholder="Dosis" inputmode="decimal" data-coadmed="${k}">
+        <select data-k="coad.${k}.meds.${i}.u" data-coadmed="${k}">${UNIDADES.concat(UNIDADES.includes(m.u) || !m.u ? [] : [m.u]).map((u) => `<option${(m.u || 'mg') === u ? ' selected' : ''}>${u}</option>`).join('')}</select>
+        <button type="button" class="icono quitar" data-acc="coadQuitar" data-c="${k}" data-i="${i}" aria-label="Quitar">×</button></div>`).join('')}
+      ${c.det || c._nota ? `<label class="campo completo" style="margin:6px 0"><span>Nota libre</span><input data-k="coad.${k}.det" value="${esc(c.det || '')}" placeholder="Texto libre"></label>` : ''}
+      <div class="opciones coad-chips">${usados.map(chip).join('')}${COAD_RAP[k].map(chip).join('')}
+        <button type="button" class="opcion chico" data-acc="coadAgregar" data-c="${k}" data-n="" data-d="" data-u="${k === 'nebu' ? 'gts' : 'mg'}">+ Otro</button>
+        ${c.det || c._nota ? '' : `<button type="button" class="opcion chico" data-acc="coadNota" data-c="${k}">✎ Nota</button>`}</div></div>`;
+  }
+  // Guarda los fármacos escritos a mano para ofrecerlos como botón la próxima vez
+  function recordarCoad(k) {
+    const meds = ((H.coad || {})[k] || {}).meds || []; const U = (cfg.coadUsados = cfg.coadUsados || {}); const l = (U[k] = U[k] || []);
+    meds.forEach((m) => { const n = String(m.n || '').trim(); if (!n || !String(m.d || '').trim()) return;
+      const r = [n, String(m.d).trim(), m.u || 'mg']; const j = l.findIndex((x) => x[0] === r[0] && x[1] === r[1] && x[2] === r[2]); if (j >= 0) l.splice(j, 1); l.unshift(r); });
+    U[k] = l.slice(0, 8); Store.guardarConfig(cfg);
+  }
+
+  /* Equipo quirúrgico: nombres guardados para elegir rápido */
+  let editRol = '';
+  const partirNombres = (v) => String(v || '').split(/\s*[,;\n]\s*|\s+y\s+/i).map((x) => x.trim()).filter(Boolean);
+  function nombresRol(rol) {
+    const l = (cfg.equipo || {})[rol] || [], act = partirNombres(H[rol]).map((x) => x.toLowerCase());
+    if (!l.length) return '';
+    const ed = editRol === rol;
+    return `<div class="nombres" style="grid-column:1/-1">${l.map((n) => `<button type="button" class="opcion${!ed && act.includes(n.toLowerCase()) ? ' sel' : ''}" data-acc="${ed ? 'nomBorrar' : 'nomTog'}" data-rol="${rol}" data-n="${esc(n)}">${ed ? '× ' : ''}${esc(n)}</button>`).join('')}
+      <button type="button" class="opcion editar" data-acc="nomEditar" data-rol="${rol}">${ed ? 'Listo' : '✎'}</button></div>`;
+  }
+  function refrescarNombres(rol) {
+    const inp = $(`[data-k="${rol}"]`); if (!inp) return; const lab = inp.closest('.campo'); const sig = lab.nextElementSibling;
+    const html = nombresRol(rol); if (sig && sig.classList.contains('nombres')) { if (html) sig.outerHTML = html; else sig.remove(); } else if (html) lab.insertAdjacentHTML('afterend', html);
+  }
+  function recordarNombres(rol) {
+    const E = (cfg.equipo = cfg.equipo || {}); const l = (E[rol] = E[rol] || []);
+    partirNombres(H[rol]).reverse().forEach((n) => { const j = l.findIndex((x) => x.toLowerCase() === n.toLowerCase()); if (j >= 0) l.splice(j, 1); l.unshift(n); });
+    E[rol] = l.slice(0, 24); Store.guardarConfig(cfg);
+  }
+
   function secPreparacion() {
     return card('Verificación preanestésica', CHECKLIST.map(([k, t]) => C('chk.' + k, t)).join('') +
       '<div class="fila-btn"><button class="secundario chico" data-acc="marcarTodo">Marcar todo</button></div>') +
-      card('Medicación coadyuvante', COAD.map(([k, t, u]) => C('coad.' + k + '.on', t, { k: 'coad.' + k + '.det', ph: 'Fármaco y dosis', u })).join('') +
-        '<p class="nota">Al escribir el fármaco se marca solo.</p>');
+      card('Medicación coadyuvante', COAD.map(([k, t]) => coadItem(k, t)).join('') +
+        '<p class="nota">Toca un fármaco para agregarlo con su dosis habitual y ajusta dosis y unidad. Puedes poner varios en el mismo ítem: en la hoja cada uno va en su línea y el espacio del recuadro se reparte solo. Los fármacos que escribas se guardan para la próxima vez.</p>');
   }
 
   function secInduccion() {
@@ -1033,10 +1088,25 @@
       if (conCodigo ? !Cuenta.verificarCodigo(c, $('#ccCod').value) : !Cuenta.verificar(c, c.usuario, $('#ccAct').value)) { aviso(conCodigo ? 'Código incorrecto' : 'Contraseña actual incorrecta'); return; }
       const n1 = $('#ccN1').value; if (n1.length < 4) { aviso('Mínimo 4 caracteres'); return; } if (n1 !== $('#ccN2').value) { aviso('Las contraseñas no coinciden'); return; }
       const cod = Cuenta.cambiarClave(c, n1); Store.guardarConfig(cfg); cerrarHoja();
-      mostrarCodigo(cod, () => { if (conCodigo) { sesion = true; pantalla = 'inicio'; render(); } });
+      mostrarCodigo(cod, () => { if (conCodigo) { iniciarSesion(true); pantalla = 'inicio'; render(); } });
     };
   }
   let sesion = false;
+  /* Sesión recordada: cuánto dura sin volver a pedir la contraseña en este equipo. */
+  const RECORDAR = [['siempre', 'Cada vez que abro la app'], ['1', 'Una vez al día'], ['7', 'Cada 7 días'], ['30', 'Cada 30 días'], ['nunca', 'Nunca en este equipo']];
+  function recordarDe(c) { return !c ? '30' : c.pedirClave === false ? 'nunca' : (c.recordar || '30'); }
+  function sesionValida() {
+    const c = cfg.cuenta; if (!c) return true;
+    const r = recordarDe(c); if (r === 'nunca') return true; if (r === 'siempre') return false;
+    return !!(cfg.sesion && cfg.sesion.hasta > Date.now());
+  }
+  function iniciarSesion(mantener) {
+    sesion = true; const r = recordarDe(cfg.cuenta);
+    if (mantener && r !== 'siempre' && r !== 'nunca') cfg.sesion = { hasta: Date.now() + Number(r) * 864e5 };
+    else if (!mantener) delete cfg.sesion;
+    Store.guardarConfig(cfg);
+  }
+  function cerrarSesion() { sesion = false; delete cfg.sesion; Store.guardarConfig(cfg); pantalla = 'login'; render(); }
   /* ---------- Bienvenida ---------- */
   let bab = null;
   function bordeABorde(on) { // la portada ocupa toda la pantalla, también bajo las barras del sistema
@@ -1051,7 +1121,7 @@
     fijar(); if (on) setTimeout(() => { if (bab) fijar(); }, 600); // al arrancar, las barras pueden medirse un poco después
   }
   function destinoInicial() {
-    if (cfg.cuenta && cfg.cuenta.pedirClave !== false) return 'login';
+    if (cfg.cuenta && !sesion && !sesionValida()) return 'login';
     if (!cfg.cuenta && !cfg.omitirRegistro) return 'registro';
     return 'inicio';
   }
@@ -1079,7 +1149,7 @@
         <nav class="bv-links"><button data-legal="privacidad">Privacidad</button><button data-legal="terminos">Términos de uso</button><button data-legal="aviso">Aviso médico</button><button data-legal="licencias">Licencias</button></nav>
         <div class="bv-copy">© ${LEGAL.ANIO} ${titular} · Todos los derechos reservados · v${VERSION}</div>
       </footer></div>`;
-    $('#bvEntrar').onclick = () => { pantalla = dest; render(); window.scrollTo(0, 0); };
+    $('#bvEntrar').onclick = () => { if (dest === 'inicio' && cfg.cuenta && !sesion && cfg.sesion) iniciarSesion(true); pantalla = dest; render(); window.scrollTo(0, 0); };
     if ($('#bvSin')) $('#bvSin').onclick = () => { cfg.omitirRegistro = true; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); };
     if ($('#bvOlvido')) $('#bvOlvido').onclick = () => cambiarClaveUI(true);
     $$('[data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal)));
@@ -1093,7 +1163,7 @@
       card('Firma y sello', cajaFirmaSello(p)) +
       card('Usuario y contraseña', `<div class="rejilla ancha"><label class="campo completo"><span>Usuario</span><input id="rgUser" value="${esc(p.correo || '')}" placeholder="Tu correo o un nombre de usuario" autocapitalize="none"></label>
         <label class="campo"><span>Contraseña</span><input id="rgC1" type="password"></label><label class="campo"><span>Repetir contraseña</span><input id="rgC2" type="password"></label></div>
-        <div class="check"><input type="checkbox" id="rgPedir" checked><label for="rgPedir" style="flex:1">Pedir contraseña al abrir la app</label></div>
+        <label class="campo completo" style="margin-top:6px"><span>Pedir la contraseña</span><select id="rgRec">${RECORDAR.map(([k, t]) => `<option value="${k}"${k === '30' ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
         <p class="nota">La cuenta queda guardada en este teléfono. El inicio con Google necesita configurar un proyecto de Google; se puede agregar después.</p>`) +
       `<div class="fila-btn" style="justify-content:space-between"><button class="secundario" id="rgLuego">Ahora no</button><button class="primario" id="rgOk">Crear mi cuenta</button></div>`;
     enlazarMedico(p); enlazarFirmaSello(p);
@@ -1104,8 +1174,8 @@
       const u = $('#rgUser').value.trim(), c1 = $('#rgC1').value;
       if (!u) { aviso('Escribe un usuario'); return; } if (c1.length < 4) { aviso('La contraseña debe tener al menos 4 caracteres'); return; }
       if (c1 !== $('#rgC2').value) { aviso('Las contraseñas no coinciden'); return; }
-      const r = Cuenta.crear(u, c1); r.cuenta.pedirClave = $('#rgPedir').checked; cfg.cuenta = r.cuenta; cfg.omitirRegistro = false;
-      Store.guardarConfig(cfg); sesion = true;
+      const r = Cuenta.crear(u, c1); r.cuenta.recordar = $('#rgRec').value; r.cuenta.pedirClave = r.cuenta.recordar !== 'nunca'; cfg.cuenta = r.cuenta; cfg.omitirRegistro = false;
+      iniciarSesion(true);
       mostrarCodigo(r.codigo, () => { pantalla = 'inicio'; render(); aviso('Cuenta creada'); });
     };
   }
@@ -1116,9 +1186,11 @@
       ${cfg.perfil.nombre ? `<p style="margin:0 0 12px">${esc(cfg.perfil.nombre)}</p>` : ''}
       <div class="rejilla ancha"><label class="campo completo"><span>Usuario</span><input id="lgUser" value="${esc(cfg.cuenta.usuario)}" autocapitalize="none"></label>
       <label class="campo completo"><span>Contraseña</span><input id="lgClave" type="password" autofocus></label></div>
+      ${recordarDe(cfg.cuenta) !== 'siempre' ? `<div class="check"><input type="checkbox" id="lgMant" checked><label for="lgMant" style="flex:1">Mantener la sesión iniciada en este equipo (volverá a pedirla ${RECORDAR.find((x) => x[0] === recordarDe(cfg.cuenta))[1].toLowerCase()})</label></div>
+      <p class="nota" style="margin-top:4px">Desmárcalo si usas un computador compartido.</p>` : ''}
       <div class="fila-btn" style="justify-content:space-between"><button class="secundario chico" id="lgOlvido">Olvidé mi contraseña</button><button class="primario" id="lgOk">Entrar</button></div></section>`;
     const entrar = () => {
-      if (Cuenta.verificar(cfg.cuenta, $('#lgUser').value, $('#lgClave').value)) { sesion = true; $('#btnMenu').hidden = false; pantalla = 'inicio'; render(); }
+      if (Cuenta.verificar(cfg.cuenta, $('#lgUser').value, $('#lgClave').value)) { iniciarSesion(!$('#lgMant') || $('#lgMant').checked); $('#btnMenu').hidden = false; pantalla = 'inicio'; render(); }
       else aviso('Usuario o contraseña incorrectos');
     };
     $('#lgOk').onclick = entrar; $('#lgClave').onkeydown = (e) => { if (e.key === 'Enter') entrar(); };
@@ -1136,8 +1208,9 @@
       card('Firma y sello escaneados', cajaFirmaSello(p) +
         `<div class="check"><input type="checkbox" id="pfUsarEsc"${p.usarEscaneo !== false ? ' checked' : ''}><label for="pfUsarEsc" style="flex:1">Colocarlos solos en las historias nuevas</label></div>`) +
       card('Mi cuenta', c ? `<p style="margin:0 0 8px">Usuario: <b>${esc(c.usuario)}</b></p>
-          <div class="check"><input type="checkbox" id="ctPedir"${c.pedirClave !== false ? ' checked' : ''}><label for="ctPedir" style="flex:1">Pedir contraseña al abrir la app</label></div>
-          <div class="fila-btn"><button class="secundario" id="ctClave">Cambiar contraseña</button></div>`
+          <label class="campo completo"><span>Pedir la contraseña</span><select id="ctRec">${RECORDAR.map(([k, t]) => `<option value="${k}"${recordarDe(c) === k ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+          <p class="nota">Mientras la sesión esté iniciada, la app abre sin pedir la contraseña. En un computador compartido elige “Cada vez que abro la app” o cierra sesión al terminar.</p>
+          <div class="fila-btn"><button class="secundario" id="ctClave">Cambiar contraseña</button><button class="secundario" id="ctSalir">Cerrar sesión</button></div>`
         : `<p class="nota" style="margin-top:0">Aún no tienes cuenta. Crea una para proteger la app con usuario y contraseña.</p><div class="fila-btn"><button class="primario" id="ctCrear">Crear mi cuenta</button></div>`) +
       card('Mis preferencias de cálculo', `<div class="rejilla ancha">
         <label class="campo"><span>Fórmula de PMP por defecto</span><select id="pfForm">${Object.entries(FORM_PMP).map(([k, x]) => `<option value="${k}"${(p.formPmp || 'rapida') === k ? ' selected' : ''}>${x.t}</option>`).join('')}</select></label>
@@ -1177,7 +1250,8 @@
     $('#pfSello').oninput = (e) => { p.sello = e.target.value; Store.guardarConfig(cfg); };
     $('#pfBajo').onchange = (e) => { p.datosBajoFirma = e.target.checked; Store.guardarConfig(cfg); };
     $('#pfUsarEsc').onchange = (e) => { p.usarEscaneo = e.target.checked; Store.guardarConfig(cfg); };
-    if ($('#ctPedir')) $('#ctPedir').onchange = (e) => { cfg.cuenta.pedirClave = e.target.checked; Store.guardarConfig(cfg); };
+    if ($('#ctRec')) $('#ctRec').onchange = (e) => { cfg.cuenta.recordar = e.target.value; cfg.cuenta.pedirClave = e.target.value !== 'nunca'; iniciarSesion(true); aviso('Guardado'); };
+    if ($('#ctSalir')) $('#ctSalir').onclick = cerrarSesion;
     if ($('#ctCrear')) $('#ctCrear').onclick = () => { pantalla = 'registro'; render(); };
     if ($('#ctClave')) $('#ctClave').onclick = () => cambiarClaveUI(false);
     $('#pfForm').onchange = (e) => { p.formPmp = e.target.value; Store.guardarConfig(cfg); };
@@ -1461,6 +1535,8 @@
   });
   vista.addEventListener('input', alCambiar);
   vista.addEventListener('change', alCambiar);
+  vista.addEventListener('change', (e) => { const k = e.target.dataset && e.target.dataset.k; if (H && pantalla === 'editor' && ['anest', 'asist', 'ciruj', 'instr'].includes(k)) { recordarNombres(k); refrescarNombres(k); } });
+  vista.addEventListener('change', (e) => { const k = e.target.dataset && e.target.dataset.coadmed; if (k && H) { if (!H.coad[k].on) { H.coad[k].on = true; const cb = $('#c_coad_' + k); if (cb) cb.checked = true; } recordarCoad(k); } });
   document.addEventListener('click', (e) => {
     const r = e.target.closest('[data-r]');
     if (r && obj()) {
@@ -1477,6 +1553,13 @@
     const a = e.target.closest('[data-acc]'); if (!a) return;
     const acc = a.dataset.acc;
     if (acc === 'ahora') { setP(H, a.dataset.p, ahoraHM(+a.dataset.red || 0)); guardarPronto(); render(); }
+    else if (acc === 'nomTog') { const rol = a.dataset.rol, n = a.dataset.n, l = partirNombres(H[rol]); const j = l.findIndex((x) => x.toLowerCase() === n.toLowerCase());
+      if (j >= 0) l.splice(j, 1); else l.push(n); H[rol] = l.join(', '); const inp = $(`[data-k="${rol}"]`); if (inp) inp.value = H[rol]; guardarPronto(); refrescarNombres(rol); }
+    else if (acc === 'nomEditar') { const r0 = editRol; editRol = editRol === a.dataset.rol ? '' : a.dataset.rol; if (r0 && r0 !== editRol) refrescarNombres(r0); refrescarNombres(a.dataset.rol); }
+    else if (acc === 'nomBorrar') { const l = cfg.equipo[a.dataset.rol]; const j = l.indexOf(a.dataset.n); if (j >= 0) l.splice(j, 1); if (!l.length) editRol = ''; Store.guardarConfig(cfg); refrescarNombres(a.dataset.rol); }
+    else if (acc === 'coadAgregar') { const c = (H.coad[a.dataset.c] = H.coad[a.dataset.c] || {}); c.meds = c.meds || []; c.meds.push({ n: a.dataset.n, d: a.dataset.d, u: a.dataset.u }); c.on = true; guardarPronto(); render(); if (!a.dataset.n) { const ins = $$(`[data-coadmed="${a.dataset.c}"]`); const f = ins[ins.length - 3]; if (f) f.focus(); } }
+    else if (acc === 'coadQuitar') { const c = H.coad[a.dataset.c]; c.meds.splice(+a.dataset.i, 1); if (!c.meds.length && !c.det) c.on = false; guardarPronto(); render(); }
+    else if (acc === 'coadNota') { const c = (H.coad[a.dataset.c] = H.coad[a.dataset.c] || {}); c._nota = true; render(); }
     else if (acc === 'marcarTodo') { CHECKLIST.forEach(([k]) => (H.chk[k] = true)); guardarPronto(); render(); }
     else if (acc === 'nuevoReg') abrirRegistro(null);
     else if (acc === 'agregarInf') { H.inf = H.inf || []; H.inf.push({ farm: a.dataset.farm === 'Otra' ? '' : a.dataset.farm }); guardarPronto(); render(); abrirCalculadora(H.inf.length - 1); }
@@ -1549,7 +1632,8 @@
         { t: '🏥 Lugares de trabajo', f: () => { pantalla = 'sedes'; render(); } },
         { t: '✍ Mi perfil y firma', f: () => { pantalla = 'perfil'; render(); } },
         { t: '🗂 Respaldo (exportar / importar)', f: respaldo },
-        { t: 'ℹ Acerca de', f: () => { abrirHoja(`<h2>Morpheus MD</h2><p>Versión ${VERSION} · Registro anestésico digital</p><p class="nota">Todo se guarda solo en este teléfono; la app no tiene acceso a Internet. Usa “Respaldo” de vez en cuando para no perder tus historias si cambias o pierdes el teléfono.</p>
+        ...(cfg.cuenta ? [{ t: '🔒 Cerrar sesión', f: cerrarSesion }] : []),
+        { t: 'ℹ Acerca de', f: () => { abrirHoja(`<h2>Morpheus MD</h2><p>Versión ${VERSION} · Registro anestésico digital</p><p class="nota">${window.Nativo ? 'Todo se guarda solo en este teléfono; la app no tiene acceso a Internet.' : 'Todo se guarda solo en este navegador, en este equipo; tus historias no se envían a ningún servidor.'} Usa “Respaldo” de vez en cuando para no perder tus historias si cambias o pierdes el teléfono.</p>
           <div class="fila-btn">${Object.entries(LEGAL.TEXTOS).map(([k, x]) => `<button class="secundario chico" data-legal="${k}">${x.t}</button>`).join('')}</div>
           <div class="acciones"><button class="primario" id="acCerrar">Cerrar</button></div>`);
           $('#acCerrar').onclick = cerrarHoja; $$('#capa [data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal))); } },

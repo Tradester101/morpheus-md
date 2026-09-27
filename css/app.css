@@ -240,3 +240,19 @@ button{font:inherit;cursor:pointer}
   .bv-entrar { max-width: 420px; }
   .bv-sec { margin-left: 0; }
 }
+/* medicación coadyuvante */
+.coad{padding:8px 0 10px;border-bottom:1px solid var(--borde)}
+.coad:last-of-type{border-bottom:0}
+.coad-med{display:flex;gap:6px;align-items:center;margin:6px 0 6px 30px}
+.coad-med input,.coad-med select{min-width:0;font-size:15px;padding:8px;border:1px solid var(--borde);border-radius:8px;background:#fff;color:var(--texto)}
+.coad-med input:first-child{flex:1}
+.coad-med .dosis{flex:0 0 64px;text-align:right}
+.coad-med select{flex:0 0 70px}
+.coad-med .quitar{flex:0 0 34px;height:34px;border-radius:50%;border:1px solid var(--borde);background:#fff;color:#a33;font-size:20px;line-height:1;padding:0}
+.coad-chips{margin:6px 0 2px 30px;gap:6px}
+.opcion.chico{padding:5px 11px;font-size:13px}
+/* nombres guardados del equipo */
+.nombres{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 10px}
+.nombres .opcion{padding:4px 10px;font-size:13px}
+.nombres .opcion.sel{background:var(--pri);color:#fff}
+.nombres .editar{border-style:dashed;color:var(--suave,#667)}
