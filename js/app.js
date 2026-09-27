@@ -1,0 +1,1578 @@
+/* Historia de Anestesia digital — lógica de la interfaz */
+(function () {
+  'use strict';
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const hoyISO = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+  const ahoraHM = (redondeo) => {
+    const d = new Date(); let m = d.getHours() * 60 + d.getMinutes();
+    if (redondeo) m = Math.floor(m / redondeo) * redondeo;
+    return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  };
+  const num = (v) => { if (v === '' || v == null) return NaN; return parseFloat(String(v).replace(',', '.')); };
+  const fmt = (n, d = 0) => (isFinite(n) ? (Math.round(n * 10 ** d) / 10 ** d).toString() : '');
+
+  function getP(o, path) { return path.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o); }
+  function setP(o, path, v) {
+    const ks = path.split('.'); let a = o;
+    for (let i = 0; i < ks.length - 1; i++) { if (a[ks[i]] == null) a[ks[i]] = /^\d+$/.test(ks[i + 1]) ? [] : {}; a = a[ks[i]]; }
+    a[ks[ks.length - 1]] = v;
+  }
+
+  /* ---------- Configuración ---------- */
+  const FILAS_BASE = ['O2 % L/min', 'N2O / Aire', 'Inhalatorio', 'Opioide', 'Relaj. musc.', 'Droga', 'Droga',
+    'VC # YI SC D/I', 'VP # M Sup/Inf D/I', 'VP # M Sup/Inf D/I', 'Otro'];
+  const EKG = ['RS', 'AS', 'RNS', 'TS', 'BS'];
+  const VOLEMIA = [
+    ['70', 'Adulto hombre (70 ml/kg)'], ['65', 'Adulta mujer (65 ml/kg)'], ['60', 'Adulto mayor (60 ml/kg)'],
+    ['50', 'Obeso (50 ml/kg)'], ['75', 'Niño 1–12 años (75 ml/kg)'], ['80', 'Lactante (80 ml/kg)'],
+    ['85', 'Recién nacido a término (85 ml/kg)'], ['95', 'Prematuro (95 ml/kg)'],
+  ];
+  let cfg = Store.config();
+  if (!cfg) {
+    cfg = {
+      sedes: [{ id: 'hcuamp', nombre: 'HOSPITAL CENTRAL UNIVERSITARIO DR. ANTONIO MARÍA PINEDA', sub: 'BARQUISIMETO, EDO. LARA', logo: '' }],
+      sedeActual: 'hcuamp',
+      perfil: { nombre: '', sello: '', firma: '' },
+    };
+    Store.guardarConfig(cfg);
+  }
+  // Lugares de trabajo de Antonio (se agregan una sola vez; se pueden editar o borrar en "Lugares de trabajo")
+  const SEDES_PRE = [
+    ['llanosalud', 'LLANOSALUD A.P.S. C.A.', 'CABUDARE, EDO. LARA'],
+    ['ieq', 'INSTITUTO DE ESPECIALIDADES QUIRÚRGICAS CENTRO DEL ESTE (IEQ)', 'AV. LARA, BARQUISIMETO, EDO. LARA'],
+    ['idb-centro', 'INSTITUTO DIAGNÓSTICO BARQUISIMETO · IDB CENTRO', 'BARQUISIMETO, EDO. LARA'],
+    ['idb-cabudare', 'INSTITUTO DIAGNÓSTICO BARQUISIMETO · IDB CABUDARE', 'CABUDARE, EDO. LARA'],
+    ['idb-sanfelipe', 'INSTITUTO DIAGNÓSTICO BARQUISIMETO · IDB SAN FELIPE', 'SAN FELIPE, EDO. YARACUY'],
+    ['cemedproca', 'CENTRO MÉDICO LOS PRÓCERES (CEMEDPROCA)', 'GUANARE, EDO. PORTUGUESA'],
+    ['buenavida', 'CENTRO MÉDICO BUENA VIDA', 'BARQUISIMETO, EDO. LARA'],
+  ];
+  if (!cfg.sedesV2) {
+    SEDES_PRE.forEach(([id, nombre, sub]) => { if (!cfg.sedes.some((x) => x.id === id)) cfg.sedes.push({ id, nombre, sub, logo: '' }); });
+    cfg.sedesV2 = true; Store.guardarConfig(cfg);
+  }
+  // El símbolo que venía en la hoja es la marca personal de Antonio, no el logo del hospital:
+  // se quita de los lugares de trabajo y pasa al perfil como marca de agua.
+  if (cfg.sedes.some((s) => s.logo === IMGS.logoHC)) { cfg.sedes.forEach((s) => { if (s.logo === IMGS.logoHC) s.logo = ''; }); Store.guardarConfig(cfg); }
+  const sede = (id) => cfg.sedes.find((s) => s.id === id) || cfg.sedes[0] || { nombre: '', sub: '', logo: '' };
+
+  function nuevaHistoria() {
+    return {
+      id: uid(), creado: Date.now(), modificado: Date.now(), sedeId: cfg.sedeActual || (cfg.sedes[0] && cfg.sedes[0].id),
+      p: { fecha: hoyISO(), tipoVol: '70' },
+      anest: cfg.perfil.nombre || '',
+      gcs: {}, chk: {}, coad: {}, ind: { meds: ['', '', '', '', '', ''] }, tec: {}, ga: {},
+      va: { asist: {}, razon: {} }, reg: {}, cond: {},
+      bal: { cris: [], colo: [], hemo: [], pins: [], sang: [], diur: [], cols: ['1ª h', '2ª h', '3ª h', '4ª h'] },
+      ab: { horas: [], ph: [], pco2: [], hco3: [], po2: [], nak: [], lact: [] },
+      rev: {}, sap: {}, tras: {}, inf: [],
+      firma: cfg.perfil.usarEscaneo !== false && cfg.perfil.firmaSello ? '' : (cfg.perfil.firma || ''),
+      firmaSello: cfg.perfil.usarEscaneo !== false ? (cfg.perfil.firmaSello || '') : '',
+      sello: cfg.perfil.sello || (cfg.perfil.datosBajoFirma !== false ? Cuenta.componerSello(cfg.perfil) : ''),
+      to: { inicio: '', t: {}, base: {}, filas: FILAS_BASE.map(() => ''), regs: [], pistas: Pistas.asegurar({ to: {} }) },
+    };
+  }
+
+  /* ---------- Estado ---------- */
+  let H = null;            // historia abierta
+  let pantalla = 'inicio';
+  const VERSION = '1.9.1';
+  let seccion = 0;
+  let timerGuardar = null;
+
+  function aviso(t, ms = 2200) {
+    const a = $('#aviso'); a.textContent = t; a.hidden = false;
+    clearTimeout(aviso._t); aviso._t = setTimeout(() => (a.hidden = true), ms);
+  }
+  function guardarPronto() {
+    $('#estadoGuardado').textContent = 'Guardando…';
+    clearTimeout(timerGuardar);
+    timerGuardar = setTimeout(guardarYa, 500);
+  }
+  function guardarYa() {
+    clearTimeout(timerGuardar); timerGuardar = null;
+    if (!H) return;
+    const ok = Store.guardar(H);
+    const e = $('#estadoGuardado');
+    if (e) e.textContent = ok ? 'Guardado ' + new Date().toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }) : '⚠ No se pudo guardar';
+  }
+
+  /* ---------- Componentes de formulario (HTML) ---------- */
+  let D = null; // documento de Extras abierto (valoración o récipe)
+  const obj = () => (pantalla === 'doc' ? D : H);
+  const val = (k) => { const v = getP(obj(), k); return v == null ? '' : v; };
+  function T(k, etq, o = {}) {
+    const tipo = o.tipo || 'text';
+    const im = o.num ? ' inputmode="decimal"' : '';
+    const inp = `<input type="${tipo}" data-k="${k}" value="${esc(val(k))}"${im}${o.ph ? ` placeholder="${esc(o.ph)}"` : ''}>`;
+    return `<label class="campo${o.full ? ' completo' : ''}${o.calc ? ' calc' : ''}"><span>${etq}</span>${o.u ? `<div class="con-unidad">${inp}<em>${o.u}</em></div>` : inp}</label>`;
+  }
+  const Nm = (k, etq, u, o = {}) => T(k, etq, Object.assign({ num: true, u }, o));
+  function TA(k, etq, o = {}) {
+    return `<label class="campo completo"><span>${etq}</span><textarea data-k="${k}"${o.ph ? ` placeholder="${esc(o.ph)}"` : ''} style="${o.alto ? 'min-height:' + o.alto + 'px' : ''}">${esc(val(k))}</textarea></label>`;
+  }
+  function SEL(k, etq, ops, o = {}) {
+    return `<label class="campo${o.full ? ' completo' : ''}"><span>${etq}</span><select data-k="${k}">${ops.map(([v, t]) => `<option value="${esc(v)}"${String(val(k)) === String(v) ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
+  }
+  function R(k, etq, ops, imgs) {
+    const cur = val(k);
+    return `<div class="grupo">${etq ? `<div class="etq">${etq}</div>` : ''}<div class="opciones">${ops.map((op, i) => {
+      const [v, t] = Array.isArray(op) ? op : [op, op];
+      const im = imgs ? `<img src="${imgs[i]}" alt="">` : '';
+      return `<button type="button" class="opcion${imgs ? ' img' : ''}${cur === v ? ' sel' : ''}" data-r="${k}" data-v="${esc(v)}">${im}${esc(t)}</button>`;
+    }).join('')}</div></div>`;
+  }
+  function C(k, etq, det) {
+    const d = det ? `<span class="det"><input type="text" data-k="${det.k}" value="${esc(val(det.k))}" placeholder="${esc(det.ph || '')}"${det.num ? ' inputmode="decimal"' : ''}>${det.u ? `<em>${det.u}</em>` : ''}</span>` : '';
+    return `<div class="check"><input type="checkbox" id="c_${k}" data-k="${k}"${val(k) ? ' checked' : ''}><label for="c_${k}">${etq}</label>${d}</div>`;
+  }
+  const card = (tit, cuerpo) => `<section class="tarjeta"><h2>${tit}</h2>${cuerpo}</section>`;
+  const rej = (x, ancha) => `<div class="rejilla${ancha ? ' ancha' : ''}">${x}</div>`;
+
+  /* ---------- Fórmulas de pérdidas máximas permisibles ---------- */
+  const FORM_PMP = {
+    rapida: { t: 'Rápida (× 3 ÷ 100)', corto: 'rápida', eq: 'PMP = Volemia × 3 × (Hto − Hto mín.) ÷ 100',
+      f: (v, hi, hf) => (v * 3 * (hi - hf)) / 100, num: (v, hi, hf) => `${v} × 3 × (${hi} − ${hf}) ÷ 100` },
+    clasica: { t: 'Clásica', corto: 'clásica', eq: 'PMP = Volemia × (Hto − Hto mín.) ÷ Hto',
+      f: (v, hi, hf) => (v * (hi - hf)) / hi, num: (v, hi, hf) => `${v} × (${hi} − ${hf}) ÷ ${hi}` },
+    gross: { t: 'Gross (Hto promedio)', corto: 'Gross', eq: 'PMP = Volemia × (Hto − Hto mín.) ÷ [(Hto + Hto mín.) ÷ 2]',
+      f: (v, hi, hf) => (v * (hi - hf)) / ((hi + hf) / 2), num: (v, hi, hf) => `${v} × (${hi} − ${hf}) ÷ [(${hi} + ${hf}) ÷ 2]` },
+    log: { t: 'Logarítmica', corto: 'logarítmica', eq: 'PMP = Volemia × ln(Hto ÷ Hto mín.)',
+      f: (v, hi, hf) => v * Math.log(hi / hf), num: (v, hi, hf) => `${v} × ln(${hi} ÷ ${hf})` },
+  };
+  /* ---------- Cálculos ---------- */
+  function calcular() {
+    const p = H.p;
+    const peso = num(p.peso), talla = num(p.talla), hto = num(p.hto), f = num(p.tipoVol);
+    const htoMin = isFinite(num(p.htoMin)) ? num(p.htoMin) : num(cfg.perfil.htoMin) || 30; // Hto mínimo (perfil o 30 %)
+    if (!p.formPmp) p.formPmp = cfg.perfil.formPmp || 'rapida';
+    const volCalc = peso * f, volManual = num(p.volemia);
+    const vol = isFinite(volManual) ? volManual : volCalc;
+    p._imc = isFinite(peso) && isFinite(talla) && talla > 0 ? fmt(peso / Math.pow(talla / 100, 2), 1) : '';
+    p._volemia = isFinite(volCalc) ? fmt(volCalc) : '';
+    p._volEq = isFinite(volManual) ? `Volemia = ${fmt(volManual)} ml (valor escrito a mano)` :
+      `Volemia = peso × ml/kg = ${isFinite(peso) ? fmt(peso, 1) : '?'} kg × ${isFinite(f) ? f : '?'} ml/kg${isFinite(volCalc) ? ' = ' + fmt(volCalc) + ' ml' : ''}`;
+    const PMPF = FORM_PMP[p.formPmp] || FORM_PMP.rapida;
+    let pmp = NaN;
+    const V = isFinite(vol) ? fmt(vol) : 'Volemia', Hi = isFinite(hto) ? fmt(hto, 1) : 'Hto', Hf = fmt(htoMin, 1);
+    if (isFinite(vol) && isFinite(hto) && hto > 0) pmp = hto <= htoMin ? 0 : PMPF.f(vol, hto, htoMin);
+    p._pmpEq = PMPF.eq + '\n' + 'PMP = ' + PMPF.num(V, Hi, Hf) + (isFinite(pmp) ? ' = ' + fmt(pmp) + ' ml' : '') +
+      (isFinite(hto) && hto <= htoMin ? '\n(El Hto ya está en el mínimo o por debajo: no hay margen de pérdida.)' : '');
+    p._pmp = isFinite(pmp) ? fmt(pmp) : '';
+    p._htoMin = htoMin;
+    const g = H.gcs; const s = num(g.ro) + num(g.rv) + num(g.rm);
+    g._total = isFinite(s) ? String(s) : '';
+    // Balance
+    const b = H.bal; const tot = [];
+    let acum = 0;
+    for (let c = 0; c < 4; c++) {
+      const v = (r) => { const n = num((b[r] || [])[c]); return isFinite(n) ? n : 0; };
+      const hay = (r) => isFinite(num((b[r] || [])[c]));
+      const ing = v('cris') + v('colo') + v('hemo'), egr = v('pins') + v('sang') + v('diur');
+      const alguno = ['cris', 'colo', 'hemo', 'pins', 'sang', 'diur'].some(hay);
+      acum += ing - egr;
+      tot.push(alguno ? { ing, egr, bal: ing - egr, acum } : null);
+    }
+    b._tot = tot;
+    b._hay = tot.some(Boolean);
+    b._ti = tot.reduce((a, x) => a + (x ? x.ing : 0), 0);
+    b._te = tot.reduce((a, x) => a + (x ? x.egr : 0), 0);
+    b._bal = b._ti - b._te;
+  }
+  function refrescarCalculos() {
+    calcular();
+    $$('[data-calc]').forEach((el) => {
+      const v = getP(H, el.dataset.calc);
+      if (el.tagName === 'INPUT') el.value = v == null ? '' : v; else el.textContent = v == null ? '' : v;
+    });
+    const tb = $('#tablaBalance'); if (tb) pintarTotalesBalance();
+  }
+
+  /* ---------- Secciones ---------- */
+  const SECCIONES = [
+    { id: 'pac', t: 'Paciente', r: secPaciente },
+    { id: 'val', t: 'Valoración', r: secValoracion },
+    { id: 'pre', t: 'Preparación', r: secPreparacion },
+    { id: 'ind', t: 'Inducción y técnica', r: secInduccion },
+    { id: 'va', t: 'Vía aérea', r: secViaAerea },
+    { id: 'reg', t: 'Regional', r: secRegional },
+    { id: 'to', t: 'Transoperatorio', r: secTransop },
+    { id: 'bal', t: 'Balance y gases', r: secBalance },
+    { id: 'sal', t: 'Salida', r: secSalida },
+    { id: 'fir', t: 'Notas y firma', r: secFirma },
+  ];
+
+  function secPaciente() {
+    const sedes = cfg.sedes.map((s) => [s.id, s.nombre || '(sin nombre)']);
+    return card('Lugar de trabajo', SEL('sedeId', 'Hospital / clínica (encabezado del PDF)', sedes, { full: true }) +
+      '<p class="nota">Puedes agregar o editar lugares desde el menú ⋮ → Lugares de trabajo.</p>') +
+      card('Identificación', rej(
+        T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI', { num: true }) + T('p.nhist', 'N° de historia') +
+        T('p.tel', 'Teléfono', { tipo: 'tel' }) + T('p.fecha', 'Fecha', { tipo: 'date' }) +
+        Nm('p.edad', 'Edad', 'años') + SEL('p.sexo', 'Sexo', [['', '—'], ['M', 'Masculino'], ['F', 'Femenino']]) + Nm('p.peso', 'Peso', 'kg') + Nm('p.talla', 'Talla', 'cm') +
+        `<label class="campo calc"><span>IMC</span><div class="con-unidad"><input readonly data-calc="p._imc" value="${esc(H.p._imc || '')}"><em>kg/m²</em></div></label>`)) +
+      card('Laboratorio', rej(
+        Nm('p.hb', 'Hb', 'g/dl') + Nm('p.hto', 'Hto', '%') + T('p.plaq', 'Plaquetas', { num: true }) +
+        Nm('p.glic', 'Glicemia', 'mg/dl') + Nm('p.urea', 'Urea', 'mg/dl') + Nm('p.creat', 'Creatinina', 'mg/dl') +
+        T('p.tp', 'TP', { ph: 'seg / control' }) + T('p.tpt', 'TPT', { ph: 'seg / control' })) +
+        '<h3>Volemia y pérdidas máximas permisibles</h3>' + rej(
+          SEL('p.tipoVol', 'Tipo de paciente', VOLEMIA, { full: true }) +
+          Nm('p.htoMin', 'Hto mínimo aceptable', '%', { ph: '30' }) +
+
+          `<label class="campo calc"><span>Volemia estimada</span><div class="con-unidad"><input readonly data-calc="p._volemia" value="${esc(H.p._volemia || '')}"><em>ml</em></div></label>` +
+          `<label class="campo calc"><span>Pérd. máx. permisibles</span><div class="con-unidad"><input readonly data-calc="p._pmp" value="${esc(H.p._pmp || '')}"><em>ml</em></div></label>` +
+          Nm('p.volemia', 'Volemia (escribir para reemplazar)', 'ml') + Nm('p.pmp', 'PMP (escribir para reemplazar)', 'ml')) +
+        R('p.formPmp', 'Fórmula de PMP', Object.entries(FORM_PMP).map(([k, x]) => [k, x.t])) +
+        `<div class="formula"><div data-calc="p._volEq">${esc(H.p._volEq || '')}</div><div data-calc="p._pmpEq" style="margin-top:6px">${esc(H.p._pmpEq || '')}</div></div>` +
+        '<p class="nota">Elige la fórmula con la que trabajas; la ecuación de arriba muestra el cálculo con los datos del paciente. Tu fórmula preferida y tu Hto mínimo se configuran en ⋮ → Mi perfil y firma. Si escribes un valor propio de volemia o PMP, se usa el tuyo.</p>') +
+      card('Equipo quirúrgico', rej(
+        T('alergias', 'Alergias', { full: true, ph: 'Niega / …' }) + T('premed', 'Premedicación', { full: true }) +
+        T('anest', 'Anestesiólogo(s)', { full: true }) + T('asist', 'Asistente de anestesia', { full: true }) +
+        T('ciruj', 'Cirujanos', { full: true }) + T('instr', 'Instrumentista', { full: true }), true)) +
+      card('Cirugía', rej(T('dx', 'Dx quirúrgico', { full: true }) + T('intervencion', 'Intervención Qx', { full: true }), true));
+  }
+
+  function secValoracion() {
+    const ro = [['', '—'], ['1', '1 · No abre'], ['2', '2 · Al dolor'], ['3', '3 · A la voz'], ['4', '4 · Espontánea']];
+    const rv = [['', '—'], ['1', '1 · No responde'], ['2', '2 · Sonidos'], ['3', '3 · Palabras'], ['4', '4 · Confuso'], ['5', '5 · Orientado']];
+    const rm = [['', '—'], ['1', '1 · Ninguna'], ['2', '2 · Extensión'], ['3', '3 · Flexión anormal'], ['4', '4 · Retira'], ['5', '5 · Localiza'], ['6', '6 · Obedece']];
+    return card('Mallampati', R('mallampati', '', ['I', 'II', 'III', 'IV'], [IMGS.mall1, IMGS.mall2, IMGS.mall3, IMGS.mall4])) +
+      card('ASA', R('asa', '', ['I', 'II', 'III', 'IV', 'V']) + C('asaE', 'E — Emergencia') + rej(T('asaRazon', 'Razón', { full: true }), true)) +
+      card('Glasgow', rej(SEL('gcs.ro', 'Respuesta ocular (RO)', ro) + SEL('gcs.rv', 'Respuesta verbal (RV)', rv) + SEL('gcs.rm', 'Respuesta motora (RM)', rm) +
+        `<label class="campo calc"><span>Total</span><div class="con-unidad"><input readonly data-calc="gcs._total" value="${esc(H.gcs._total || '')}"><em>/15</em></div></label>`));
+  }
+
+  const CHECKLIST = [['maq', 'Máquina de anestesia operativa'], ['mon', 'Monitores de signos operativos'], ['asp', 'Aspiración operativa'],
+    ['sum', 'Suministros anestésicos necesarios'], ['med', 'Medicamentos anestésicos necesarios'], ['hem', 'Verificación de hemoderivados'],
+    ['den', 'Verificar estado de piezas dentales'], ['ocu', 'Oclusión de globos oculares'], ['pre', 'Cuidado de puntos de presión']];
+  const COAD = [['ansio', 'Ansiólisis', 'mg'], ['gast', 'Protección gástrica', 'mg'], ['emet', 'Antieméticos', 'mg'], ['analg', 'Analgésicos', 'mg'],
+    ['atb', 'Antibióticos', 'mg / g'], ['ester', 'Esteroides', 'mg'], ['nebu', 'Nebulización', 'gts/puff'], ['otros', 'Otros', 'mg / g']];
+
+  function secPreparacion() {
+    return card('Verificación preanestésica', CHECKLIST.map(([k, t]) => C('chk.' + k, t)).join('') +
+      '<div class="fila-btn"><button class="secundario chico" data-acc="marcarTodo">Marcar todo</button></div>') +
+      card('Medicación coadyuvante', COAD.map(([k, t, u]) => C('coad.' + k + '.on', t, { k: 'coad.' + k + '.det', ph: 'Fármaco y dosis', u })).join('') +
+        '<p class="nota">Al escribir el fármaco se marca solo.</p>');
+  }
+
+  function secInduccion() {
+    const mas = [['local', 'Local'], ['regional', 'Regional'], ['conductiva', 'Conductiva'], ['ninguna', 'Ninguna otra']];
+    return card('Inducción', R('ind.tipo', 'Tipo', [['iv', 'Intravenosa'], ['inh', 'Inhalatoria'], ['mixta', 'Mixta']]) +
+      '<div class="grupo"><div class="etq">Medicamentos de inducción</div>' +
+      rej(['A', 'B', 'C', 'D', 'E', 'F'].map((l, i) => T('ind.meds.' + i, l + '.', { ph: 'Fármaco dosis' })).join(''), true) + '</div>') +
+      card('Técnica', C('tec.sed', '<b>SEDACIÓN</b>') + '<div class="subbloque">' +
+        R('tec.sedVia', '', [['inh', 'Inhalatoria'], ['iv', 'Intravenosa']]) + R('tec.sedMas', '+', mas) + '</div>' +
+        C('tec.gen', '<b>GENERAL</b>') + '<div class="subbloque">' +
+        R('tec.genVia', '', [['inh', 'Inhalatoria'], ['iv', 'Intravenosa'], ['bal', 'Balanceada']]) + R('tec.genMas', '+', mas) + '</div>') +
+      card('Sedación', R('sedNivel', 'Nivel', [['ansio', 'Ansiólisis'], ['consc', 'Consciente'], ['prof', 'Profunda']])) +
+      card('General — manejo de vía aérea', C('ga.oral', 'Intubación oral') + C('ga.nasal', 'Intubación nasal') +
+        C('ga.supra', 'Disp. supraglótico', { k: 'ga.supraTipo', ph: 'Tipo / N°' }) + C('ga.otro', 'Otro', { k: 'ga.otroTxt', ph: '¿Cuál?' }));
+  }
+
+  function secViaAerea() {
+    return card('Cormack-Lehane', R('va.cl', '', ['I', 'II', 'III', 'IV'], [IMGS.cl1, IMGS.cl2, IMGS.cl3, IMGS.cl4]) +
+      R('va.hoja', 'Hoja', [['recta', 'Recta'], ['curva', 'Curva'], ['hiper', 'Hiperangulada']]) + rej(T('va.hojaN', 'N° de hoja', { num: true }))) +
+      card('Tubo', rej(T('va.tuboN', 'Tubo N°', { num: true }) + Nm('va.aire', 'Aire', 'cc') + Nm('va.long', 'Long. (fijación)', 'cm')) +
+        R('va.tubo', 'Tipo', [['simple', 'Simple'], ['armado', 'Armado'], ['preformado', 'Preformado'], ['selectivo', 'Selectivo']]) +
+        R('va.lado', 'Selectivo lado', [['D', 'Derecho'], ['I', 'Izquierdo']]) +
+        R('va.manguito', 'Manguito', [['con', 'Con manguito'], ['sin', 'Sin manguito']]) +
+        C('va.ruidos', 'Ruidos respiratorios simétricos') + C('va.etco2', 'EtCO2 +')) +
+      card('Intubación asistida con', C('va.asist.video', 'Videolaringoscopio') + C('va.asist.fibro', 'Fibroscopio flexible') +
+        C('va.asist.airtraq', 'AirTraq') + C('va.asist.glide', 'Glidescope') + C('va.asist.fast', 'FastTrach') +
+        C('va.asist.otro', 'Otro', { k: 'va.asist.otroTxt', ph: '¿Cuál?' }) +
+        '<h3>Razón</h3>' + C('va.razon.entren', 'Entrenamiento') + C('va.razon.dificil', 'Vía aérea difícil') +
+        '<h3>POGO</h3>' + C('va.pogoOn', 'POGO', { k: 'va.pogo', ph: 'Valor', u: '%', num: true }) +
+        R('va.pogoCat', '', [['0', '0%'], ['25', '25%'], ['50', '50%'], ['75', '75%'], ['100', '100%']], [IMGS.pogo0, IMGS.pogo25, IMGS.pogo50, IMGS.pogo75, IMGS.pogo100]));
+  }
+
+  function secRegional() {
+    return card('Regional', C('reg.iv', 'Intravenosa') + C('reg.bloqueo', 'Bloqueo', { k: 'reg.bloqueoTxt', ph: 'Tipo de bloqueo' }) +
+      '<div class="subbloque">' + C('reg.neuro', 'Guiado por neuroestimulador') + C('reg.us', 'Guiado por ultrasonografía') + '</div>') +
+      card('Conductiva', R('cond.tec', 'Técnica', [['sub', 'Subaracnoidea'], ['epi', 'Epidural'], ['comb', 'Combinada']]) +
+        R('cond.aguja', 'Tipo de aguja', [['quincke', 'Quincke'], ['whitacre', 'Whitacre'], ['tuohy', 'Tuohy']]) +
+        rej(T('cond.agujaN', 'Aguja N°', { num: true }) + T('cond.cateterN', 'Catéter N°', { num: true }) + T('cond.nivelPL', 'Nivel PL', { ph: 'L3-L4' }) + T('cond.nivelBloq', 'Nivel de bloqueo', { ph: 'T10' })) +
+        R('cond.pos', 'Posición', [['sentado', 'Sentado'], ['decubito', 'Decúbito lateral']]) +
+        R('cond.bisel', 'Bisel', [['cef', 'Cefálico'], ['cau', 'Caudal'], ['ind', 'Indiferente']]) +
+        R('cond.limpieza', 'Limpieza', [['asepsia', 'Asepsia'], ['antisepsia', 'Antisepsia']]) + rej(T('cond.con', 'Con', { full: true, ph: 'Clorhexidina, yodopovidona…' }), true) +
+        '<h3>Complicaciones</h3>' + C('cond.punc', 'Punción accidental de duramadre') + C('cond.otras', 'Otras', { k: 'cond.otrasTxt', ph: '¿Cuál?' }) +
+        rej(TA('cond.conducta', 'Conducta', { alto: 60 }), true));
+  }
+
+  /* ---------- Transoperatorio ---------- */
+  function minDe(hm) { if (!hm || !/^\d{1,2}:\d{2}/.test(hm)) return NaN; const [h, m] = hm.split(':').map(Number); return h * 60 + m; }
+  function offset(hm) { const a = minDe(H.to.inicio), b = minDe(hm); if (!isFinite(a) || !isFinite(b)) return NaN; let d = b - a; if (d < -60) d += 1440; return d; }
+  function ordenarRegs() { H.to.regs.sort((x, y) => (offset(x.hora) || 0) - (offset(y.hora) || 0)); }
+  const TIEMPOS = [['ia', 'Inicio anestesia'], ['ic', 'Inicio cirugía'], ['fc', 'Fin cirugía'], ['fa', 'Fin anestesia']];
+
+  function secTransop() {
+    const to = H.to; ordenarRegs();
+    const tiempos = TIEMPOS.map(([k, t]) => `<label class="campo"><span>${t}</span><div class="con-unidad"><input type="time" data-k="to.t.${k}" value="${esc(val('to.t.' + k))}"><button class="secundario chico" data-acc="ahora" data-p="to.t.${k}">Ahora</button></div></label>`).join('');
+    const regs = to.regs.length ? to.regs.map((r, i) => `<div class="registro"><span class="hora">${esc(r.hora)}</span><span class="datos">${resumenReg(r)}</span>
+      <button class="secundario chico" data-acc="editarReg" data-i="${i}">Editar</button></div>`).join('') :
+      '<p class="nota">Aún no hay registros. Toca “Registrar ahora” cada 5–15 minutos o cuando haya un cambio.</p>';
+    return card('Inicio del registro', `<div class="rejilla tiempos">` + (
+      `<label class="campo"><span>Hora de inicio de la grilla</span><div class="con-unidad"><input type="time" data-k="to.inicio" value="${esc(to.inicio || '')}"><button class="secundario chico" data-acc="ahora" data-p="to.inicio" data-red="5">Ahora</button></div></label>` +
+      T('to.posicion', 'Posición del paciente', { ph: 'Decúbito supino…' })) + '</div>' +
+      '<p class="nota">Cada hoja cubre 5 h 30 min (11 columnas de 30 min, divididas en 5 min). Si la cirugía dura más, el PDF agrega hojas de continuación.</p>') +
+      card('Tiempos', `<div class="rejilla tiempos">${tiempos}</div>`) +
+      card('Signos vitales de inicio', rej(Nm('to.base.tas', 'TA sistólica', 'mmHg') + Nm('to.base.tad', 'TA diastólica', 'mmHg') +
+        Nm('to.base.fc', 'FC', 'lpm') + Nm('to.base.fr', 'FR', 'rpm') + Nm('to.base.sat', 'SatO2', '%'))) +
+      card('Registro de signos, fármacos y ventilación',
+        `<svg class="grafica" id="grafica" viewBox="0 0 360 170"></svg><div class="leyenda"><span><i style="color:#c62828">∨</i> TA sistólica</span><span><i style="color:#c62828">∧</i> TA diastólica</span><span><i style="color:#1565c0">●</i> FC</span><span><i style="color:#2e7d32">○</i> FR</span></div>` +
+        '<div class="fila-btn"><button class="primario" data-acc="nuevoReg">+ Registrar ahora</button></div><div style="margin-top:12px">' + regs + '</div>') +
+      secPistas() + secInfusiones() +
+      card('Vías venosas (filas VC / VP)', '<p class="nota" style="margin:0 0 10px">Ej. VP #18 MSD, VC #7 YI D.</p>' + rej([7, 8, 9].map((i) => T('to.filas.' + i, `Fila ${i + 1}`, { ph: FILAS_BASE[i] })).join(''), true));
+  }
+  const INFUS = [
+    ['Remifentanilo', 'Ej. 2 mg en 40 cc (50 mcg/ml)', 'Ej. 0.1 mcg/kg/min'],
+    ['Dexmedetomidina', 'Ej. 200 mcg en 50 cc (4 mcg/ml)', 'Ej. 0.5 mcg/kg/h'],
+    ['Lidocaína', 'Ej. 1 g en 250 cc (4 mg/ml)', 'Ej. 1.5 mg/kg/h'],
+    ['Sulfato de Magnesio', 'Ej. 2 g en 100 cc (20 mg/ml)', 'Ej. 10 mg/kg/h'],
+    ['Ketamina', 'Ej. 50 mg en 50 cc (1 mg/ml)', 'Ej. 0.2 mg/kg/h'],
+    ['Propofol', 'Ej. 1% sin diluir (10 mg/ml)', 'Ej. 100 mcg/kg/min · TCI Ce 3 mcg/ml'],
+    ['Norepinefrina', 'Regla del 6: 0.6 × peso mg en 100 cc', 'Ej. 0.05 mcg/kg/min'],
+    ['Adrenalina', 'Regla del 6: 0.6 × peso mg en 100 cc', 'Ej. 0.05 mcg/kg/min'],
+    ['Fenilefrina', 'Ej. 10 mg en 100 cc (100 mcg/ml)', 'Ej. 0.5 mcg/kg/min'],
+    ['Dopamina', 'Regla del 6: 6 × peso mg en 100 cc', 'Ej. 5 mcg/kg/min'],
+    ['Dobutamina', 'Regla del 6: 6 × peso mg en 100 cc', 'Ej. 5 mcg/kg/min'],
+    ['Efedrina', 'Bolos: 50 mg en 10 cc (5 mg/ml)', 'Ej. 5–10 mg'],
+    ['Mezcla bloqueo periférico', 'Ej. Bupivacaína 0.25% 20 ml + Dexametasona 4 mg', 'Volumen total / técnica'],
+    ['Mezcla neuroaxial', 'Ej. Bupivacaína pesada 0.5% 12 mg + Fentanilo 25 mcg', 'Volumen / velocidad epidural'],
+    ['Otra', 'Dilución / concentración', 'Dosis / velocidad'],
+  ];
+  function secInfusiones() {
+    const lista = (H.inf || []).map((f, i) => {
+      const ref = INFUS.find((x) => x[0] === f.farm) || INFUS[INFUS.length - 1];
+      return `<div class="subbloque" style="margin-bottom:14px"><div class="rejilla ancha">
+        ${T('inf.' + i + '.farm', 'Fármaco / mezcla', { full: true })}
+        ${T('inf.' + i + '.conc', 'Dilución / concentración', { full: true, ph: ref[1] })}
+        ${T('inf.' + i + '.dosis', 'Dosis / velocidad', { full: true, ph: ref[2] })}</div>
+        <div class="rejilla tiempos" style="margin-top:10px">
+        <label class="campo"><span>Inicio</span><div class="con-unidad"><input type="time" data-k="inf.${i}.ini" value="${esc(val('inf.' + i + '.ini'))}"><button class="secundario chico" data-acc="ahora" data-p="inf.${i}.ini">Ahora</button></div></label>
+        <label class="campo"><span>Fin</span><div class="con-unidad"><input type="time" data-k="inf.${i}.fin" value="${esc(val('inf.' + i + '.fin'))}"><button class="secundario chico" data-acc="ahora" data-p="inf.${i}.fin">Ahora</button></div></label></div>
+        <div class="fila-btn"><button class="primario chico" data-acc="calcInf" data-i="${i}">🧮 Calculadora</button><button class="peligro chico" data-acc="quitarInf" data-i="${i}">Quitar</button></div></div>`;
+    }).join('');
+    return card('Mezcla / Infusión Mantenimiento',
+      (lista || '<p class="nota" style="margin-top:0">Agrega las infusiones de mantenimiento (TIVA) o la mezcla del bloqueo.</p>') +
+      '<div class="grupo"><div class="etq">Agregar</div><div class="opciones">' +
+      INFUS.map((x) => `<button type="button" class="opcion" data-acc="agregarInf" data-farm="${esc(x[0])}">+ ${esc(x[0])}</button>`).join('') + '</div></div>' +
+      rej(TA('mezcla', 'Notas adicionales', { alto: 70 }), true));
+  }
+
+  /* ---------- Calculadora de infusiones (BIC, Roberts, TCI manual, anestésicos locales) ---------- */
+  function abrirCalculadora(i) {
+    const C = window.CalcInf, f = H.inf[i];
+    const esLA = /^Mezcla (bloqueo|neuroaxial)/.test(f.farm || '');
+    const farmIni = C.FARMACOS[f.farm] ? f.farm : 'Otra';
+    const st = Object.assign({
+      farm: farmIni, modo: esLA ? 'la' : 'bic', peso: H.p.peso || '', edad: H.p.edad || '', talla: H.p.talla || '',
+      sexo: H.p.sexo || (H.p.tipoVol === '65' ? 'F' : 'M'), cant: '', uCant: '', vol: '', dosis: '', uDosis: '', mlh: '', bolo: '',
+      modelo: '', ct: '', local: 'Bupivacaína', pct: '0.25', volLA: '', epi: false,
+    }, f.calc || {});
+    const F = () => C.FARMACOS[st.farm];
+    const fijarFarmaco = () => {
+      const d = F(); st.uDosis = d.uDosis; st.uCant = d.masa;
+      if (d.preps[0]) { st.cant = d.preps[0][0]; st.vol = d.preps[0][1]; st.uCant = d.masa; }
+      st.bolo = d.bolo && d.bolo.prellenar ? d.bolo.def : ''; st.tCarga = d.bolo && d.bolo.carga ? d.bolo.carga : ''; st.modelo = d.modelos ? d.modelos[0] : ''; st.ct = d.ct ? d.ct.def : ''; st.dosis = d.dosisDef || '';
+      st.obj = st.modelo === 'marsh' || !st.modelo ? 'cp' : (C.MODELOS[st.modelo].fn({ peso: 70, talla: 170, edad: 40, sexo: 'M' }).ke0 ? 'ce' : 'cp');
+      if (st.modo === 'roberts' && !d.roberts) st.modo = 'bic'; if (st.modo === 'tci' && !d.modelos) st.modo = 'bic';
+    };
+    if (!f.calc) fijarFarmaco();
+    const n = C.num, R = C.r;
+    const conc = () => { const d = F(); const c = n(st.cant), v = n(st.vol); if (!(c > 0 && v > 0)) return NaN;
+      const aMasa = ({ g: 1000, mg: 1, mcg: 0.001 }[st.uCant || d.masa]) / ({ mg: 1, mcg: 0.001 }[d.masa]); return (c * aMasa) / v; };
+    const campo = (k, t, u, o = {}) => `<label class="campo"><span>${t}</span><div class="con-unidad"><input data-ck="${k}" inputmode="decimal" value="${esc(st[k])}"${o.ph ? ` placeholder="${esc(o.ph)}"` : ''}>${u ? `<em>${u}</em>` : ''}</div></label>`;
+    const chips = (k, ops) => `<div class="opciones">${ops.map(([v, t]) => `<button type="button" class="opcion${String(st[k]) === String(v) ? ' sel' : ''}" data-cc="${k}" data-v="${esc(v)}">${t}</button>`).join('')}</div>`;
+
+    function pintar() {
+      const d = F();
+      const modos = [['bic', 'BIC (mL/h)']];
+      if (d.roberts) modos.push(['roberts', 'Esquema Roberts']);
+      if (d.modelos) modos.push(['tci', 'TCI (modelo)']);
+      modos.push(['la', 'Anestésico local']);
+      let html = `<h2>Calculadora</h2>
+        <div class="grupo"><div class="etq">Fármaco</div>${chips('farm', Object.keys(C.FARMACOS).map((k) => [k, k]))}</div>
+        <div class="grupo"><div class="etq">Modo</div>${chips('modo', modos)}</div>
+        <div class="rejilla">${campo('peso', 'Peso', 'kg')}${st.modo === 'tci' ? campo('edad', 'Edad', 'años') + campo('talla', 'Talla', 'cm') +
+          `<label class="campo"><span>Sexo</span><select data-ck="sexo"><option value="M"${st.sexo === 'M' ? ' selected' : ''}>Masculino</option><option value="F"${st.sexo === 'F' ? ' selected' : ''}>Femenino</option></select></label>` : ''}</div>`;
+      if (st.modo !== 'la') {
+        html += `<h3>Preparación</h3>${d.preps.length ? chips('prep', d.preps.map((p, j) => [j, Array.isArray(p) ? p[2] : p.label])) : ''}
+          <div class="rejilla" style="margin-top:8px"><label class="campo"><span>Cantidad</span><div class="con-unidad"><input data-ck="cant" inputmode="decimal" value="${esc(st.cant)}">
+            <select data-ck="uCant" style="width:auto">${['g', 'mg', 'mcg'].map((u) => `<option${(st.uCant || d.masa) === u ? ' selected' : ''}>${u}</option>`).join('')}</select></div></label>
+          ${campo('vol', 'Volumen total', 'mL')}<label class="campo calc"><span>Concentración</span><input readonly id="cConc"></label></div>`;
+      }
+      if (st.modo === 'bic') {
+        const carga = d.bolo && d.bolo.carga;
+        const bloqueCarga = d.bolo ? `<h3>${carga ? '1. ' + d.bolo.nombre : 'Bolo'}</h3><p class="nota" style="margin-top:0">${esc(d.bolo.rango)}</p>
+          <div class="rejilla">${campo('bolo', 'Dosis', d.bolo.u, { ph: 'Ej. ' + d.bolo.def })}${carga ? campo('tCarga', 'Pasar en', 'min') : ''}
+          <label class="campo calc"><span>Total</span><input readonly id="cBolo"></label>${carga ? '<label class="campo calc"><span>Bomba durante la carga</span><input readonly id="cCargaVel"></label>' : ''}</div>` : '';
+        if (carga) html += bloqueCarga;
+        html += `<h3>${carga ? '2. Mantenimiento' : 'Infusión continua'}</h3><p class="nota" style="margin-top:0">${esc(d.rango || '')}</p>
+          <div class="rejilla">${campo('dosis', 'Dosis', '')}<label class="campo"><span>Unidad</span><select data-ck="uDosis">${d.unidades.map((u) => `<option${st.uDosis === u ? ' selected' : ''}>${u}</option>`).join('')}</select></label>
+          <label class="campo calc"><span>Velocidad</span><input readonly id="cVel"></label></div>
+          <h3>De mL/h a dosis</h3><div class="rejilla">${campo('mlh', 'Velocidad de la bomba', 'mL/h')}<label class="campo calc"><span>Equivale a</span><input readonly id="cDos"></label></div>
+          ${carga ? '' : bloqueCarga}`;
+      } else if (st.modo === 'roberts') {
+        html += `<h3>Esquema de Roberts (10–8–6)</h3><p class="nota" style="margin-top:0">Bolo 1 mg/kg y luego 10, 8 y 6 mg/kg/h, cambiando a los 10 y 20 min. Busca ≈ 3 mcg/mL en plasma.</p><div id="cTabla"></div>`;
+      } else if (st.modo === 'tci') {
+        html += `<h3>Modelo</h3>${chips('modelo', d.modelos.map((m) => [m, C.MODELOS[m].nombre]))}
+          ${C.MODELOS[st.modelo].fn({ peso: 70, talla: 170, edad: 40, sexo: 'M' }).ke0 ? `<div class="grupo" style="margin-top:8px"><div class="etq">Objetivo</div>${chips('obj', [['ce', 'Sitio efecto (Ce)'], ['cp', 'Plasma (Cp)']])}</div>` : ''}
+          <div class="rejilla" style="margin-top:8px">${campo('ct', 'Concentración objetivo', d.ct.u)}</div><p class="nota">${esc(d.ct.rango)}</p>
+          <div id="cTabla"></div>`;
+      } else {
+        html += `<h3>Anestésico local</h3>${chips('local', Object.keys(C.LOCALES).map((k) => [k, k]))}
+          <div class="rejilla" style="margin-top:8px">${campo('pct', 'Concentración', '%')}${campo('volLA', 'Volumen', 'mL')}</div>
+          <div class="check"><input type="checkbox" id="cEpi"${st.epi ? ' checked' : ''}><label for="cEpi" style="flex:1">Con epinefrina</label></div><div id="cTabla"></div>`;
+      }
+      html += `<p class="nota">Cálculos de referencia. Verifica siempre con la bomba, la etiqueta de la jeringa y tu criterio clínico.</p>
+        <div class="acciones"><button class="secundario" id="cCerrar">Cerrar</button><button class="primario" id="cUsar">Usar en la infusión</button></div>`;
+      abrirHoja(html);
+      $$('#capa [data-ck]').forEach((e) => { e.oninput = e.onchange = () => { st[e.dataset.ck] = e.value; calcular(); }; });
+      $$('#capa [data-cc]').forEach((b) => (b.onclick = () => {
+        const k = b.dataset.cc, v = b.dataset.v;
+        if (k === 'prep') { const p = F().preps[+v];
+          if (Array.isArray(p)) { st.cant = p[0]; st.vol = p[1]; st.uCant = F().masa; }
+          else { const w = n(st.peso); if (!(w > 0)) { aviso('Escribe el peso para la regla de los 6'); return; } st.cant = R(p.porKg * w, 2); st.vol = p.vol; st.uCant = 'mg'; st._regla = p.label; } }
+        else { st[k] = v; if (k === 'farm') fijarFarmaco();
+          if (k === 'modelo') st.obj = v === 'marsh' ? 'cp' : (C.MODELOS[v].fn({ peso: 70, talla: 170, edad: 40, sexo: 'M' }).ke0 ? 'ce' : 'cp'); }
+        pintar();
+      }));
+      if ($('#cEpi')) $('#cEpi').onchange = (e) => { st.epi = e.target.checked; calcular(); };
+      $('#cCerrar').onclick = cerrarHoja;
+      $('#cUsar').onclick = usar;
+      calcular();
+    }
+
+    let resumen = { conc: '', dosis: '' };
+    function calcular() {
+      const d = F(), peso = n(st.peso), c = conc(), mu = d.masa;
+      const cTxt = isFinite(c) ? `${R(c, c < 1 ? 3 : 2)} ${mu}/mL` : '';
+      if ($('#cConc')) $('#cConc').value = cTxt;
+      const regla = st._regla && (d.preps || []).some((p) => !Array.isArray(p) && p.label === st._regla && Math.abs(p.porKg * n(st.peso) - n(st.cant)) < 0.01) ? ' · ' + st._regla.split(':')[0] : '';
+      const prepSel = (d.preps || []).find((p) => Array.isArray(p) && +p[0] === +st.cant && +p[1] === +st.vol && (st.uCant || mu) === mu);
+      let cantTxt = `${st.cant} ${st.uCant || mu}`; if ((st.uCant || mu) === 'mcg' && n(st.cant) >= 1000) cantTxt = `${R(n(st.cant) / 1000, 2)} mg`; if ((st.uCant || mu) === 'mg' && n(st.cant) >= 1000) cantTxt = `${R(n(st.cant) / 1000, 2)} g`;
+      const prepTxt = !isFinite(c) ? '' : prepSel ? prepSel[2] : `${cantTxt} en ${st.vol} mL (${cTxt})${regla}`;
+      resumen = { conc: prepTxt, dosis: '' };
+      if (st.modo === 'bic') {
+        const v = C.velocidad(st.dosis, st.uDosis, peso, c, mu);
+        $('#cVel').value = isFinite(v) ? `${R(v, 1)} mL/h` : '';
+        const dd = C.dosisDesde(st.mlh, st.uDosis, peso, c, mu);
+        $('#cDos').value = isFinite(dd) ? `${R(dd, 3)} ${st.uDosis}` : '';
+        let bTxt = '';
+        if (d.bolo && $('#cBolo')) {
+          const tot = n(st.bolo) * (/\/kg/.test(d.bolo.u) ? peso : 1) * (d.bolo.u.startsWith('mcg') && mu === 'mg' ? 0.001 : d.bolo.u.startsWith('mg') && mu === 'mcg' ? 1000 : 1);
+          const ml = tot / c;
+          const tc = n(st.tCarga) || d.bolo.carga;
+          const ok = isFinite(tot) && tot > 0 && isFinite(ml);
+          $('#cBolo').value = ok ? `${R(tot, 1)} ${mu} = ${R(ml, 1)} mL` : '';
+          if ($('#cCargaVel')) $('#cCargaVel').value = ok && tc > 0 ? `${R(ml * 60 / tc, 1)} mL/h` : '';
+          if (ok) bTxt = d.bolo.carga ? `${d.bolo.nombre} ${st.bolo} ${d.bolo.u} = ${R(tot, 1)} ${mu} (${R(ml, 1)} mL) en ${tc} min = ${R(ml * 60 / tc, 1)} mL/h`
+            : `bolo ${st.bolo} ${d.bolo.u} = ${R(tot, 1)} ${mu} (${R(ml, 1)} mL)`;
+        }
+        const mant = isFinite(v) ? `${d.bolo && d.bolo.carga ? 'mantenimiento' : 'BIC'} ${st.dosis} ${st.uDosis} = ${R(v, 1)} mL/h` : '';
+        if (d.bolo && d.bolo.carga && bTxt) resumen.dosis = bTxt + (mant ? `; luego ${mant}` : '') + ` (${peso} kg)`;
+        else if (mant) resumen.dosis = mant + ` (${peso} kg)` + (bTxt ? ` · ${bTxt}` : '');
+        else if (bTxt) resumen.dosis = bTxt + ` (${peso} kg)`;
+      } else if (st.modo === 'roberts') {
+        const t = isFinite(c) && peso > 0 ? C.roberts(peso, c) : null;
+        $('#cTabla').innerHTML = t ? `<table class="tabla" style="margin-top:6px"><tr><th>Etapa</th><th>Dosis</th><th>Bomba</th></tr>
+          ${t.map((x) => `<tr><td class="etq">${x.etapa}</td><td>${x.mgkg ? '1 mg/kg = ' + R(x.mg, 0) + ' mg' : x.mgkgh + ' mg/kg/h'}</td><td><b>${x.ml != null ? R(x.ml, 1) + ' mL' : R(x.mlh, 1) + ' mL/h'}</b></td></tr>`).join('')}</table>` : '<p class="nota">Falta peso o preparación.</p>';
+        if (t) resumen.dosis = `Roberts: bolo ${R(t[0].mg, 0)} mg (${R(t[0].ml, 1)} mL) · 10 mg/kg/h = ${R(t[1].mlh, 1)} mL/h ×10 min · 8 mg/kg/h = ${R(t[2].mlh, 1)} mL/h ×10 min · luego 6 mg/kg/h = ${R(t[3].mlh, 1)} mL/h`;
+      } else if (st.modo === 'tci') {
+        const M = C.MODELOS[st.modelo], pac = { peso, edad: n(st.edad), talla: n(st.talla), sexo: st.sexo }, ct = n(st.ct);
+        const falta = M.req.filter((k) => k !== 'sexo' && !(pac[k] > 0));
+        if (falta.length || !(ct > 0) || !isFinite(c)) { $('#cTabla').innerHTML = `<p class="nota">Falta: ${[...falta, !(ct > 0) ? 'objetivo' : '', !isFinite(c) ? 'preparación' : ''].filter(Boolean).join(', ')}.</p>`; return; }
+        const usarCe = st.obj === 'ce' && M.fn(pac).ke0;
+        const T = usarCe ? C.tciCe(st.modelo, pac, ct) : C.tci(st.modelo, pac, ct), k = T.k;
+        const rot = (x) => (x.desde != null && x.desde > x.a ? `${R(x.desde, 1)}–${x.b}` : `${x.a}–${x.b}`);
+        // masa del modelo: propofol mcg/mL × L = mg; remi/dex ng/mL × L = mcg → coincide con la masa del fármaco
+        const mlh = (masaMin) => (masaMin * 60) / c;
+        const porKg = (masaMin) => (st.farm === 'Remifentanilo' ? `${R(masaMin / peso, 3)} mcg/kg/min` : st.farm === 'Dexmedetomidina' ? `${R(masaMin * 60 / peso, 2)} mcg/kg/h` : `${R(masaMin * 60 / peso, 1)} mg/kg/h`);
+        const avisoLbm = k.lbm != null && (k.lbm < 0.4 * peso || k.lbm > peso) ? '<p class="nota" style="color:var(--peligro)">La masa magra calculada es poco fiable para este peso y talla (obesidad): el modelo puede fallar.</p>' : '';
+        $('#cTabla').innerHTML = avisoLbm + `<table class="tabla" style="margin-top:6px"><tr><th>Tramo</th><th>Dosis</th><th>Bomba</th></tr>
+          <tr><td class="etq">Bolo inicial</td><td>${R(T.bolo, 1)} ${mu}</td><td><b>${R(T.bolo / c, 1)} mL</b></td></tr>
+          ${usarCe ? `<tr><td class="etq" colspan="3">Pausa sin infusión hasta el pico del efecto (${R(T.tpico, 1)} min)</td></tr>` : ''}
+          ${T.tramos.map((x) => `<tr><td class="etq">${rot(x)} min</td><td>${porKg(x.masaMin)}</td><td><b>${R(mlh(x.masaMin), 1)} mL/h</b></td></tr>`).join('')}
+          <tr><td class="etq">Estable (&gt;4 h)</td><td>${porKg(T.estable)}</td><td><b>${R(mlh(T.estable), 1)} mL/h</b></td></tr></table>
+          <p class="nota">${esc(M.nombre)} · V1 ${R(k.V1, 2)} L · k10 ${R(k.k10, 4)} · k12 ${R(k.k12, 4)} · k13 ${R(k.k13, 4)} · k21 ${R(k.k21, 4)} · k31 ${R(k.k31, 4)}${k.ke0 ? ' · ke0 ' + R(k.ke0, 3) : ''}${k.lbm ? ' · masa magra ' + R(k.lbm, 1) + ' kg' : ''}. ${esc(M.nota)}
+          ${usarCe ? 'Objetivo en sitio efecto: bolo calculado para que el pico de Ce llegue al objetivo sin pasarlo; luego se mantiene Cp = Ce.' : 'Objetivo plasmático (método BET: bolo–eliminación–transferencia).'}
+          Esquema para bomba sin TCI; si tu bomba tiene TCI, programa el modelo y el objetivo directamente.</p>`;
+        resumen.dosis = `TCI manual ${M.nombre.split(' (')[0]} ${usarCe ? 'Ce' : 'Cp'} ${ct} ${F().ct.u}: bolo ${R(T.bolo, 1)} ${mu} (${R(T.bolo / c, 1)} mL)` + (usarCe ? `, pausa ${R(T.tpico, 1)}'` : '') + ' · ' +
+          T.tramos.slice(0, 7).map((x) => `${rot(x)}' ${R(mlh(x.masaMin), 1)}`).join(' · ') + ` mL/h · estable ${R(mlh(T.estable), 1)} mL/h`;
+      } else {
+        const L = C.LOCALES[st.local], pct = n(st.pct), vol = n(st.volLA), mgml = pct * 10, mg = mgml * vol;
+        const [mgkg, tope] = st.epi ? L.con : L.sin; const max = Math.min(mgkg * peso, tope);
+        $('#cTabla').innerHTML = isFinite(mg) && peso > 0 ? `<table class="tabla" style="margin-top:6px">
+          <tr><td class="etq">Concentración</td><td><b>${R(mgml, 2)} mg/mL</b></td></tr>
+          <tr><td class="etq">Dosis total</td><td><b>${R(mg, 1)} mg</b> (${R(mg / peso, 2)} mg/kg)</td></tr>
+          <tr><td class="etq">Máximo orientativo</td><td>${mgkg} mg/kg, tope ${tope} mg → <b>${R(max, 0)} mg</b> (${R(max / mgml, 1)} mL a ${pct} %)</td></tr>
+          <tr><td class="etq">Uso</td><td><b style="color:${mg > max ? 'var(--peligro)' : 'var(--ok)'}">${R(100 * mg / max, 0)} % del máximo</b></td></tr></table>
+          <p class="nota">Máximos orientativos; ajusta según sitio de bloqueo, edad, embarazo, función hepática/cardíaca y tu protocolo.</p>` : '<p class="nota">Falta peso, concentración o volumen.</p>';
+        if (isFinite(mg) && peso > 0) { resumen.conc = `${st.local} ${pct} %${st.epi ? ' con epinefrina' : ''}`; resumen.dosis = `${vol} mL = ${R(mg, 1)} mg (${R(mg / peso, 2)} mg/kg; ${R(100 * mg / max, 0)} % del máx.)`; }
+      }
+    }
+    function usar() {
+      calcular();
+      if (!resumen.dosis) { aviso('Completa los datos del cálculo'); return; }
+      if (st.modo !== 'la') f.farm = st.farm === 'Otra' ? (f.farm || '') : st.farm;
+      f.conc = resumen.conc || f.conc; f.dosis = resumen.dosis; f.calc = JSON.parse(JSON.stringify(st));
+      if (!H.p.peso && st.peso) H.p.peso = st.peso;
+      guardarPronto(); cerrarHoja(); render(); aviso('Cálculo agregado a la infusión');
+    }
+    pintar();
+  }
+
+  /* ---------- Pistas: gases, inhalatorio, opioide, relajante y drogas ---------- */
+  function txtEvento(dd, e) {
+    if (dd.tipo === 'gas') {
+      if (e.tipo === 'stop') return 'Cierra flujo';
+      if (dd.id !== 'aire') return `${esc(e.v)} L/min`;
+      const g = Pistas.gasDe(H.to.pistas.aire, e);
+      return `<b style="color:${Pistas.GAS[g]}">${g === 'N2O' ? 'N₂O' : 'Aire'}</b> ${esc(e.v)} L/min`;
+    }
+    if (dd.tipo === 'inh') return e.tipo === 'stop' ? 'Cierra vaporizador' : `${esc(e.v)} %` + (e.fgf ? ` · FGF ${esc(e.fgf)} L/min` : '');
+    if (dd.tipo === 'sol') { const info = Pistas.SOL[e.v]; return `<b>${esc(e.v === 'Otro' ? (e.txt || '?') : e.v)}</b>` + (info ? ' — ' + esc(info.nombre) : e.v === 'Otro' && e.txtLargo ? ' — ' + esc(e.txtLargo) : ''); }
+    return e.tipo === 'stop' ? 'Suspende infusión' : (e.tipo === 'inf' ? 'Infusión ' : 'Bolo ') + `${esc(e.v)} ${esc(e.u || '')}`;
+  }
+  function secPistas() {
+    const P = Pistas, ps = H.to.pistas, peso = H.p.peso;
+    const bloques = P.DEF.map((dd) => {
+      const p = ps[dd.id]; const color = P.colorDe(dd.id, p);
+      let sel = '';
+      if (dd.id === 'aire') sel = '<p class="nota" style="margin-top:0">En cada registro eliges Aire (amarillo) o N₂O (azul); la línea cambia de color cuando cambias de gas.</p>';
+      else if (dd.tipo === 'sol') sel = `<label class="campo" style="margin-top:0"><span>Vía / catéter</span><input data-k="to.filas.${dd.fila}" value="${esc((H.to.filas || [])[dd.fila] || '')}" placeholder="${dd.fila === 7 ? 'Ej. VC #7 YI D' : 'Ej. VP #18 MSD'}"></label>
+        <p class="nota" style="margin:6px 0 0">En cada registro eliges la solución; queda marcada con el símbolo de bolsa invertida y su hora, unida por una línea (siempre en negro).</p>`;
+      else if (dd.tipo === 'inh') sel = `<div class="opciones">${Object.entries(P.INH).map(([n, x]) => `<button type="button" class="opcion${p.agente === n ? ' sel' : ''}" data-acc="pAg" data-p="inh" data-v="${n}"><span class="punto" style="background:${x.color}"></span>${n}</button>`).join('')}</div>`;
+      else if (dd.tipo === 'farm') {
+        const lista = P.LISTAS[dd.lista]; const otro = p.agente && !lista.includes(p.agente);
+        sel = `<select data-pagsel="${dd.id}" class="selpista"><option value="">— Elegir ${dd.lista === 'opi' ? 'opioide' : dd.lista === 'rel' ? 'relajante' : 'medicamento'} —</option>${lista.map((n) => `<option${p.agente === n ? ' selected' : ''}>${n}</option>`).join('')}<option value="__otro"${otro ? ' selected' : ''}>Otro…</option></select>` +
+          (otro || p._otro ? `<label class="campo" style="margin-top:6px"><span>Nombre</span><input data-k="to.pistas.${dd.id}.agente" value="${esc(p.agente || '')}"></label>` : '');
+      }
+      let infoTxt = '';
+      if (dd.tipo === 'inh' && p.agente) {
+        const cam = P.camEdad(p.agente, H.p.edad);
+        infoTxt = `CAM ${esc(p.agente)} ajustada a ${H.p.edad ? esc(H.p.edad) + ' años' : '40 años (sin edad)'}: <b>${P.r1(cam, 2)} %</b>`;
+        const c = P.consumo(H);
+        if (c) infoTxt += `<br>Consumo estimado: <b>${P.r1(c.ml, 1)} mL</b> de líquido (${c.min} min, FGF prom. ${P.r1(c.fgfProm, 1)} L/min)${c.sinFgf ? ` · ${c.sinFgf} min sin flujo de O₂/aire registrado` : ''}`;
+      } else if (dd.tipo === 'farm' && P.FARM[p.agente]) {
+        infoTxt = P.guia(p.agente, peso).map((g) => esc(g.txt)).join('<br>') + (P.FARM[p.agente].nota ? '<br>' + esc(P.FARM[p.agente].nota) : '') + (peso ? '' : '<br><i>Escribe el peso para calcular las dosis.</i>');
+      }
+      const ev = (p.ev || []).map((e, i) => ({ e, i })).sort((a, b) => (Pistas.off(H.to, a.e.hora) || 0) - (Pistas.off(H.to, b.e.hora) || 0));
+      const lista = ev.length ? ev.map(({ e, i }) => `<div class="evento"><b>${esc(e.hora)}</b><span>${txtEvento(dd, e)}</span>
+        <button class="icono chico" data-acc="pEv" data-p="${dd.id}" data-i="${i}" aria-label="Editar">✎</button></div>`).join('') : '';
+      let btns = '';
+      if (dd.tipo === 'gas') btns = `<button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="valor">+ Flujo / cambio</button><button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="stop">Cerrar</button>`;
+      else if (dd.tipo === 'sol') btns = `<button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="valor">+ Solución</button>`;
+      else if (dd.tipo === 'inh') btns = `<button class="secundario chico" data-acc="pEv" data-p="inh" data-t="valor">+ % vaporizador</button><button class="secundario chico" data-acc="pEv" data-p="inh" data-t="stop">Cerrar vaporizador</button>`;
+      else btns = `<button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="bolo">+ Bolo</button><button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="inf">+ Infusión / cambio</button><button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="stop">Suspender</button>`;
+      return `<div class="pista" style="border-left-color:${dd.id === 'aire' ? P.GAS[P.gasDe(p, (p.ev || []).slice(-1)[0])] : color}"><div class="pista-t"><span>${dd.id === 'aire' ? `<span class="punto" style="background:${P.GAS.Aire}"></span> Aire / <span class="punto" style="background:${P.GAS.N2O}"></span> N₂O` : (dd.tipo === 'gas' ? `<span class="punto" style="background:${color}"></span> ` : '') + esc(dd.nombre)}</span>${p.agente && dd.tipo !== 'gas' ? `<b style="color:${color}">${esc(p.agente)}</b>` : ''}</div>
+        ${sel}${infoTxt ? `<p class="nota">${infoTxt}</p>` : ''}${lista}<div class="fila-btn">${btns}</div></div>`;
+    }).join('');
+    return card('Fármacos y gases (grilla)', '<p class="nota" style="margin:0 0 10px">Cada registro queda en la hora exacta. Los bolos se marcan con ▼ y la dosis; los gases (O₂ verde, aire amarillo, N₂O azul), el inhalatorio y las infusiones con una línea de su color que se corta en cada cambio.</p>' + bloques);
+  }
+  function abrirEvento(id, idx, tipoPre) {
+    const P = Pistas, dd = P.info(id), p = H.to.pistas[id]; const nuevo = idx == null;
+    const e = nuevo ? { hora: ahoraHM(), tipo: tipoPre === 'valor' ? undefined : tipoPre } : JSON.parse(JSON.stringify(p.ev[idx]));
+    const tipo = e.tipo || (dd.tipo === 'farm' ? 'bolo' : 'valor');
+    if (!H.to.inicio) { const m = minDe(e.hora); const nm = Math.floor(m / 5) * 5; H.to.inicio = String(Math.floor(nm / 60)).padStart(2, '0') + ':' + String(nm % 60).padStart(2, '0'); }
+    const f = P.FARM[p.agente]; const g = f ? P.guia(p.agente, H.p.peso) : [];
+    let cuerpo = `<div class="rejilla"><label class="campo"><span>Hora</span><input type="time" id="evHora" value="${esc(e.hora)}"></label>`;
+    let chipsHtml = '';
+    if (tipo === 'stop') cuerpo += '</div>';
+    else if (dd.tipo === 'gas') {
+      cuerpo += `<label class="campo"><span>Flujo</span><div class="con-unidad"><input id="evV" inputmode="decimal" value="${esc(e.v || '')}"><em>L/min</em></div></label></div>`;
+      if (id === 'aire') {
+        const prev = nuevo ? P.ordenados(H.to, p).filter((x) => x.tipo !== 'stop').slice(-1)[0] : e;
+        const gSel = P.gasDe(p, prev);
+        cuerpo += `<div class="segmento" id="evGas" style="margin-top:10px">${['Aire', 'N2O'].map((gn) => `<button type="button" data-g="${gn}" class="${gSel === gn ? 'sel' : ''}"><span class="punto" style="background:${P.GAS[gn]}"></span> ${gn === 'N2O' ? 'N₂O' : 'Aire'}</button>`).join('')}</div>`;
+      }
+      chipsHtml = [0.5, 1, 1.5, 2, 3, 4, 5, 6].map((v) => `<button type="button" class="opcion" data-evv="${v}">${v}</button>`).join('');
+    } else if (dd.tipo === 'inh') {
+      cuerpo += `<label class="campo"><span>Vaporizador</span><div class="con-unidad"><input id="evV" inputmode="decimal" value="${esc(e.v || '')}"><em>%</em></div></label>
+        <label class="campo"><span>FGF (opcional)</span><div class="con-unidad"><input id="evF" inputmode="decimal" value="${esc(e.fgf || '')}" placeholder="O₂ + aire"><em>L/min</em></div></label></div>`;
+      const I = P.INH[p.agente]; if (I) chipsHtml = I.pasos.map((v) => `<button type="button" class="opcion" data-evv="${v}">${v} %</button>`).join('');
+    } else if (dd.tipo === 'sol') {
+      cuerpo += '</div>';
+      const solSel = e.v || 'SF';
+      cuerpo += `<div class="opciones" id="evSol" style="margin-top:10px">${Object.keys(P.SOL).concat('Otro').map((k) => `<button type="button" data-v="${k}" class="opcion${solSel === k ? ' sel' : ''}">${k}</button>`).join('')}</div>
+        <p class="nota">${Object.entries(P.SOL).map(([k, x]) => `<b>${k}</b> ${esc(x.nombre)}`).join(' · ')}</p>
+        <div id="evSolOtro" ${solSel === 'Otro' ? '' : 'hidden'}><div class="rejilla"><label class="campo"><span>Iniciales (2–4 letras, van en el símbolo)</span><input id="evSolTxt" maxlength="4" value="${esc(e.txt || '')}"></label>
+          <label class="campo"><span>Nombre (opcional)</span><input id="evSolNom" value="${esc(e.txtLargo || '')}"></label></div></div>`;
+    } else {
+      const unidades = tipo === 'inf' ? ['mcg/kg/min', 'mcg/kg/h', 'mg/kg/h', 'mg/kg/min', 'mcg/min', 'mg/h', 'mL/h'] : ['mcg', 'mg', 'g', 'UI'];
+      const uDef = e.u || (tipo === 'inf' ? (f && f.inf ? f.inf[2] : 'mcg/kg/min') : (f ? f.uB : 'mg'));
+      cuerpo += `<label class="campo"><span>${tipo === 'inf' ? 'Velocidad / dosis' : 'Dosis'}</span><input id="evV" inputmode="decimal" value="${esc(e.v || '')}"></label>
+        <label class="campo"><span>Unidad</span><select id="evU">${unidades.map((u) => `<option${u === uDef ? ' selected' : ''}>${u}</option>`).join('')}</select></label></div>`;
+      g.filter((x) => (tipo === 'inf' ? x.tipo === 'inf' : x.tipo === 'bolo')).forEach((x) => {
+        if (tipo === 'inf') chipsHtml += [x.a, P.r1((num(f.inf[0]) + num(f.inf[1])) / 2, 3), x.b].filter((v, i, a) => isFinite(v) && a.indexOf(v) === i).map((v) => `<button type="button" class="opcion" data-evv="${v}">${v} ${esc(x.uInf)}</button>`).join('');
+        else if (isFinite(x.a)) { const et = x.txt.split(':')[0].split(' ')[0]; chipsHtml += [x.a, x.b].filter((v, i, a) => a.indexOf(v) === i).map((v) => `<button type="button" class="opcion" data-evv="${v}"><small style="opacity:.7">${esc(et)}</small> ${v} ${esc(x.u)}</button>`).join(''); }
+      });
+    }
+    const titulo = tipo === 'stop' ? (dd.tipo === 'inh' ? 'Cerrar vaporizador' : dd.tipo === 'gas' ? `Cerrar ${id === 'o2' ? 'O₂' : 'Aire / N₂O'}` : 'Suspender infusión') : dd.tipo === 'gas' ? `${id === 'o2' ? 'O₂' : 'Aire / N₂O'}: flujo` : dd.tipo === 'inh' ? `${p.agente || 'Inhalatorio'}: % del vaporizador` : dd.tipo === 'sol' ? 'Solución administrada' : `${p.agente || dd.nombre}: ${tipo === 'inf' ? 'infusión (inicio o cambio)' : 'bolo'}`;
+    abrirHoja(`<h2>${esc(titulo)}</h2>${cuerpo}${chipsHtml ? `<div class="opciones" style="margin-top:10px">${chipsHtml}</div>` : ''}
+      ${g.length && tipo !== 'stop' ? `<p class="nota">${g.map((x) => esc(x.txt)).join('<br>')}</p>` : ''}
+      ${tipo === 'inf' && CalcInf.FARMACOS[p.agente] ? '<div class="fila-btn"><button class="secundario chico" id="evCalc">🧮 Calculadora mL/h (bomba)</button></div>' : ''}
+      <div class="acciones">${nuevo ? '' : '<button class="peligro" id="evBorrar">Eliminar</button>'}<button class="secundario" id="evCancelar">Cancelar</button><button class="primario" id="evOk">Guardar</button></div>`);
+    $$('#capa [data-evv]').forEach((b) => (b.onclick = () => { $('#evV').value = b.dataset.evv; }));
+    $$('#evGas [data-g]').forEach((b) => (b.onclick = () => { $$('#evGas [data-g]').forEach((x) => x.classList.toggle('sel', x === b)); }));
+    $$('#evSol [data-v]').forEach((b) => (b.onclick = () => { $$('#evSol [data-v]').forEach((x) => x.classList.toggle('sel', x === b)); if ($('#evSolOtro')) $('#evSolOtro').hidden = b.dataset.v !== 'Otro'; }));
+    $('#evCancelar').onclick = cerrarHoja;
+    if ($('#evCalc')) $('#evCalc').onclick = () => { H.inf = H.inf || []; let i = H.inf.findIndex((x) => x.farm === p.agente);
+      if (i < 0) { H.inf.push({ farm: p.agente }); i = H.inf.length - 1; } cerrarHoja(); guardarPronto(); abrirCalculadora(i); };
+    if ($('#evBorrar')) $('#evBorrar').onclick = () => { p.ev.splice(idx, 1); cerrarHoja(); guardarPronto(); render(); };
+    $('#evOk').onclick = () => {
+      const o = { hora: $('#evHora').value };
+      if (!o.hora) { aviso('Falta la hora'); return; }
+      if (tipo !== 'valor' && tipo) o.tipo = tipo;
+      if (dd.tipo === 'sol') {
+        const sb = $('#evSol .sel'); o.v = sb ? sb.dataset.v : 'SF';
+        if (o.v === 'Otro') { o.txt = ($('#evSolTxt').value || '').trim().toUpperCase(); if (!o.txt) { aviso('Escribe las iniciales'); return; } const nm = $('#evSolNom').value.trim(); if (nm) o.txtLargo = nm; }
+      } else if (tipo !== 'stop') { o.v = ($('#evV').value || '').trim(); if (!o.v) { aviso('Falta el valor'); return; } }
+      if ($('#evU')) o.u = $('#evU').value;
+      if ($('#evGas') && tipo !== 'stop') { const gb = $('#evGas .sel'); o.g = gb ? gb.dataset.g : 'Aire'; p.agente = o.g; }
+      if ($('#evF') && $('#evF').value.trim()) o.fgf = $('#evF').value.trim();
+      if (Pistas.off(H.to, o.hora) < 0) { const m = minDe(o.hora); const nm = Math.floor(m / 5) * 5; H.to.inicio = String(Math.floor(nm / 60)).padStart(2, '0') + ':' + String(nm % 60).padStart(2, '0'); }
+      if (nuevo) p.ev.push(o); else p.ev[idx] = o;
+      cerrarHoja(); guardarPronto(); render();
+    };
+  }
+
+  function resumenReg(r) {
+    const p = [];
+    if (r.tas || r.tad) p.push(`TA ${esc(r.tas || '–')}/${esc(r.tad || '–')}`);
+    if (r.fc) p.push('FC ' + esc(r.fc)); if (r.fr) p.push('FR ' + esc(r.fr));
+    if (r.sat) p.push('Sat ' + esc(r.sat) + '%'); if (r.etco2) p.push('EtCO2 ' + esc(r.etco2));
+    if (r.ekg) p.push('EKG ' + esc(r.ekg));
+    if (r.vent) p.push({ E: 'Espont.', A: 'Asist.', C: 'Contr.' }[r.vent]);
+    const f = Object.keys(r.f || {}).filter((k) => r.f[k] !== '' && r.f[k] != null).map((k) => `${esc(nombreFila(+k))}: ${esc(r.f[k])}`);
+    if (f.length) p.push(f.join(', '));
+    const v = [['vc', 'VC'], ['vfr', 'FRv'], ['ppico', 'Ppico'], ['peep', 'PEEP'], ['pvc', 'PVC'], ['pap', 'PAP'], ['gc', 'GC'], ['cuna', 'Cuña'], ['temp', 'T°'], ['entrop', 'Entrop']]
+      .filter(([k]) => r[k]).map(([k, t]) => t + ' ' + esc(r[k]));
+    if (v.length) p.push(v.join(' '));
+    return p.join(' · ') || '<i>Sin datos</i>';
+  }
+  function nombreFila(i) { return i < 2 ? FILAS_BASE[i] : (H.to.filas[i] || FILAS_BASE[i]); }
+
+  function pintarGrafica() {
+    const svg = $('#grafica'); if (!svg) return;
+    const regs = H.to.regs.filter((r) => isFinite(offset(r.hora)));
+    const W = 360, Hh = 170, x0 = 28, x1 = W - 6, y0 = 8, y1 = Hh - 16;
+    const maxMin = Math.max(120, ...regs.map((r) => offset(r.hora) + 5));
+    const X = (m) => x0 + (m / maxMin) * (x1 - x0), Y = (v) => y1 - ((Math.max(10, Math.min(230, v)) - 20) / 200) * (y1 - y0);
+    let s = '';
+    for (let v = 20; v <= 220; v += 20) s += `<line x1="${x0}" x2="${x1}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e3eaec"/><text x="${x0 - 4}" y="${Y(v) + 3}" font-size="8" text-anchor="end" fill="#5f6f74">${v}</text>`;
+    for (let m = 0; m <= maxMin; m += 15) {
+      s += `<line x1="${X(m)}" x2="${X(m)}" y1="${y0}" y2="${y1}" stroke="${m % 60 ? '#eef2f3' : '#cfd8dc'}"/>`;
+      if (m % 30 === 0 && H.to.inicio) s += `<text x="${X(m)}" y="${Hh - 4}" font-size="8" text-anchor="middle" fill="#5f6f74">${hmMas(H.to.inicio, m)}</text>`;
+    }
+    const serie = (k, col, sim) => {
+      const pts = regs.filter((r) => isFinite(num(r[k]))).map((r) => [X(offset(r.hora)), Y(num(r[k]))]);
+      if (!pts.length) return '';
+      let o = `<polyline fill="none" stroke="${col}" stroke-width="1" stroke-opacity=".5" points="${pts.map((p) => p.join(',')).join(' ')}"/>`;
+      pts.forEach(([x, y]) => {
+        if (sim === 'v') o += `<path d="M${x - 3.5},${y - 5} L${x},${y} L${x + 3.5},${y - 5}" fill="none" stroke="${col}" stroke-width="1.6"/>`;
+        else if (sim === '^') o += `<path d="M${x - 3.5},${y + 5} L${x},${y} L${x + 3.5},${y + 5}" fill="none" stroke="${col}" stroke-width="1.6"/>`;
+        else if (sim === 'o') o += `<circle cx="${x}" cy="${y}" r="2.6" fill="#fff" stroke="${col}" stroke-width="1.3"/>`;
+        else o += `<circle cx="${x}" cy="${y}" r="2.6" fill="${col}"/>`;
+      });
+      return o;
+    };
+    s += serie('tas', '#c62828', 'v') + serie('tad', '#c62828', '^') + serie('fc', '#1565c0', '.') + serie('fr', '#2e7d32', 'o');
+    if (!regs.length) s += `<text x="${W / 2}" y="${Hh / 2}" font-size="11" text-anchor="middle" fill="#90a4ae">${H.to.inicio ? 'Sin registros todavía' : 'Define la hora de inicio'}</text>`;
+    svg.innerHTML = s;
+  }
+  function hmMas(hm, m) { const t = (minDe(hm) + m + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); }
+
+  function abrirRegistro(i) {
+    const nuevo = i == null;
+    if (!H.to.inicio) { H.to.inicio = ahoraHM(5); guardarPronto(); }
+    const ult = H.to.regs[H.to.regs.length - 1];
+    const ultEkg = [...H.to.regs].reverse().find((x) => x.ekg);
+    const r = nuevo ? { hora: ahoraHM(), f: {}, vent: ult ? ult.vent || '' : '', ekg: ultEkg ? ultEkg.ekg : '' } : JSON.parse(JSON.stringify(H.to.regs[i]));
+    r.f = r.f || {};
+    const n = (k, t, u) => `<label class="campo"><span>${t}</span><div class="con-unidad"><input inputmode="decimal" data-rk="${k}" value="${esc(r[k] || '')}">${u ? `<em>${u}</em>` : ''}</div></label>`;
+    const filas = [7, 8, 9].filter((j) => H.to.filas[j]).map((j) =>
+      `<label class="campo"><span>${esc(nombreFila(j))}</span><input data-rf="${j}" value="${esc(r.f[j] || '')}"></label>`).join('');
+    abrirHoja(`<h2>${nuevo ? 'Nuevo registro' : 'Editar registro'}</h2>
+      <div class="rejilla"><label class="campo"><span>Hora</span><input type="time" data-rk="hora" value="${esc(r.hora)}"></label>
+      ${n('tas', 'TA sistólica', 'mmHg')}${n('tad', 'TA diastólica', 'mmHg')}${n('fc', 'FC', 'lpm')}${n('fr', 'FR', 'rpm')}${n('sat', 'SatO2', '%')}${n('etco2', 'EtCO2', 'mmHg')}</div>
+      <div class="grupo" style="margin-top:12px"><div class="etq">EKG (ritmo)</div><div class="segmento" id="segEkg">
+        ${EKG.map((v) => `<button type="button" data-v="${v}" class="${r.ekg === v ? 'sel' : ''}">${v}</button>`).join('')}</div>
+        <label class="campo" style="margin-top:8px"><input data-rk="ekg" id="ekgTxt" value="${esc(r.ekg || '')}" placeholder="Otro ritmo o cambio (ej. FA, ESV, TV…)"></label></div>
+      <div class="grupo" style="margin-top:12px"><div class="etq">Ventilación</div><div class="segmento" id="segVent">
+        ${[['E', 'Espontánea'], ['A', 'Asistida'], ['C', 'Controlada']].map(([v, t]) => `<button type="button" data-v="${v}" class="${r.vent === v ? 'sel' : ''}">${t}</button>`).join('')}</div></div>
+      ${filas ? `<h3>Vías (VC / VP)</h3><div class="rejilla">${filas}</div>` : ''}
+      <p class="nota">Los gases, el inhalatorio, los opioides, relajantes y demás drogas se registran en “Fármacos y gases”, debajo de la gráfica.</p>
+      <details style="margin-top:10px"><summary style="font-weight:600;color:var(--pri);padding:8px 0">Parámetros del ventilador y monitoreo avanzado</summary>
+      <div class="rejilla">${n('vc', 'VC', 'ml')}${n('vfr', 'FR vent.', 'rpm')}${n('ppico', 'P pico', 'cmH2O')}${n('peep', 'PEEP', 'cmH2O')}${n('pvc', 'PVC', 'mmHg')}${n('pap', 'PAP', 'mmHg')}${n('gc', 'GC', 'L/min')}${n('cuna', 'P. cuña', 'mmHg')}${n('temp', 'Temp.', '°C')}${n('entrop', 'Entropía', '')}</div></details>
+      <div class="acciones">${nuevo ? (ult ? '<button class="secundario" id="rCopiar">Copiar anterior</button>' : '') : '<button class="peligro" id="rBorrar">Eliminar</button>'}
+      <button class="secundario" id="rCancelar">Cancelar</button><button class="primario" id="rGuardar">Guardar</button></div>`);
+    let vent = r.vent || '';
+    $$('#segVent button').forEach((b) => b.onclick = () => { vent = vent === b.dataset.v ? '' : b.dataset.v; $$('#segVent button').forEach((x) => x.classList.toggle('sel', x.dataset.v === vent)); });
+    const marcarEkg = () => $$('#segEkg button').forEach((x) => x.classList.toggle('sel', x.dataset.v === $('#ekgTxt').value.trim()));
+    $$('#segEkg button').forEach((b) => b.onclick = () => { const e = $('#ekgTxt'); e.value = e.value.trim() === b.dataset.v ? '' : b.dataset.v; marcarEkg(); });
+    $('#ekgTxt').oninput = marcarEkg;
+    $('#rCancelar').onclick = cerrarHoja;
+    if ($('#rCopiar')) $('#rCopiar').onclick = () => {
+      ['tas', 'tad', 'fc', 'fr', 'sat', 'etco2', 'ekg', 'vc', 'vfr', 'ppico', 'peep', 'pvc', 'pap', 'gc', 'cuna', 'temp', 'entrop'].forEach((k) => { const e = $(`[data-rk="${k}"]`); if (e && ult[k]) e.value = ult[k]; });
+    };
+    if ($('#rBorrar')) $('#rBorrar').onclick = () => { if (confirm('¿Eliminar este registro?')) { H.to.regs.splice(i, 1); cerrarHoja(); guardarPronto(); render(); } };
+    $('#rGuardar').onclick = () => {
+      const o = { f: {} };
+      $$('[data-rk]').forEach((e) => { if (e.value.trim() !== '') o[e.dataset.rk] = e.value.trim(); });
+      $$('[data-rf]').forEach((e) => { if (e.value.trim() !== '') o.f[e.dataset.rf] = e.value.trim(); });
+      if (vent) o.vent = vent;
+      if (!o.hora) { aviso('Falta la hora'); return; }
+      if (!isFinite(offset(o.hora))) { aviso('Define primero la hora de inicio'); return; }
+      if (offset(o.hora) < 0) {
+        const m = minDe(o.hora); const nm = Math.floor(m / 5) * 5;
+        H.to.inicio = String(Math.floor(nm / 60)).padStart(2, '0') + ':' + String(nm % 60).padStart(2, '0');
+        aviso('La hora de inicio de la grilla se movió a ' + H.to.inicio);
+      }
+      if (nuevo) H.to.regs.push(o); else H.to.regs[i] = o;
+      ordenarRegs(); cerrarHoja(); guardarPronto(); render();
+    };
+  }
+
+  /* ---------- Balance y gases ---------- */
+  function secBalance() {
+    const fila = (k, t) => `<tr><td class="etq">${t}</td>${[0, 1, 2, 3].map((c) => `<td><input inputmode="decimal" data-k="bal.${k}.${c}" value="${esc(val('bal.' + k + '.' + c))}"></td>`).join('')}</tr>`;
+    const cab = `<tr><th>ml</th>${[0, 1, 2, 3].map((c) => `<th><input style="font-weight:600;font-size:12.5px;padding:4px" data-k="bal.cols.${c}" value="${esc(val('bal.cols.' + c))}"></th>`).join('')}</tr>`;
+    const abF = (k, t) => `<tr><td class="etq">${t}</td>${[0, 1, 2, 3, 4, 5].map((c) => `<td><input inputmode="decimal" data-k="ab.${k}.${c}" value="${esc(val('ab.' + k + '.' + c))}"></td>`).join('')}</tr>`;
+    return card('Balance hídrico', `<div class="desplaza"><table class="tabla" id="tablaBalance"><colgroup><col style="width:36%"><col><col><col><col></colgroup>${cab}
+      <tr class="sub"><td class="etq" colspan="5" style="background:#e8f4f6;color:var(--pri)">INGRESOS</td></tr>
+      ${fila('cris', 'Cristaloides')}${fila('colo', 'Coloides')}${fila('hemo', 'Hemoderivados')}<tr class="sub" id="bIng"></tr><tr class="sub" id="bTi"></tr>
+      <tr class="sub"><td class="etq" colspan="5" style="background:#e8f4f6;color:var(--pri)">EGRESOS</td></tr>
+      ${fila('pins', 'P. ins / Mant / Ayuno')}${fila('sang', 'Sangramiento / P. exp')}${fila('diur', 'Diuresis')}<tr class="sub" id="bEgr"></tr><tr class="sub" id="bTe"></tr>
+      <tr class="total" id="bTot"></tr></table></div><p class="nota">Subtotales, totales y balance se calculan solos. Puedes renombrar las columnas.</p>`) +
+      card('Ácido-base', `<div class="desplaza"><table class="tabla ab"><colgroup><col style="width:84px"><col><col><col><col><col><col></colgroup><tr><th>Hora</th>${[0, 1, 2, 3, 4, 5].map((c) => `<th><input type="time" style="font-size:12.5px;padding:4px;min-width:74px" data-k="ab.horas.${c}" value="${esc(val('ab.horas.' + c))}"></th>`).join('')}</tr>
+      ${abF('ph', 'pH')}${abF('pco2', 'pCO2')}${abF('hco3', 'HCO3 / EB')}${abF('po2', 'pO2')}${abF('nak', 'Na+ / K+')}${abF('lact', 'Lactato')}</table></div>`);
+  }
+  function pintarTotalesBalance() {
+    const t = H.bal._tot || [];
+    const cel = (f) => [0, 1, 2, 3].map((c) => `<td>${t[c] ? f(t[c]) : ''}</td>`).join('');
+    const sg = (n) => (n > 0 ? '+' : '') + fmt(n, 1);
+    $('#bIng').innerHTML = '<td class="etq">Subtotal ingresos</td>' + cel((x) => fmt(x.ing, 1));
+    $('#bEgr').innerHTML = '<td class="etq">Subtotal egresos</td>' + cel((x) => fmt(x.egr, 1));
+    const b = H.bal, ml = (n) => (b._hay ? fmt(n, 1) + ' ml' : '');
+    $('#bTi').innerHTML = `<td class="etq">TOTAL INGRESOS</td><td colspan="4">${ml(b._ti)}</td>`;
+    $('#bTe').innerHTML = `<td class="etq">TOTAL EGRESOS</td><td colspan="4">${ml(b._te)}</td>`;
+    const est = !b._hay ? '' : b._bal > 0 ? 'POSITIVO' : b._bal < 0 ? 'NEGATIVO' : 'NEUTRO';
+    $('#bTot').innerHTML = `<td class="etq" style="background:var(--pri);color:#fff">BALANCE</td><td colspan="4">${b._hay ? sg(b._bal) + ' ml · ' + est : ''}</td>`;
+  }
+
+  /* ---------- Salida ---------- */
+  function secSalida() {
+    return card('Reversión', '<h3 style="margin-top:0">Relajante muscular</h3>' +
+      C('rev.neo', 'Neostigmina', { k: 'rev.neoD', u: 'mg', num: true }) + C('rev.sug', 'Sugammadex', { k: 'rev.sugD', u: 'mg', num: true }) +
+      C('rev.atro', 'Atropina', { k: 'rev.atroD', u: 'mg', num: true }) +
+      '<h3>Opioides</h3>' + C('rev.nalo', 'Naloxona', { k: 'rev.naloD', u: 'mcg', num: true }) +
+      '<h3>Benzodiacepinas</h3>' + C('rev.flum', 'Flumazenil', { k: 'rev.flumD', u: 'mg', num: true })) +
+      card('SAP (analgesia postoperatoria)', C('sap.iv', 'Intravenoso') + C('sap.epi', 'Epidural') + C('sap.no', 'No lleva SAP', { k: 'sap.razon', ph: 'Razón' })) +
+      card('Traslado', R('tras.dest', 'Destino', [['ucpa', 'Ingreso a UCPA'], ['uci', 'Ingreso a UCI']]) +
+        `<div class="rejilla tiempos"><label class="campo"><span>Hora</span><div class="con-unidad"><input type="time" data-k="tras.hora" value="${esc(val('tras.hora'))}"><button class="secundario chico" data-acc="ahora" data-p="tras.hora">Ahora</button></div></label></div>` +
+        C('tras.monitor', 'Monitor de traslado') + C('tras.o2', 'Oxígeno suplementario') + C('tras.intub', 'Con intubación') +
+        '<h3>Signos vitales al traslado</h3>' + rej(T('tras.ta', 'TA', { ph: '120/80' }) + Nm('tras.fc', 'FC', 'lpm') + Nm('tras.spo2', 'SpO2', '%')) +
+        rej(T('tras.recibe', 'Recibe Dr(a).', { full: true }), true));
+  }
+
+  /* ---------- Observaciones / Nota (con pestañas de opciones) ---------- */
+  let obsTab = 'auto';
+  const OBS_TABS = [['auto', 'Tiempos y consumo'], ['esc', 'Escalas'], ['fr', 'Frases'], ['libre', 'Texto libre']];
+  function obsPrevia() { const x = Obs.texto(H); return x ? esc(x) : '<span style="color:var(--suave)">(vacío)</span>'; }
+  function secObs() {
+    const o = Obs.opc(H); let cuerpo = '';
+    if (obsTab === 'auto') {
+      const tt = (H.to || {}).t || {}; const c = Pistas.consumo(H);
+      cuerpo = `<div class="check"><input type="checkbox" id="obT" data-k="obsOpc.tiempos"${o.tiempos !== false ? ' checked' : ''}><label for="obT" style="flex:1">Hora de inicio y fin de anestesia y cirugía (resumido)</label></div>
+        ${!(tt.ia || tt.fa || tt.ic || tt.fc) ? '<p class="nota" style="margin:0 0 6px">Aún no hay tiempos en Transoperatorio.</p>' : ''}
+        <div class="check"><input type="checkbox" id="obC" data-k="obsOpc.consumo"${o.consumo !== false ? ' checked' : ''}><label for="obC" style="flex:1">Consumo de halogenado${c ? ' (' + esc(c.agente) + ')' : ''}</label></div>
+        ${!c ? '<p class="nota" style="margin:0">Sin inhalatorio registrado en la grilla.</p>' : ''}`;
+    } else if (obsTab === 'esc') {
+      cuerpo = `<p class="nota" style="margin-top:0">Cómo sale el paciente. Deja en blanco las que no uses.</p><div class="rejilla ancha">` +
+        Obs.ESCALAS.map((e) => `<label class="campo"><span>${e.t}</span><select data-k="obsOpc.esc.${e.k}"><option value="">—</option>${e.ops.map(([v, tx]) => `<option value="${esc(v)}"${o.esc[e.k] === v ? ' selected' : ''}>${esc(tx)}</option>`).join('')}</select></label>`).join('') + '</div>';
+    } else if (obsTab === 'fr') {
+      cuerpo = Obs.GRUPOS.map((g) => `<div class="grupo"><div class="etq">${g.t}</div><div class="opciones">${g.ops.map(([k, tx]) => {
+        const sel = g.uno ? o.fr[g.k] === k : (o.fr[g.k] || []).includes(k);
+        return `<button type="button" class="opcion${sel ? ' sel' : ''}" data-acc="obsFr" data-g="${g.k}" data-v="${k}">${esc(tx)}</button>`; }).join('')}</div></div>`).join('') +
+        '<p class="nota">Toca de nuevo una opción para quitarla. "Extubado/a" se ajusta al sexo del paciente.</p>';
+    } else cuerpo = rej(TA('obs', 'Texto libre (va al final)', { alto: 120 }), true);
+    return card('Observaciones / Nota', `<div class="segmento" style="margin-bottom:12px">${OBS_TABS.map(([k, t]) => `<button type="button" class="${obsTab === k ? 'sel' : ''}" data-acc="obsTab" data-v="${k}">${t}</button>`).join('')}</div>
+      ${cuerpo}<div class="etq nota" style="margin:14px 0 4px">Así saldrá en la hoja</div><div class="formula" id="obsPrev" style="font-family:inherit">${obsPrevia()}</div>`);
+  }
+
+  /* ---------- Firma ---------- */
+  function secFirma() {
+    const fondo = 'background:#fff;background-image:linear-gradient(45deg,#f1f4f5 25%,transparent 25%,transparent 75%,#f1f4f5 75%),linear-gradient(45deg,#f1f4f5 25%,transparent 25%,transparent 75%,#f1f4f5 75%);background-size:14px 14px;background-position:0 0,7px 7px';
+    return secObs() +
+      card('Firma y sello',
+        (H.firmaSello ? `<div class="etq nota" style="margin:0 0 4px">Firma y sello escaneados</div><img class="firma-img" style="${fondo}" src="${H.firmaSello}" alt="Firma y sello">` : '') +
+        (H.firma ? `<div class="etq nota" style="margin:8px 0 4px">Firma dibujada</div><img class="firma-img" src="${H.firma}" alt="Firma">` : '') +
+        (!H.firma && !H.firmaSello ? '<p class="nota">Sin firma.</p>' : '') +
+        `<div class="fila-btn"><button class="secundario" data-acc="firmar">${H.firma ? 'Firmar de nuevo' : 'Firmar con el dedo'}</button>
+        ${cfg.perfil.firmaSello && !H.firmaSello ? '<button class="secundario" data-acc="usarEscaneo">Usar mi firma y sello escaneados</button>' : ''}
+        ${cfg.perfil.firma && !H.firma ? '<button class="secundario" data-acc="firmaPerfil">Usar mi firma dibujada</button>' : ''}
+        ${H.firma || H.firmaSello ? '<button class="peligro" data-acc="quitarFirma">Quitar firmas</button>' : ''}</div>` +
+        rej(TA('sello', 'Texto bajo la firma (nombre, especialidad, C.M., MPPS…)', { alto: 70, ph: 'Dr. Nombre Apellido\nAnestesiología\nC.M. 0000 · MPPS 00000' }), true));
+  }
+
+  function padFirma(titulo, alListo) {
+    abrirHoja(`<h2>${titulo}</h2><canvas class="firma" id="lienzo"></canvas><p class="nota">Firma con el dedo dentro del recuadro.</p>
+      <div class="acciones"><button class="secundario" id="fLimpiar">Limpiar</button><button class="secundario" id="fCancelar">Cancelar</button><button class="primario" id="fOk">Listo</button></div>`);
+    const cv = $('#lienzo'); const dpr = window.devicePixelRatio || 1;
+    const rc = cv.getBoundingClientRect(); cv.width = rc.width * dpr; cv.height = rc.height * dpr;
+    const cx = cv.getContext('2d'); cx.scale(dpr, dpr); cx.lineWidth = 2.4; cx.lineCap = 'round'; cx.lineJoin = 'round'; cx.strokeStyle = '#0d2a6b';
+    let dib = false, ult = null, hay = false;
+    const pos = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    cv.addEventListener('pointerdown', (e) => { dib = true; ult = pos(e); cv.setPointerCapture(e.pointerId); cx.beginPath(); cx.arc(ult[0], ult[1], 1.1, 0, 7); cx.fill(); hay = true; });
+    cv.addEventListener('pointermove', (e) => { if (!dib) return; const p = pos(e); cx.beginPath(); cx.moveTo(ult[0], ult[1]); cx.lineTo(p[0], p[1]); cx.stroke(); ult = p; hay = true; });
+    const fin = () => { dib = false; }; cv.addEventListener('pointerup', fin); cv.addEventListener('pointercancel', fin);
+    $('#fLimpiar').onclick = () => { cx.clearRect(0, 0, cv.width, cv.height); hay = false; };
+    $('#fCancelar').onclick = cerrarHoja;
+    $('#fOk').onclick = () => { if (!hay) { aviso('Firma vacía'); return; } alListo(recortar(cv)); cerrarHoja(); };
+  }
+  function recortar(cv) {
+    const cx = cv.getContext('2d'); const { width: w, height: h } = cv; const d = cx.getImageData(0, 0, w, h).data;
+    let a = w, b = h, c = 0, e = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 10) { if (x < a) a = x; if (x > c) c = x; if (y < b) b = y; if (y > e) e = y; }
+    const pad = 6; a = Math.max(0, a - pad); b = Math.max(0, b - pad); c = Math.min(w, c + pad); e = Math.min(h, e + pad);
+    const o = document.createElement('canvas'); o.width = c - a; o.height = e - b;
+    o.getContext('2d').drawImage(cv, a, b, c - a, e - b, 0, 0, c - a, e - b);
+    return o.toDataURL('image/png');
+  }
+
+  /* ---------- Hojas y menús ---------- */
+  function abrirHoja(html) { const c = $('#capa'); c.innerHTML = `<div class="hoja">${html}</div>`; c.hidden = false; }
+  function cerrarHoja() { const c = $('#capa'); c.hidden = true; c.innerHTML = ''; }
+  $('#capa').addEventListener('click', (e) => { if (e.target.id === 'capa') cerrarHoja(); });
+
+  function menu(ops) {
+    abrirHoja(`<div class="menu">${ops.map((o, i) => `<button data-i="${i}" style="${o.peligro ? 'color:var(--peligro)' : ''}">${o.t}</button>`).join('')}</div>`);
+    $$('.menu button').forEach((b) => (b.onclick = () => { cerrarHoja(); ops[+b.dataset.i].f(); }));
+  }
+
+  /* ---------- Pantallas ---------- */
+  function render() {
+    const v = $('#vista');
+    $('#btnAtras').hidden = pantalla === 'inicio';
+    $('#secciones').hidden = pantalla !== 'editor';
+    $('#pie').hidden = pantalla !== 'editor' && pantalla !== 'doc';
+    $('#btnMenu').hidden = pantalla === 'login';
+    $('#barra').hidden = pantalla === 'bienvenida';
+    bordeABorde(pantalla === 'bienvenida');
+    if (pantalla === 'bienvenida') return renderBienvenida(v);
+    $('.fab') && $('.fab').remove();
+    if (pantalla === 'inicio') return renderInicio(v);
+    if (pantalla === 'sedes') return renderSedes(v);
+    if (pantalla === 'perfil') return renderPerfil(v);
+    if (pantalla === 'registro') { $('#btnAtras').hidden = !cfg.cuenta && !cfg.omitirRegistro ? true : false; return renderRegistro(v); }
+    if (pantalla === 'login') { $('#btnAtras').hidden = true; return renderLogin(v); }
+    if (pantalla === 'extras') return renderExtras(v);
+    if (pantalla === 'doc') return D.tipo === 'val' ? renderVal(v) : renderRx(v);
+    if (pantalla === 'editor') {
+      calcular();
+      $('#titulo').textContent = H.p.nombre || 'Historia nueva';
+      $('#secciones').innerHTML = SECCIONES.map((s, i) => `<button data-s="${i}" class="${i === seccion ? 'activo' : ''}">${s.t}</button>`).join('');
+      v.innerHTML = SECCIONES[seccion].r() + `<div class="fila-btn" style="justify-content:space-between">
+        ${seccion > 0 ? `<button class="secundario" data-s="${seccion - 1}">← ${SECCIONES[seccion - 1].t}</button>` : '<span></span>'}
+        ${seccion < SECCIONES.length - 1 ? `<button class="primario" data-s="${seccion + 1}">${SECCIONES[seccion + 1].t} →</button>` : '<button class="primario" data-acc="pdf">Vista previa / PDF</button>'}</div>`;
+      const act = $('#secciones .activo'); if (act) act.scrollIntoView({ inline: 'center', block: 'nearest' });
+      if (SECCIONES[seccion].id === 'to') pintarGrafica();
+      if (SECCIONES[seccion].id === 'bal') pintarTotalesBalance();
+    }
+  }
+
+  function renderInicio(v) {
+    $('#titulo').textContent = 'Historias de Anestesia';
+    const idx = Store.indice().sort((a, b) => b.modificado - a.modificado);
+    const q = (renderInicio.q || '').toLowerCase();
+    const f = idx.filter((x) => !q || [x.nombre, x.ci, x.interv, x.fecha].join(' ').toLowerCase().includes(q));
+    const fechaTxt = (s) => (s ? s.split('-').reverse().join('/') : '');
+    v.innerHTML = `<button class="ex-banner" data-acc="irExtras"><span><b>✦ Extras</b><small>Valoración preanestésica · Récipe</small></span><em>Vista previa 2.0 ›</em></button>` +
+      `<input class="buscar" id="buscar" type="search" placeholder="Buscar por nombre, CI, cirugía o fecha" value="${esc(renderInicio.q || '')}">` +
+      (f.length ? `<ul class="lista">${f.map((x) => `<li class="item" data-abrir="${x.id}"><div class="txt"><b>${esc(x.nombre || 'Sin nombre')}</b>
+        <small>${[x.ci && 'CI ' + x.ci, fechaTxt(x.fecha)].filter(Boolean).map(esc).join(' · ')}</small><small>${esc(x.interv || '')}</small>
+        <span class="chipsede">${esc(abrev(sede(x.sede).nombre))}</span></div><button class="icono" style="color:var(--suave)" data-mas="${x.id}" aria-label="Opciones">&#8942;</button></li>`).join('')}</ul>` :
+        `<div class="vacio"><b>${idx.length ? 'Sin resultados' : 'Aún no hay historias'}</b>${idx.length ? '' : 'Toca “Nueva historia” para empezar.'}</div>`);
+    const fab = document.createElement('button'); fab.className = 'fab'; fab.textContent = '+ Nueva historia'; fab.onclick = crear; document.body.appendChild(fab);
+    const b = $('#buscar'); b.oninput = () => { renderInicio.q = b.value; const pos = b.selectionStart; render(); const nb = $('#buscar'); nb.focus(); nb.setSelectionRange(pos, pos); };
+  }
+  function abrev(n) { n = n || ''; return n.length > 42 ? n.slice(0, 40) + '…' : n; }
+
+  function crear() {
+    const go = (sid) => { H = nuevaHistoria(); if (sid) H.sedeId = sid; Store.guardar(H); pantalla = 'editor'; seccion = 0; render(); window.scrollTo(0, 0); };
+    if (cfg.sedes.length > 1) menu(cfg.sedes.map((s) => ({ t: '🏥 ' + esc(s.nombre), f: () => { cfg.sedeActual = s.id; Store.guardarConfig(cfg); go(s.id); } })));
+    else go();
+  }
+  function abrir(id) { const h = Store.cargar(id); if (!h) { aviso('No se pudo abrir'); return; } H = migrar(h); pantalla = 'editor'; seccion = 0; render(); window.scrollTo(0, 0); }
+  function migrar(h) {
+    const base = nuevaHistoria();
+    const tenia = !!(h.to && h.to.pistas); if (!tenia && base.to) delete base.to.pistas;
+    const fusion = (a, b) => { for (const k in b) { if (a[k] == null) a[k] = b[k]; else if (typeof b[k] === 'object' && !Array.isArray(b[k]) && typeof a[k] === 'object') fusion(a[k], b[k]); } return a; };
+    const r = fusion(h, base); Pistas.asegurar(r); return r;
+  }
+  function duplicar(id, conPaciente) {
+    const h = migrar(Store.cargar(id)); const n = nuevaHistoria();
+    const copia = JSON.parse(JSON.stringify(h));
+    copia.id = n.id; copia.creado = Date.now();
+    if (!conPaciente) {
+      copia.p = { fecha: hoyISO(), tipoVol: h.p.tipoVol };
+      ['alergias', 'premed', 'dx', 'intervencion', 'asaRazon', 'obs', 'obsOpc', 'mallampati', 'asa'].forEach((k) => (copia[k] = ''));
+      copia.asaE = false; copia.gcs = {}; copia.bal = n.bal; copia.ab = n.ab; copia.tras = {};
+      copia.to.regs = []; copia.to.inicio = ''; copia.to.t = {}; copia.to.base = {};
+      copia.va.cl = ''; copia.va.pogo = ''; copia.va.pogoCat = ''; copia.va.pogoOn = false;
+      copia.cond.conducta = ''; copia.cond.punc = false; copia.cond.otras = false; copia.cond.otrasTxt = '';
+    } else copia.p.fecha = hoyISO();
+    H = copia; Store.guardar(H); pantalla = 'editor'; seccion = 0; render(); aviso('Copia creada');
+  }
+  function opcionesHistoria(id) {
+    menu([
+      { t: 'Abrir', f: () => abrir(id) },
+      { t: 'Ver / PDF', f: () => { H = migrar(Store.cargar(id)); accionesPdf(); } },
+      { t: 'Nueva historia usando esta como plantilla (sin datos del paciente)', f: () => duplicar(id, false) },
+      { t: 'Duplicar completa', f: () => duplicar(id, true) },
+      { t: 'Eliminar', peligro: true, f: () => { if (confirm('¿Eliminar esta historia? No se puede deshacer.')) { Store.borrar(id); render(); aviso('Historia eliminada'); } } },
+    ]);
+  }
+
+  function renderSedes(v) {
+    $('#titulo').textContent = 'Lugares de trabajo';
+    v.innerHTML = '<p class="nota" style="margin:0 0 12px">El lugar elegido en cada historia define el encabezado y el logo del PDF.</p>' +
+      cfg.sedes.map((s, i) => `<section class="tarjeta"><div class="rejilla ancha">
+        <label class="campo completo"><span>Nombre (línea 1)</span><input data-sede="${i}" data-c="nombre" value="${esc(s.nombre)}"></label>
+        <label class="campo completo"><span>Ciudad / subtítulo (línea 2)</span><input data-sede="${i}" data-c="sub" value="${esc(s.sub)}"></label></div>
+        <div class="fila-btn" style="align-items:center">${s.logo ? `<img class="logo-prev" src="${s.logo}" alt="logo">` : '<span class="nota">Sin logo</span>'}
+        <label class="secundario chico" style="display:inline-block">Cambiar logo<input type="file" accept="image/*" data-logo="${i}" hidden></label>
+        ${s.logo ? `<button class="secundario chico" data-quitalogo="${i}">Quitar logo</button>` : ''}
+        ${cfg.sedes.length > 1 ? `<button class="peligro chico" data-borrasede="${i}">Eliminar lugar</button>` : ''}</div></section>`).join('') +
+      '<button class="primario" id="agregarSede" style="width:100%">+ Agregar lugar de trabajo</button>';
+    $$('[data-sede]').forEach((e) => (e.oninput = () => { cfg.sedes[+e.dataset.sede][e.dataset.c] = e.value; Store.guardarConfig(cfg); }));
+    $$('[data-logo]').forEach((e) => (e.onchange = () => {
+      const f = e.files[0]; if (!f) return;
+      leerImagen(f, 400).then((d) => { cfg.sedes[+e.dataset.logo].logo = d; Store.guardarConfig(cfg); render(); });
+    }));
+    $$('[data-quitalogo]').forEach((e) => (e.onclick = () => { cfg.sedes[+e.dataset.quitalogo].logo = ''; Store.guardarConfig(cfg); render(); }));
+    $$('[data-borrasede]').forEach((e) => (e.onclick = () => { if (confirm('¿Eliminar este lugar?')) { cfg.sedes.splice(+e.dataset.borrasede, 1); Store.guardarConfig(cfg); render(); } }));
+    $('#agregarSede').onclick = () => { cfg.sedes.push({ id: uid(), nombre: '', sub: '', logo: '' }); Store.guardarConfig(cfg); render(); window.scrollTo(0, document.body.scrollHeight); };
+  }
+  // Convierte un logo en dos versiones sin fondo (blanca y negra) usando su transparencia o, si no tiene, el contraste con el fondo.
+  function prepararMarca(f) {
+    return new Promise((ok, mal) => {
+      const r = new FileReader(); r.onerror = mal;
+      r.onload = () => { const im = new Image(); im.onerror = mal; im.onload = () => {
+        const k = Math.min(1, 800 / Math.max(im.width, im.height)); const W = Math.round(im.width * k), Hh = Math.round(im.height * k);
+        const c = document.createElement('canvas'); c.width = W; c.height = Hh; const x = c.getContext('2d'); x.drawImage(im, 0, 0, W, Hh);
+        const px = x.getImageData(0, 0, W, Hh).data; const n = W * Hh; const m = new Uint8ClampedArray(n);
+        let transp = 0; for (let i = 0; i < n; i++) if (px[i * 4 + 3] < 240) transp++;
+        const lum = (i) => 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+        let borde = 0, nb = 0; for (let i = 0; i < W; i++) { borde += lum(i) + lum((Hh - 1) * W + i); nb += 2; }
+        const fondoOscuro = borde / nb < 128;
+        for (let i = 0; i < n; i++) m[i] = transp > n * 0.05 ? px[i * 4 + 3] : Math.max(0, Math.min(255, (fondoOscuro ? lum(i) : 255 - lum(i)) * 1.15));
+        let a = W, b = Hh, cc = 0, e = 0; for (let y = 0; y < Hh; y++) for (let xx = 0; xx < W; xx++) if (m[y * W + xx] > 25) { if (xx < a) a = xx; if (xx > cc) cc = xx; if (y < b) b = y; if (y > e) e = y; }
+        if (cc <= a || e <= b) { mal(new Error('vacía')); return; }
+        const hacer = (rgb) => { const w = cc - a + 1, h = e - b + 1, o = document.createElement('canvas'); o.width = w; o.height = h;
+          const ox = o.getContext('2d'), id = ox.createImageData(w, h);
+          for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) { const j = (y * w + xx) * 4; id.data[j] = rgb; id.data[j + 1] = rgb; id.data[j + 2] = rgb; id.data[j + 3] = m[(y + b) * W + xx + a]; }
+          ox.putImageData(id, 0, 0);
+          const s2 = document.createElement('canvas'), kk = Math.min(1, 360 / Math.max(w, h)); s2.width = Math.round(w * kk); s2.height = Math.round(h * kk);
+          s2.getContext('2d').drawImage(o, 0, 0, s2.width, s2.height); return s2.toDataURL('image/png'); };
+        ok({ blanca: hacer(255), negra: hacer(0) });
+      }; im.src = r.result; };
+      r.readAsDataURL(f);
+    });
+  }
+  function leerImagen(f, max, tipo) {
+    return new Promise((ok, mal) => {
+      const r = new FileReader(); r.onerror = mal;
+      r.onload = () => { const im = new Image(); im.onload = () => {
+        const k = Math.min(1, max / Math.max(im.width, im.height)); const c = document.createElement('canvas');
+        c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        ok(tipo === 'image/jpeg' ? c.toDataURL('image/jpeg', 0.85) : c.toDataURL('image/png'));
+      }; im.onerror = mal; im.src = r.result; };
+      r.readAsDataURL(f);
+    });
+  }
+
+  /* ---------- Cuenta del médico ---------- */
+  const CAMPOS_MED = [['nombre', 'Nombre y apellido', 'Dr. Nombre Apellido'], ['especialidad', 'Especialidad', 'Anestesiología'], ['ci', 'Cédula de identidad', 'V-00000000'],
+    ['colegioSigla', 'Siglas del Colegio de Médicos', 'Ej. CML, C.M.'], ['colegio', 'N° Colegio de Médicos', 'Ej. 12345'], ['mpps', 'N° MPPS', 'Ej. 123456'], ['rif', 'RIF', 'V-00000000-0'],
+    ['telefono', 'Teléfono / WhatsApp', '0414-0000000'], ['correo', 'Correo (Gmail)', 'nombre@gmail.com'], ['direccion', 'Consultorio / dirección (membrete)', 'Ej. Centro Médico…, consultorio 12']];
+  function camposMedico(p) {
+    return `<div class="rejilla ancha">${CAMPOS_MED.map(([k, t, ph]) => `<label class="campo"><span>${t}</span><input data-md="${k}" value="${esc(p[k] || (k === 'especialidad' && !p.nombre ? '' : ''))}" placeholder="${esc(ph)}"${k === 'correo' ? ' type="email" autocomplete="email"' : ''}></label>`).join('')}</div>`;
+  }
+  function enlazarMedico(p) { $$('[data-md]').forEach((e) => (e.oninput = () => { p[e.dataset.md] = e.value.trim(); Store.guardarConfig(cfg); })); }
+  function cajaFirmaSello(p) {
+    const fondo = 'background-color:#fff;background-image:linear-gradient(45deg,#eef2f3 25%,transparent 25%,transparent 75%,#eef2f3 75%),linear-gradient(45deg,#eef2f3 25%,transparent 25%,transparent 75%,#eef2f3 75%);background-size:14px 14px;background-position:0 0,7px 7px';
+    return (p.firmaSello ? `<img class="firma-img" style="${fondo};max-height:160px" src="${p.firmaSello}" alt="Firma y sello">` : '<p class="nota" style="margin-top:0">Sube una foto o escaneo de tu firma y sello sobre papel blanco. La app le quita el fondo.</p>') +
+      `<div class="fila-btn"><label class="primario chico" style="display:inline-block">${p.firmaSello ? 'Cambiar imagen' : 'Subir firma y sello'}<input type="file" accept="image/*" id="fsFile" hidden></label>
+      ${p.firmaSello ? '<button class="peligro chico" id="fsQuitar">Quitar</button>' : ''}</div>`;
+  }
+  function enlazarFirmaSello(p, alTerminar) {
+    $('#fsFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return; aviso('Procesando imagen…');
+      Cuenta.procesarFirma(f).then((d) => { p.firmaSello = d; Store.guardarConfig(cfg); aviso('Firma y sello listos'); (alTerminar || render)(); })
+        .catch((er) => aviso(er.message || 'No se pudo leer la imagen')); };
+    if ($('#fsQuitar')) $('#fsQuitar').onclick = () => { p.firmaSello = ''; Store.guardarConfig(cfg); (alTerminar || render)(); };
+  }
+  function mostrarCodigo(cod, alCerrar) {
+    abrirHoja(`<h2>Guarda tu código de recuperación</h2><p>Si olvidas la contraseña, este código te permite crear una nueva:</p>
+      <p style="font-size:28px;font-weight:700;letter-spacing:3px;text-align:center;color:var(--pri);margin:14px 0">${esc(cod)}</p>
+      <p class="nota">Anótalo en un lugar seguro (o tómale una captura). No se vuelve a mostrar.</p>
+      <div class="acciones"><button class="primario" id="codOk">Ya lo guardé</button></div>`);
+    $('#codOk').onclick = () => { cerrarHoja(); if (alCerrar) alCerrar(); };
+  }
+  function cambiarClaveUI(conCodigo) {
+    abrirHoja(`<h2>${conCodigo ? 'Recuperar acceso' : 'Cambiar contraseña'}</h2><div class="rejilla ancha">
+      ${conCodigo ? '<label class="campo completo"><span>Código de recuperación</span><input id="ccCod" autocapitalize="characters" placeholder="XXXXX-XXXXX"></label>' : '<label class="campo completo"><span>Contraseña actual</span><input id="ccAct" type="password"></label>'}
+      <label class="campo"><span>Nueva contraseña</span><input id="ccN1" type="password"></label><label class="campo"><span>Repetir</span><input id="ccN2" type="password"></label></div>
+      <div class="acciones"><button class="secundario" id="ccNo">Cancelar</button><button class="primario" id="ccSi">Guardar</button></div>`);
+    $('#ccNo').onclick = cerrarHoja;
+    $('#ccSi').onclick = () => {
+      const c = cfg.cuenta;
+      if (conCodigo ? !Cuenta.verificarCodigo(c, $('#ccCod').value) : !Cuenta.verificar(c, c.usuario, $('#ccAct').value)) { aviso(conCodigo ? 'Código incorrecto' : 'Contraseña actual incorrecta'); return; }
+      const n1 = $('#ccN1').value; if (n1.length < 4) { aviso('Mínimo 4 caracteres'); return; } if (n1 !== $('#ccN2').value) { aviso('Las contraseñas no coinciden'); return; }
+      const cod = Cuenta.cambiarClave(c, n1); Store.guardarConfig(cfg); cerrarHoja();
+      mostrarCodigo(cod, () => { if (conCodigo) { sesion = true; pantalla = 'inicio'; render(); } });
+    };
+  }
+  let sesion = false;
+  /* ---------- Bienvenida ---------- */
+  let bab = null;
+  function bordeABorde(on) { // la portada ocupa toda la pantalla, también bajo las barras del sistema
+    if (bab === on || !window.Nativo || !Nativo.bordeABorde) return; bab = on;
+    const fijar = () => {
+      try {
+        const [a, b] = String(Nativo.bordeABorde(on)).split(',').map(Number), r = window.devicePixelRatio || 1;
+        document.documentElement.style.setProperty('--sa-top', on ? (a / r) + 'px' : '0px');
+        document.documentElement.style.setProperty('--sa-bottom', on ? (b / r) + 'px' : '0px');
+      } catch (e) { console.error(e); }
+    };
+    fijar(); if (on) setTimeout(() => { if (bab) fijar(); }, 600); // al arrancar, las barras pueden medirse un poco después
+  }
+  function destinoInicial() {
+    if (cfg.cuenta && cfg.cuenta.pedirClave !== false) return 'login';
+    if (!cfg.cuenta && !cfg.omitirRegistro) return 'registro';
+    return 'inicio';
+  }
+  function verLegal(k) {
+    const x = LEGAL.TEXTOS[k]; if (!x) return;
+    abrirHoja(`<h2>${x.t}</h2>${x.h}<div class="acciones"><button class="primario" id="lgCerrar">Entendido</button></div>`);
+    $('#capa .hoja').classList.add('legal'); $('#lgCerrar').onclick = cerrarHoja;
+  }
+  function renderBienvenida(v) {
+    const dest = destinoInicial(), p = cfg.perfil || {};
+    const etq = dest === 'login' ? 'Iniciar sesión' : dest === 'registro' ? 'Crear mi cuenta' : 'Entrar';
+    const titular = p.nombre ? esc(p.nombre) : 'Morpheus MD';
+    v.innerHTML = `<div id="bienvenida">
+      <div class="bv-foto"><img src="${p.portada || 'img/portada.jpg'}" alt="" onerror="this.remove()"></div>
+      <div class="bv-top"><img src="${p.marcaBlanca || IMGS.marcaBlanca}" alt=""><span>Anestesiología</span></div>
+      <div class="bv-centro">
+        <div class="bv-kicker">Registro anestésico digital</div>
+        <h1 class="bv-titulo">Morpheus<br><i>MD</i></h1>
+        <p class="bv-lema">Cada paciente, cada minuto, documentado con precisión.</p>
+        <div class="bv-rasgos"><div><b>5 min</b>Grilla transoperatoria</div><div><b>TCI · BIC</b>Calculadora</div><div><b>PDF</b>Listo para imprimir</div></div>
+        <div><button class="bv-entrar" id="bvEntrar">${etq}<span>→</span></button>
+        ${dest === 'registro' ? '<button class="bv-sec" id="bvSin">Continuar sin cuenta</button>' : ''}${dest === 'login' ? '<button class="bv-sec" id="bvOlvido">Olvidé mi contraseña</button>' : ''}</div>
+      </div>
+      <footer class="bv-pie">
+        <nav class="bv-links"><button data-legal="privacidad">Privacidad</button><button data-legal="terminos">Términos de uso</button><button data-legal="aviso">Aviso médico</button><button data-legal="licencias">Licencias</button></nav>
+        <div class="bv-copy">© ${LEGAL.ANIO} ${titular} · Todos los derechos reservados · v${VERSION}</div>
+      </footer></div>`;
+    $('#bvEntrar').onclick = () => { pantalla = dest; render(); window.scrollTo(0, 0); };
+    if ($('#bvSin')) $('#bvSin').onclick = () => { cfg.omitirRegistro = true; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); };
+    if ($('#bvOlvido')) $('#bvOlvido').onclick = () => cambiarClaveUI(true);
+    $$('[data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal)));
+  }
+  function renderRegistro(v) {
+    $('#titulo').textContent = 'Registro del médico';
+    const p = cfg.perfil;
+    if (!p.especialidad) p.especialidad = 'Anestesiología';
+    v.innerHTML = `<section class="tarjeta"><h2>Bienvenido</h2><p class="nota" style="margin-top:0">Registra tus datos una sola vez. Se usan en el recuadro de firma y sello de cada historia.</p></section>` +
+      card('Datos profesionales', camposMedico(p)) +
+      card('Firma y sello', cajaFirmaSello(p)) +
+      card('Usuario y contraseña', `<div class="rejilla ancha"><label class="campo completo"><span>Usuario</span><input id="rgUser" value="${esc(p.correo || '')}" placeholder="Tu correo o un nombre de usuario" autocapitalize="none"></label>
+        <label class="campo"><span>Contraseña</span><input id="rgC1" type="password"></label><label class="campo"><span>Repetir contraseña</span><input id="rgC2" type="password"></label></div>
+        <div class="check"><input type="checkbox" id="rgPedir" checked><label for="rgPedir" style="flex:1">Pedir contraseña al abrir la app</label></div>
+        <p class="nota">La cuenta queda guardada en este teléfono. El inicio con Google necesita configurar un proyecto de Google; se puede agregar después.</p>`) +
+      `<div class="fila-btn" style="justify-content:space-between"><button class="secundario" id="rgLuego">Ahora no</button><button class="primario" id="rgOk">Crear mi cuenta</button></div>`;
+    enlazarMedico(p); enlazarFirmaSello(p);
+    $$('[data-md="correo"]').forEach((e) => e.addEventListener('input', () => { const u = $('#rgUser'); if (u && (!u.value || u.dataset.auto)) { u.value = e.value.trim(); u.dataset.auto = '1'; } }));
+    $('#rgLuego').onclick = () => { cfg.omitirRegistro = true; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); };
+    $('#rgOk').onclick = () => {
+      if (!p.nombre) { aviso('Escribe tu nombre'); return; }
+      const u = $('#rgUser').value.trim(), c1 = $('#rgC1').value;
+      if (!u) { aviso('Escribe un usuario'); return; } if (c1.length < 4) { aviso('La contraseña debe tener al menos 4 caracteres'); return; }
+      if (c1 !== $('#rgC2').value) { aviso('Las contraseñas no coinciden'); return; }
+      const r = Cuenta.crear(u, c1); r.cuenta.pedirClave = $('#rgPedir').checked; cfg.cuenta = r.cuenta; cfg.omitirRegistro = false;
+      Store.guardarConfig(cfg); sesion = true;
+      mostrarCodigo(r.codigo, () => { pantalla = 'inicio'; render(); aviso('Cuenta creada'); });
+    };
+  }
+  function renderLogin(v) {
+    $('#titulo').textContent = 'Morpheus MD';
+    $('#btnMenu').hidden = true;
+    v.innerHTML = `<section class="tarjeta" style="margin-top:30px"><h2>Iniciar sesión</h2>
+      ${cfg.perfil.nombre ? `<p style="margin:0 0 12px">${esc(cfg.perfil.nombre)}</p>` : ''}
+      <div class="rejilla ancha"><label class="campo completo"><span>Usuario</span><input id="lgUser" value="${esc(cfg.cuenta.usuario)}" autocapitalize="none"></label>
+      <label class="campo completo"><span>Contraseña</span><input id="lgClave" type="password" autofocus></label></div>
+      <div class="fila-btn" style="justify-content:space-between"><button class="secundario chico" id="lgOlvido">Olvidé mi contraseña</button><button class="primario" id="lgOk">Entrar</button></div></section>`;
+    const entrar = () => {
+      if (Cuenta.verificar(cfg.cuenta, $('#lgUser').value, $('#lgClave').value)) { sesion = true; $('#btnMenu').hidden = false; pantalla = 'inicio'; render(); }
+      else aviso('Usuario o contraseña incorrectos');
+    };
+    $('#lgOk').onclick = entrar; $('#lgClave').onkeydown = (e) => { if (e.key === 'Enter') entrar(); };
+    $('#lgOlvido').onclick = () => cambiarClaveUI(true);
+  }
+
+  function renderPerfil(v) {
+    $('#titulo').textContent = 'Mi perfil y firma';
+    const p = cfg.perfil;
+    const c = cfg.cuenta;
+    v.innerHTML = card('Mis datos profesionales', camposMedico(p) +
+        `<label class="campo completo" style="margin-top:10px"><span>Texto bajo la firma (vacío = se arma solo con tus datos)</span><textarea id="pfSello" placeholder="${esc(Cuenta.componerSello(p) || 'Dr. Nombre Apellido')}">${esc(p.sello)}</textarea></label>
+        <div class="check"><input type="checkbox" id="pfBajo"${p.datosBajoFirma !== false ? ' checked' : ''}><label for="pfBajo" style="flex:1">Imprimir mis datos bajo la firma</label></div>
+        <p class="nota">Se copian en cada historia nueva (Anestesiólogo y texto del sello).</p>`) +
+      card('Firma y sello escaneados', cajaFirmaSello(p) +
+        `<div class="check"><input type="checkbox" id="pfUsarEsc"${p.usarEscaneo !== false ? ' checked' : ''}><label for="pfUsarEsc" style="flex:1">Colocarlos solos en las historias nuevas</label></div>`) +
+      card('Mi cuenta', c ? `<p style="margin:0 0 8px">Usuario: <b>${esc(c.usuario)}</b></p>
+          <div class="check"><input type="checkbox" id="ctPedir"${c.pedirClave !== false ? ' checked' : ''}><label for="ctPedir" style="flex:1">Pedir contraseña al abrir la app</label></div>
+          <div class="fila-btn"><button class="secundario" id="ctClave">Cambiar contraseña</button></div>`
+        : `<p class="nota" style="margin-top:0">Aún no tienes cuenta. Crea una para proteger la app con usuario y contraseña.</p><div class="fila-btn"><button class="primario" id="ctCrear">Crear mi cuenta</button></div>`) +
+      card('Mis preferencias de cálculo', `<div class="rejilla ancha">
+        <label class="campo"><span>Fórmula de PMP por defecto</span><select id="pfForm">${Object.entries(FORM_PMP).map(([k, x]) => `<option value="${k}"${(p.formPmp || 'rapida') === k ? ' selected' : ''}>${x.t}</option>`).join('')}</select></label>
+        <label class="campo"><span>Hto mínimo aceptable por defecto</span><div class="con-unidad"><input id="pfHto" inputmode="decimal" value="${esc(p.htoMin || '')}" placeholder="30"><em>%</em></div></label></div>
+        <p class="nota">Se aplican a las historias nuevas; en cada historia puedes cambiarlas.</p>`) +
+      card('Firma guardada', (p.firma ? `<img class="firma-img" src="${p.firma}" alt="Firma">` : '<p class="nota">Aún no has guardado tu firma.</p>') +
+        `<div class="fila-btn"><button class="primario" id="pfFirmar">${p.firma ? 'Cambiar firma' : 'Dibujar firma'}</button>${p.firma ? '<button class="peligro" id="pfQuitar">Quitar</button>' : ''}</div>
+        <p class="nota">La firma guardada se coloca sola en las historias nuevas. Puedes cambiarla en cada historia.</p>`) +
+      card('Imagen de portada', `<div style="display:flex;gap:12px;align-items:center">
+        <img src="${p.portada || 'img/portada.jpg'}" alt="portada" style="width:64px;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--borde)">
+        <div style="flex:1"><p class="nota" style="margin-top:0">La foto de la pantalla de inicio. Puedes usar una tuya (vertical se ve mejor).</p>
+        <div class="fila-btn"><label class="secundario chico" style="display:inline-block">Cambiar foto<input type="file" accept="image/*" id="ptFile" hidden></label>
+        ${p.portada ? '<button class="secundario chico" id="ptReset">Volver a la original</button>' : ''}</div></div></div>`) +
+      card('Mi marca personal (marca de agua)', `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div style="background:#000;border-radius:10px;padding:10px;width:96px;height:96px;display:flex;align-items:center;justify-content:center">
+          <img src="${p.marcaBlanca || IMGS.marcaBlanca}" style="max-width:76px;max-height:76px;opacity:${p.marcaOpacidad || 0.55}" alt="marca"></div>
+        <div style="flex:1;min-width:180px">${''}
+          <div class="check"><input type="checkbox" id="mcOn"${p.marcaOn !== false ? ' checked' : ''}><label for="mcOn" style="flex:1;min-width:0">Mostrar en el encabezado del PDF</label></div>
+          <div class="check"><input type="checkbox" id="mcCentro"${p.marcaCentro ? ' checked' : ''}><label for="mcCentro" style="flex:1;min-width:0">También grande y muy tenue en el centro de la hoja</label></div>
+        </div></div>
+        <div class="grupo" style="margin-top:10px"><div class="etq">Transparencia en el encabezado</div><div class="opciones">
+          ${[['0.35', 'Suave'], ['0.55', 'Media'], ['0.8', 'Fuerte'], ['1', 'Sólida']].map(([v, t]) => `<button type="button" class="opcion${String(p.marcaOpacidad || '0.55') === v ? ' sel' : ''}" data-mcop="${v}">${t}</button>`).join('')}</div></div>
+        <div class="fila-btn"><label class="secundario chico" style="display:inline-block">Cambiar imagen<input type="file" accept="image/*" id="mcFile" hidden></label>
+          ${p.marcaBlanca ? '<button class="secundario chico" id="mcReset">Volver a la original</button>' : ''}</div>
+        <p class="nota">Sube tu logo sin fondo (PNG transparente) o sobre fondo liso; la app le quita el fondo sola. También es el logo del membrete de la valoración preanestésica y del récipe.</p>`);
+    $('#ptFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return;
+      leerImagen(f, 1400, 'image/jpeg').then((d) => { p.portada = d; Store.guardarConfig(cfg); render(); aviso('Portada actualizada'); }).catch(() => aviso('No se pudo leer la imagen')); };
+    if ($('#ptReset')) $('#ptReset').onclick = () => { delete p.portada; Store.guardarConfig(cfg); render(); };
+    $('#mcOn').onchange = (e) => { p.marcaOn = e.target.checked; Store.guardarConfig(cfg); };
+    $('#mcCentro').onchange = (e) => { p.marcaCentro = e.target.checked; Store.guardarConfig(cfg); };
+    $$('[data-mcop]').forEach((b) => (b.onclick = () => { p.marcaOpacidad = b.dataset.mcop; Store.guardarConfig(cfg); render(); }));
+    $('#mcFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return;
+      prepararMarca(f).then((m) => { p.marcaBlanca = m.blanca; p.marcaNegra = m.negra; Store.guardarConfig(cfg); render(); aviso('Marca actualizada'); })
+        .catch(() => aviso('No se pudo leer la imagen')); };
+    if ($('#mcReset')) $('#mcReset').onclick = () => { delete p.marcaBlanca; delete p.marcaNegra; Store.guardarConfig(cfg); render(); };
+    enlazarMedico(p); enlazarFirmaSello(p);
+    $('#pfSello').oninput = (e) => { p.sello = e.target.value; Store.guardarConfig(cfg); };
+    $('#pfBajo').onchange = (e) => { p.datosBajoFirma = e.target.checked; Store.guardarConfig(cfg); };
+    $('#pfUsarEsc').onchange = (e) => { p.usarEscaneo = e.target.checked; Store.guardarConfig(cfg); };
+    if ($('#ctPedir')) $('#ctPedir').onchange = (e) => { cfg.cuenta.pedirClave = e.target.checked; Store.guardarConfig(cfg); };
+    if ($('#ctCrear')) $('#ctCrear').onclick = () => { pantalla = 'registro'; render(); };
+    if ($('#ctClave')) $('#ctClave').onclick = () => cambiarClaveUI(false);
+    $('#pfForm').onchange = (e) => { p.formPmp = e.target.value; Store.guardarConfig(cfg); };
+    $('#pfHto').oninput = (e) => { p.htoMin = e.target.value; Store.guardarConfig(cfg); };
+    $('#pfFirmar').onclick = () => padFirma('Tu firma', (d) => { p.firma = d; Store.guardarConfig(cfg); render(); });
+    if ($('#pfQuitar')) $('#pfQuitar').onclick = () => { p.firma = ''; Store.guardarConfig(cfg); render(); };
+  }
+
+  function respaldo() {
+    menu([
+      { t: '⬆ Exportar respaldo (todas las historias)', f: () => {
+        const d = JSON.stringify(Store.respaldo()); const n = 'respaldo_anestesia_' + hoyISO() + '.json';
+        if (window.Nativo) Nativo.exportarTexto(d, n); else descargar(new Blob([d], { type: 'application/json' }), n);
+      } },
+      { t: '⬇ Importar respaldo', f: () => {
+        const i = document.createElement('input'); i.type = 'file'; i.accept = 'application/json,.json,*/*';
+        i.onchange = () => { const f = i.files[0]; if (!f) return; const r = new FileReader();
+          r.onload = () => { try { const n = Store.restaurar(JSON.parse(r.result)); cfg = Store.config(); render(); aviso(n + ' historias importadas'); } catch (e) { alert('No se pudo importar: ' + e.message); } };
+          r.readAsText(f); };
+        i.click();
+      } },
+    ]);
+  }
+
+  /* ---------- PDF ---------- */
+  function descargar(blob, nombre) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nombre; document.body.appendChild(a); a.click(); a.remove(); }
+  function nombrePdf() {
+    const n = (H.p.nombre || 'paciente').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    return `Anestesia_${n}_${H.p.fecha || hoyISO()}.pdf`;
+  }
+  function b64aBytes(b64) { const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+  function accionPdf(acc, b64, blob, nombre) {
+    try {
+      if (window.Nativo) { Nativo.pdf(b64, nombre, acc); return; }
+      // Versión web (PC, tablet, iPhone): compartir, imprimir o descargar con lo que ofrezca el navegador
+      if (acc === 'compartir') {
+        const f = new File([blob], nombre, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [f] })) { navigator.share({ files: [f], title: nombre }).catch(() => {}); return; }
+        descargar(blob, nombre); aviso('Tu navegador no comparte archivos: se descargó el PDF'); return;
+      }
+      if (acc === 'imprimir') {
+        const url = URL.createObjectURL(blob), ifr = document.createElement('iframe');
+        ifr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+        ifr.onload = () => { try { ifr.contentWindow.focus(); ifr.contentWindow.print(); } catch (e) { window.open(url, '_blank'); } setTimeout(() => ifr.remove(), 60000); };
+        ifr.src = url; document.body.appendChild(ifr); return;
+      }
+      if (acc === 'externo') { window.open(URL.createObjectURL(blob), '_blank'); return; }
+      descargar(blob, nombre);
+    } catch (e) { console.error(e); alert('Error: ' + e.message); }
+  }
+  /* Vista previa dentro de la app; el PDF se comparte / guarda / imprime desde el visor. */
+  const botonesPdf = (b64, blob, nombre) => [
+    { t: '<i>📤</i>Compartir', f: () => accionPdf('compartir', b64, blob, nombre) },
+    { t: '<i>💾</i>Guardar PDF', f: () => { accionPdf('descargas', b64, blob, nombre); } },
+    { t: '<i>🖨</i>Imprimir', f: () => accionPdf('imprimir', b64, blob, nombre) },
+    { t: '<i>↗</i>Otra app', f: () => accionPdf(window.Nativo ? 'ver' : 'externo', b64, blob, nombre) },
+  ];
+  function accionesPdf() {
+    if (pantalla === 'doc') return pdfDoc();
+    guardarYa();
+    aviso('Preparando vista previa…', 1200);
+    setTimeout(() => {
+      try {
+        calcular();
+        const doc = PDFHistoria.generar(H, sede(H.sedeId), cfg.perfil);
+        const nombre = nombrePdf();
+        const b64 = doc.output('datauristring').split(',')[1];
+        const blob = doc.output('blob');
+        Visor.abrir({
+          bytes: b64aBytes(b64), titulo: (H.p.nombre || 'Historia') + ' — vista previa',
+          acciones: botonesPdf(b64, blob, nombre),
+        });
+      } catch (e) { console.error(e); alert('Error al generar el PDF: ' + e.message); }
+    }, 30);
+  }
+
+
+  /* ================= Extras (vista previa 2.0): valoración preanestésica y récipe ================= */
+  let docTimer = null;
+  function guardarDocPronto() { const e = $('#estadoGuardado'); if (e) e.textContent = 'Guardando…'; clearTimeout(docTimer); docTimer = setTimeout(guardarDocYa, 500); }
+  function guardarDocYa() {
+    clearTimeout(docTimer); docTimer = null; if (!D) return;
+    const ok = Store.guardarDoc(D); const e = $('#estadoGuardado');
+    if (e) e.textContent = ok ? 'Guardado ' + new Date().toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }) : '⚠ No se pudo guardar';
+  }
+  function nuevoDoc(tipo) {
+    const b = { id: uid(), tipo, creado: Date.now(), fecha: hoyISO(), p: {} };
+    if (tipo === 'val') Object.assign(b, { ant: {}, hpb: {}, meds: [], sb: {}, rcri: {}, ef: { obese: {} }, lab: [{}], cv: {}, analg: {}, indicSel: [0, 1] });
+    else Object.assign(b, { items: [{}], gen: '', control: '' });
+    return b;
+  }
+  function migrarDoc(x) {
+    const base = nuevoDoc(x.tipo);
+    const fusion = (a, b) => { for (const k in b) { if (a[k] == null) a[k] = b[k]; else if (typeof b[k] === 'object' && !Array.isArray(b[k]) && typeof a[k] === 'object') fusion(a[k], b[k]); } return a; };
+    return fusion(x, base);
+  }
+  function abrirDoc(x) { D = x; pantalla = 'doc'; render(); window.scrollTo(0, 0); }
+  function docCambio(k) {
+    guardarDocPronto();
+    const m = /^meds\.(\d+)\.ref$/.exec(k);
+    if (m) { const it = D.meds[+m[1]]; if (it.ref && it.ref !== '__otro' && !t2(it.n)) it.n = it.ref; render(); return; }
+    if (/^(p\.sexo|compl)$/.test(k)) { render(); return; }
+    if (D.tipo === 'val') pintarCalcVal();
+    else if (k === 'p.nombre') $('#titulo').textContent = D.p.nombre || 'Récipe';
+  }
+  const t2 = (x) => (x == null ? '' : String(x).trim());
+
+  function renderExtras(v) {
+    $('#titulo').textContent = 'Extras';
+    const docs = Store.docs().sort((a, b) => b.modificado - a.modificado);
+    const lista = (tipo) => { const l = docs.filter((x) => x.tipo === tipo); return l.length ? `<ul class="lista">${l.map((x) => `<li class="item" data-acc="docAbrir" data-id="${x.id}"><div class="txt"><b>${esc(x.nombre || 'Sin nombre')}</b>
+      <small>${[x.ci && 'CI ' + x.ci, Extras.fechaTxt(x.fecha)].filter(Boolean).map(esc).join(' · ')}</small><small>${esc(x.det || '')}</small></div>
+      <button class="icono" style="color:var(--suave)" data-acc="docMas" data-id="${x.id}" aria-label="Opciones">&#8942;</button></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Aún no hay documentos.</p>'; };
+    v.innerHTML = `<section class="tarjeta ex-intro"><div class="ex-marca">Vista previa · versión 2.0</div><h2>Extras</h2>
+        <p class="nota" style="margin:0">Documentos con tu membrete (logo, nombre, registros y teléfono de "Mi perfil"), tu firma y tu sello. Se guardan en este teléfono.</p></section>` +
+      card('Valoración preanestésica', `<div class="fila-btn" style="margin:0 0 12px"><button class="primario" data-acc="docNuevo" data-t="val">+ Nueva valoración</button></div>` + lista('val')) +
+      card('Récipe (media carta)', `<div class="fila-btn" style="margin:0 0 12px"><button class="primario" data-acc="docNuevo" data-t="rx">+ Nuevo récipe</button></div>` + lista('rx')) +
+      card('Próximamente en la 2.0', '<ul class="nota" style="margin:0;padding-left:18px;line-height:1.7"><li>Guía de medicación preoperatoria para consultar por fármaco.</li><li>Constancia de reposo e informe médico.</li><li>Más formatos con tu membrete.</li></ul>');
+  }
+
+  /* ---- Valoración preanestésica ---- */
+  function chipsDoc(pref, lista) {
+    return `<div class="opciones">${lista.map(([k, tx]) => `<button type="button" class="opcion${getP(D, pref + k) ? ' sel' : ''}" data-acc="dTog" data-k="${pref}${k}">${esc(tx)}</button>`).join('')}</div>`;
+  }
+  function chkAuto(k, etq, auto) { // casilla que se marca sola con los datos del paciente, pero se puede cambiar
+    const v = getP(D, k); const on = v !== undefined && v !== '' ? !!v : !!auto;
+    return `<div class="check"><input type="checkbox" id="c_${k}" data-k="${k}"${on ? ' checked' : ''}><label for="c_${k}" style="flex:1">${etq}${v === undefined && auto !== undefined ? ' <small style="color:var(--suave)">(automático)</small>' : ''}</label></div>`;
+  }
+  function medsUI() {
+    const X = Extras, grupos = [...new Set(X.MEDS.map((m) => m.g))];
+    const opts = (sel) => '<option value="">— Tipo de fármaco (regla de la guía) —</option>' + grupos.map((g) => `<optgroup label="${g}">${X.MEDS.filter((m) => m.g === g).map((m) => `<option${m.n === sel ? ' selected' : ''}>${esc(m.n)}</option>`).join('')}</optgroup>`).join('') + `<option value="__otro"${sel === '__otro' ? ' selected' : ''}>Otro / sin regla</option>`;
+    const filas = (D.meds || []).map((m, i) => `<div class="med"><div class="rejilla ancha">
+      <label class="campo completo"><span>Tipo de fármaco</span><select data-k="meds.${i}.ref">${opts(m.ref)}</select></label>
+      <label class="campo"><span>Fármaco</span><input data-k="meds.${i}.n" value="${esc(m.n || '')}" placeholder="Ej. Losartán"></label>
+      <label class="campo"><span>Dosis</span><input data-k="meds.${i}.dosis" value="${esc(m.dosis || '')}" placeholder="50 mg c/12 h"></label>
+      <label class="campo"><span>Conducta</span><select data-k="meds.${i}.acc"><option value="">Según la guía</option>${Object.entries(X.ACC).map(([k, tx]) => `<option value="${k}"${m.acc === k ? ' selected' : ''}>${tx}</option>`).join('')}</select></label>
+      <label class="campo"><span>Días antes (si se suspende)</span><input data-k="meds.${i}.dias" inputmode="decimal" value="${esc(m.dias || '')}" placeholder="automático"></label>
+      <label class="campo completo"><span>Nota (opcional)</span><input data-k="meds.${i}.nota" value="${esc(m.nota || '')}" placeholder="Reemplaza la nota de la guía"></label></div>
+      <div class="formula" id="ind_${i}" style="font-family:inherit;margin:8px 0 0"></div>
+      <div class="fila-btn" style="justify-content:flex-end;margin-top:6px"><button class="peligro chico" data-acc="medQuitar" data-i="${i}">Quitar</button></div></div>`).join('');
+    return '<p class="nota" style="margin-top:0">Anota cada fármaco y elige su tipo. La app propone la conducta y la fecha de la última dosis según la Guía de Medicación Preoperatoria 2026 (cirugía sin neuroeje); puedes cambiarla.</p>' +
+      filas + '<div class="fila-btn"><button class="secundario" data-acc="medMas">+ Agregar fármaco</button></div>' +
+      ((D.meds || []).length ? '' : rej(TA('trat', 'O escribe el tratamiento como texto', { alto: 56 }), true));
+  }
+  const LABS = [['fecha', 'Fecha'], ['hgb', 'HGB'], ['hct', 'HCT'], ['pla', 'PLA'], ['gb', 'GB'], ['neu', 'NEU'], ['glic', 'GLIC'], ['urea', 'UREA'], ['crea', 'CREA'], ['tp', 'TP'], ['tpt', 'TPT'], ['inr', 'INR'], ['hiv', 'HIV'], ['vdrl', 'VDRL'], ['otros', 'Otros']];
+  function labsUI() {
+    if (!D.lab || !D.lab.length) D.lab = [{}];
+    return D.lab.map((l, i) => `${D.lab.length > 1 ? `<h3>Fecha ${i + 1}</h3>` : ''}<div class="rejilla labs">${LABS.map(([k, tx]) => `<label class="campo${k === 'fecha' ? ' doble' : ''}"><span>${tx}</span><input data-k="lab.${i}.${k}"${k === 'fecha' ? ' type="date"' : ['otros', 'hiv', 'vdrl'].includes(k) ? '' : ' inputmode="decimal"'} value="${esc(l[k] || '')}"></label>`).join('')}</div>`).join('') +
+      (D.lab.length < 3 ? '<div class="fila-btn"><button class="secundario chico" data-acc="labMas">+ Otra fecha</button></div>' : '');
+  }
+  function renderVal(v) {
+    const X = Extras; X.calcular(D); const p = D.p, au = D._sbAuto || {};
+    $('#titulo').textContent = p.nombre || 'Valoración preanestésica';
+    v.innerHTML =
+      card('Paciente', rej(T('fecha', 'Fecha de la valoración', { tipo: 'date' }) + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') +
+        SEL('p.sexo', 'Sexo', [['', '—'], ['M', 'Masculino'], ['F', 'Femenino']]) + Nm('p.edad', 'Edad', 'años') + Nm('p.peso', 'Peso', 'kg') + Nm('p.talla', 'Talla', 'm', { ph: '1.65' }) +
+        '<label class="campo calc"><span>IMC</span><div class="con-unidad"><input id="vIMC" readonly><em>kg/m²</em></div></label>' + T('p.ocup', 'Ocupación')) +
+        rej(T('p.dx', 'Diagnóstico', { full: true }) + T('p.proc', 'Procedimiento a realizar', { full: true }) + T('p.tratante', 'Médico tratante') + T('p.fechaCx', 'Fecha de la cirugía', { tipo: 'date' }), true) +
+        R('p.urg', 'Cirugía', [['no', 'Electiva'], ['si', 'Urgencia']]) + R('p.riesgoHem', 'Riesgo hemorrágico de la cirugía', [['minimo', 'Mínimo'], ['bajo', 'Bajo-moderado'], ['alto', 'Alto']]) +
+        '<p class="nota">La fecha de la cirugía y el riesgo hemorrágico se usan para calcular la última dosis de cada fármaco.</p><div class="fila-btn"><button class="secundario chico" data-acc="docDeHistoria">Tomar datos de una historia</button></div>') +
+      card('Antecedentes personales', chipsDoc('ant.', X.ANT.concat(X.ANT_EXTRA)) +
+        rej(TA('antOtros', 'Otros (uno por línea)', { alto: 54 }) + TA('quir', 'Quirúrgicos', { alto: 48 }) + TA('anest', 'Anestésicos', { alto: 48 }), true) +
+        R('compl', 'Complicaciones anestésicas', [['si', 'Sí'], ['no', 'No']]) + (D.compl === 'si' ? rej(T('complCual', '¿Cuál?', { full: true }), true) : '') +
+        rej(T('alergias', 'Alergias', { full: true, ph: 'Niega / …' }), true) +
+        '<h3>Hábitos (HPB)</h3>' + C('hpb.tab', 'Tabáquico', { k: 'hpb.ipa', ph: 'IPA', num: true }) + C('hpb.etil', 'Etílico', { k: 'hpb.etilTxt' }) + C('hpb.chim', 'Chimóico', { k: 'hpb.chimTxt' }) + C('hpb.caf', 'Caféico', { k: 'hpb.cafTxt' }) + C('hpb.otro', 'Otro', { k: 'hpb.otroTxt' })) +
+      card('Tratamiento actual y conducta preoperatoria', medsUI()) +
+      card('Riesgo', R('mets', 'Capacidad funcional', [['mas', '≥ 4 METs (sube 2 pisos)'], ['menos', '< 4 METs']]) +
+        '<h3>STOP-BANG (apnea del sueño)</h3>' + X.SB.map(([k, tx]) => (['b', 'a', 'n', 'g'].includes(k) ? chkAuto('sb.' + k, tx, au[k]) : C('sb.' + k, tx))).join('') + '<p class="nota" id="vSB"></p>' +
+        '<h3>Índice de riesgo cardíaco revisado (Lee)</h3>' + X.RCRI.map(([k, tx]) => C('rcri.' + k, tx)).join('') + '<p class="nota" id="vRCRI"></p><p class="nota" id="vClcr"></p>' +
+        (p.sexo === 'F' ? rej(T('fum', 'Fecha de última menstruación (FUM)', { tipo: 'date' })) : '')) +
+      card('Examen físico', R('ef.mallampati', 'Mallampati', ['I', 'II', 'III', 'IV'], [IMGS.mall1, IMGS.mall2, IMGS.mall3, IMGS.mall4]) +
+        rej(Nm('ef.dii', 'DII (interincisivos)', 'cm') + Nm('ef.dtm', 'DTM (tiromentoniana)', 'cm') + Nm('ef.dem', 'DEM (esternomentoniana)', 'cm') + T('ef.pm', 'PM (protrusión mandibular)', { ph: 'A / B / C' }) + T('ef.bhd', 'BHD (Bellhouse-Doré)', { ph: 'I – IV' }) + Nm('ef.cc', 'CC (circunferencia cervical)', 'cm')) +
+        '<h3>OBESE · Langeron (ventilación con mascarilla)</h3>' + chkAuto('ef.obese.o', 'O · Obesidad (IMC > 26)', D._imc > 26) + C('ef.obese.b', 'B · Barba') + C('ef.obese.e', 'E · Edéntulo') + chkAuto('ef.obese.s', 'S · Ronquido (SAOS)', !!(D.sb || {}).s) + chkAuto('ef.obese.e2', 'E · Edad > 55', num(p.edad) > 55) +
+        '<p class="nota" id="vLang"></p>' + R('ef.vad', 'Probable VAD', [['si', 'Sí'], ['no', 'No']]) +
+        '<h3>Signos vitales</h3>' + rej(T('ef.ta', 'TA', { ph: '120/80', u: 'mmHg' }) + Nm('ef.fc', 'FC', 'lpm') + Nm('ef.fr', 'FR', 'rpm') + Nm('ef.spo2', 'SpO2', '%')) +
+        rej(T('ef.cond', 'Condiciones', { full: true }) + T('ef.cabeza', 'Cabeza y cuello', { full: true }) + T('ef.orl', 'ORL', { full: true }), true) +
+        R('ef.dientes', 'Piezas dentarias', [['normal', 'Normal'], ['parcial', 'Ausencia parcial'], ['total', 'Ausencia total']]) + C('ef.protesis', 'Prótesis dental') +
+        rej(T('ef.torax', 'Tórax', { full: true }) + T('ef.abd', 'Abdomen', { full: true }), true) + R('ef.espalda', 'Columna: tipo de espalda', ['1', '2', '3']) +
+        rej(T('ef.columna', 'Columna (detalle)', { full: true }) + T('ef.ext', 'Extremidades', { full: true }) + T('ef.neuro', 'Neurológico', { full: true }), true)) +
+      card('Laboratorios', labsUI()) +
+      card('Valoraciones y estudios', rej(T('cv.fecha', 'Valoración CV (fecha)', { tipo: 'date' }) + T('cv.asa', 'ASA (CV)') + T('cv.goldman', 'Goldman') + T('cv.tep', 'Riesgo TEP') +
+        T('cv.ekg', 'EKG', { full: true }) + T('rx', 'Rx de tórax', { full: true }) + T('sug', 'Sugerencias', { full: true }) + T('eco', 'EcoTT', { full: true }) + T('neumo', 'Val. Neumo/Endocrino', { full: true }) + T('otros', 'Otros', { full: true }), true)) +
+      card('Plan', '<h3>Sugerencias / indicaciones</h3>' + `<div class="opciones">${X.SUGERENCIAS.map((s, i) => `<button type="button" class="opcion${(D.indicSel || []).includes(i) ? ' sel' : ''}" data-acc="dSug" data-i="${i}" style="text-align:left">${esc(s)}</button>`).join('')}</div>` +
+        rej(TA('indic', 'Otras indicaciones', { alto: 64 }), true) + R('asa', 'ASA', ['I', 'II', 'III', 'IV', 'V', 'I E', 'II E', 'III E', 'IV E', 'V E']) + rej(T('plan', 'Plan anestésico', { full: true }), true) +
+        `<div class="opciones">${['Anestesia general balanceada', 'TIVA', 'Anestesia raquídea', 'Anestesia epidural', 'Combinada raquídea-epidural', 'Bloqueo de nervio periférico', 'Sedación'].map((s) => `<button type="button" class="opcion" data-acc="dPlan" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>` +
+        '<h3>Plan analgésico</h3>' + C('analg.ev', 'EV') + C('analg.peri', 'Peridural') + C('analg.reg', 'Regional')) +
+      '<p class="nota" style="margin:0 4px 12px">La firma y el sello salen de "Mi perfil". Las conductas de medicación son una referencia (Guía de Manejo de Medicación Preoperatoria 2026) y no sustituyen el juicio clínico.</p>';
+    pintarCalcVal();
+  }
+  function pintarCalcVal() {
+    if (!D || D.tipo !== 'val') return; const X = Extras; X.calcular(D);
+    const set = (id, h) => { const e = $('#' + id); if (e) { if (e.tagName === 'INPUT') e.value = h; else e.innerHTML = h; } };
+    set('vIMC', isFinite(D._imc) ? D._imc.toFixed(1) : '');
+    set('vSB', `Puntaje: <b>${D._sb}/8</b> · ${D._sb >= 5 ? 'riesgo alto de SAOS' : D._sb >= 3 ? 'riesgo intermedio' : 'riesgo bajo'}`);
+    set('vRCRI', `RCRI: <b>${D._rcri}</b> · riesgo de evento cardíaco mayor a 30 días ≈ ${X.RCRI_RIESGO[Math.min(D._rcri, 3)]}`);
+    set('vClcr', isFinite(D._clcr) ? `Aclaramiento de creatinina (Cockcroft-Gault): <b>${Math.round(D._clcr)} mL/min</b>` : 'ClCr: anota edad, peso, sexo y creatinina.');
+    const ef = D.ef || {}; const vad = D._langeron >= 2 || ['III', 'IV'].includes(ef.mallampati) || num(ef.dtm) < 6.5 || num(ef.dii) < 3;
+    set('vLang', `Langeron: <b>${D._langeron}/5</b>${D._langeron >= 2 ? ' · sugiere ventilación con mascarilla difícil' : ''}${vad ? ' · <b>considera VAD probable</b>' : ''}`);
+    (D.meds || []).forEach((m, i) => set('ind_' + i, esc(X.indicacion(m, D)) || '<span style="color:var(--suave)">Elige el tipo de fármaco o la conducta.</span>'));
+  }
+
+  /* ---- Récipe ---- */
+  const RX_RAPIDOS = [
+    ['Ketoprofeno 100 mg tabletas', '#10 (diez)', 'Tomar 1 tableta VO cada 12 h por 5 días, después de comer.'],
+    ['Paracetamol 500 mg tabletas', '#20 (veinte)', 'Tomar 2 tabletas (1 g) VO cada 8 h por 5 días. No exceder 4 g al día.'],
+    ['Diclofenac potásico 50 mg tabletas', '#10 (diez)', 'Tomar 1 tableta VO cada 8 h por 3 días, después de comer.'],
+    ['Ibuprofeno 400 mg tabletas', '#15 (quince)', 'Tomar 1 tableta VO cada 8 h por 5 días, después de comer.'],
+    ['Tramadol 50 mg cápsulas', '#10 (diez)', 'Tomar 1 cápsula VO cada 8 h si el dolor es intenso. Puede causar náuseas o somnolencia.'],
+    ['Omeprazol 20 mg cápsulas', '#10 (diez)', 'Tomar 1 cápsula VO en ayunas, 30 min antes del desayuno, por 10 días.'],
+    ['Ondansetrón 8 mg tabletas', '#6 (seis)', 'Tomar 1 tableta VO o sublingual cada 8 h si presenta náuseas o vómitos.'],
+    ['Metoclopramida 10 mg tabletas', '#9 (nueve)', 'Tomar 1 tableta VO cada 8 h, antes de las comidas, si presenta náuseas.'],
+  ];
+  function renderRx(v) {
+    $('#titulo').textContent = D.p.nombre || 'Récipe';
+    const pl = cfg.rxPlantillas || [];
+    if (!D.items || !D.items.length) D.items = [{}];
+    v.innerHTML = card('Paciente', rej(T('fecha', 'Fecha', { tipo: 'date' }) + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') + Nm('p.edad', 'Edad', 'años') + Nm('p.peso', 'Peso', 'kg')) +
+        '<div class="fila-btn"><button class="secundario chico" data-acc="docDeHistoria">Tomar datos de una historia</button></div>') +
+      card('Rp / medicamentos', D.items.map((it, i) => `<div class="med"><div class="rejilla ancha"><label class="campo completo"><span>Medicamento y presentación</span><input data-k="items.${i}.med" value="${esc(it.med || '')}" placeholder="Ej. Ketoprofeno 100 mg tabletas"></label>
+          <label class="campo"><span>Cantidad</span><input data-k="items.${i}.cant" value="${esc(it.cant || '')}" placeholder="#10 (diez)"></label></div>
+          ${rej(TA(`items.${i}.ind`, 'Indicación (sale en la mitad derecha)', { alto: 52 }), true)}
+          <div class="fila-btn" style="justify-content:flex-end;margin-top:4px"><button class="peligro chico" data-acc="rxQuitar" data-i="${i}">Quitar</button></div></div>`).join('') +
+        `<div class="fila-btn"><button class="secundario" data-acc="rxMas">+ Agregar medicamento</button></div><h3>Agregar rápido</h3><div class="opciones">${RX_RAPIDOS.map((r, i) => `<button type="button" class="opcion" data-acc="rxRapido" data-i="${i}">+ ${esc(r[0])}</button>`).join('')}</div>`) +
+      card('Indicaciones generales', rej(TA('gen', 'Indicaciones generales', { alto: 80, ph: 'Dieta, reposo, signos de alarma…' }) + T('control', 'Próximo control', { full: true, ph: 'Ej. 7 días con su cirujano' }) +
+        SEL('valido', 'Validez del récipe', [['', '— No indicar —'], ['30 días', '30 días (medicamentos comunes)'], ['10 días', '10 días (antibióticos)'], ['7 días', '7 días']]), true)) +
+      card('Mis plantillas', (pl.length ? `<div class="opciones">${pl.map((x, i) => `<button type="button" class="opcion" data-acc="rxPlant" data-i="${i}">${esc(x.nombre)}</button>`).join('')}</div>` : '<p class="nota" style="margin-top:0">Guarda un récipe que uses a menudo y aplícalo con un toque.</p>') +
+        `<div class="fila-btn"><button class="secundario chico" data-acc="rxGuardarPl">Guardar este récipe como plantilla</button>${pl.length ? '<button class="peligro chico" data-acc="rxBorrarPl">Borrar una plantilla</button>' : ''}</div>`);
+  }
+  function docDeHistoria() {
+    const idx = Store.indice().sort((a, b) => b.modificado - a.modificado).slice(0, 25);
+    if (!idx.length) { aviso('No hay historias guardadas'); return; }
+    menu(idx.map((x) => ({ t: esc(x.nombre || 'Sin nombre') + (x.ci ? ' · CI ' + esc(x.ci) : ''), f: () => {
+      const h = Store.cargar(x.id); if (!h) return; const hp = h.p || {};
+      ['nombre', 'ci', 'edad', 'peso'].forEach((k) => { if (hp[k]) D.p[k] = hp[k]; });
+      if (D.tipo === 'val') { ['sexo', 'talla'].forEach((k) => { if (hp[k]) D.p[k] = hp[k]; }); if (h.dx) D.p.dx = h.dx; if (h.intervencion) D.p.proc = h.intervencion; if (h.alergias) D.alergias = h.alergias; }
+      guardarDocYa(); render(); aviso('Datos copiados');
+    } })));
+  }
+  function historiaDeValoracion() {
+    guardarDocYa(); const x = D; H = nuevaHistoria();
+    Object.assign(H.p, { nombre: x.p.nombre || '', ci: x.p.ci || '', sexo: x.p.sexo || '', edad: x.p.edad || '', peso: x.p.peso || '', talla: x.p.talla || '' });
+    H.dx = x.p.dx || ''; H.intervencion = x.p.proc || ''; H.alergias = x.alergias || '';
+    const asa = String(x.asa || '').split(' '); if (asa[0]) H.asa = asa[0]; if (asa[1] === 'E') H.asaE = true;
+    if (x.ef && x.ef.mallampati) H.mallampati = x.ef.mallampati;
+    Store.guardar(H); D = null; pantalla = 'editor'; seccion = 0; render(); window.scrollTo(0, 0); aviso('Historia creada con los datos de la valoración');
+  }
+  function pdfDoc() {
+    guardarDocYa(); aviso('Preparando vista previa…', 1200);
+    setTimeout(() => {
+      try {
+        const pf = cfg.perfil || {}; const copia = JSON.parse(JSON.stringify(D));
+        const doc = D.tipo === 'val' ? Extras.pdfValoracion(copia, pf) : Extras.pdfRecipe(copia, pf);
+        const n = (D.p.nombre || 'paciente').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        const nombre = (D.tipo === 'val' ? 'Valoracion_' : 'Recipe_') + n + '_' + (D.fecha || hoyISO()) + '.pdf';
+        const b64 = doc.output('datauristring').split(',')[1], blob = doc.output('blob');
+        Visor.abrir({ bytes: b64aBytes(b64), titulo: (D.p.nombre || (D.tipo === 'val' ? 'Valoración' : 'Récipe')) + ' — vista previa', acciones: botonesPdf(b64, blob, nombre) });
+      } catch (e) { console.error(e); alert('Error al generar el PDF: ' + e.message); }
+    }, 30);
+  }
+
+  /* ---------- Eventos ---------- */
+  const vista = $('#vista');
+  function alCambiar(e) {
+    const el = e.target; const k = el.dataset && el.dataset.k; const o = obj(); if (!k || !o) return;
+    let v = el.type === 'checkbox' ? el.checked : el.value;
+    setP(o, k, v);
+    // Marcar la casilla al escribir su detalle
+    const chk = el.closest('.check') && el.closest('.check').querySelector('input[type=checkbox]');
+    if (chk && el.type !== 'checkbox' && v && !chk.checked) { chk.checked = true; setP(o, chk.dataset.k, true); }
+    if (o === D) { docCambio(k, el); return; }
+    if (k === 'p.nombre') $('#titulo').textContent = v || 'Historia nueva';
+    refrescarCalculos(); guardarPronto();
+    if ((k === 'obs' || k.startsWith('obsOpc') || k.startsWith('p.sexo')) && $('#obsPrev')) $('#obsPrev').innerHTML = obsPrevia();
+  }
+  vista.addEventListener('change', (e) => {
+    const s = e.target.closest && e.target.closest('[data-pagsel]'); if (!s || !H) return;
+    const p = H.to.pistas[s.dataset.pagsel];
+    if (s.value === '__otro') { p._otro = true; if (Pistas.LISTAS[Pistas.info(s.dataset.pagsel).lista].includes(p.agente)) p.agente = ''; }
+    else { p._otro = false; p.agente = s.value; }
+    guardarPronto(); render();
+  });
+  vista.addEventListener('input', alCambiar);
+  vista.addEventListener('change', alCambiar);
+  document.addEventListener('click', (e) => {
+    const r = e.target.closest('[data-r]');
+    if (r && obj()) {
+      const o = obj(), k = r.dataset.r; const nuevo = getP(o, k) === r.dataset.v && k !== 'p.formPmp' ? '' : r.dataset.v; setP(o, k, nuevo);
+      $$(`[data-r="${k}"]`).forEach((b) => b.classList.toggle('sel', b.dataset.v === nuevo));
+      if (o === D) docCambio(k); else { refrescarCalculos(); guardarPronto(); } return;
+    }
+    const s = e.target.closest('[data-s]');
+    if (s) { guardarYa(); seccion = +s.dataset.s; render(); window.scrollTo(0, 0); return; }
+    const ab = e.target.closest('[data-abrir]');
+    const mas = e.target.closest('[data-mas]');
+    if (mas) { opcionesHistoria(mas.dataset.mas); return; }
+    if (ab) { abrir(ab.dataset.abrir); return; }
+    const a = e.target.closest('[data-acc]'); if (!a) return;
+    const acc = a.dataset.acc;
+    if (acc === 'ahora') { setP(H, a.dataset.p, ahoraHM(+a.dataset.red || 0)); guardarPronto(); render(); }
+    else if (acc === 'marcarTodo') { CHECKLIST.forEach(([k]) => (H.chk[k] = true)); guardarPronto(); render(); }
+    else if (acc === 'nuevoReg') abrirRegistro(null);
+    else if (acc === 'agregarInf') { H.inf = H.inf || []; H.inf.push({ farm: a.dataset.farm === 'Otra' ? '' : a.dataset.farm }); guardarPronto(); render(); abrirCalculadora(H.inf.length - 1); }
+    else if (acc === 'calcInf') abrirCalculadora(+a.dataset.i);
+    else if (acc === 'pAg') { const p = H.to.pistas[a.dataset.p]; p.agente = p.agente === a.dataset.v && a.dataset.p === 'inh' ? '' : a.dataset.v; guardarPronto(); render(); }
+    else if (acc === 'irExtras') { pantalla = 'extras'; render(); window.scrollTo(0, 0); }
+    else if (acc === 'docNuevo') { const x = nuevoDoc(a.dataset.t); Store.guardarDoc(x); abrirDoc(x); }
+    else if (acc === 'docAbrir') { const x = Store.cargarDoc(a.dataset.id); if (x) abrirDoc(migrarDoc(x)); else aviso('No se pudo abrir'); }
+    else if (acc === 'docMas') { const id = a.dataset.id; menu([
+        { t: 'Abrir', f: () => { const x = Store.cargarDoc(id); if (x) abrirDoc(migrarDoc(x)); } },
+        { t: 'Duplicar', f: () => { const x = Store.cargarDoc(id); if (!x) return; x.id = uid(); x.creado = Date.now(); x.fecha = hoyISO(); Store.guardarDoc(x); render(); aviso('Copia creada'); } },
+        { t: 'Eliminar', peligro: true, f: () => { if (confirm('¿Eliminar este documento?')) { Store.borrarDoc(id); render(); } } }]); }
+    else if (acc === 'dTog') { const k = a.dataset.k; setP(D, k, !getP(D, k)); a.classList.toggle('sel', !!getP(D, k)); docCambio(k); }
+    else if (acc === 'dSug') { const i = +a.dataset.i, l = D.indicSel = D.indicSel || []; const j = l.indexOf(i); if (j >= 0) l.splice(j, 1); else l.push(i); a.classList.toggle('sel', j < 0); guardarDocPronto(); }
+    else if (acc === 'dPlan') { D.plan = D.plan && !D.plan.includes(a.dataset.v) ? D.plan + ' + ' + a.dataset.v : a.dataset.v; const e = $('[data-k="plan"]'); if (e) e.value = D.plan; guardarDocPronto(); }
+    else if (acc === 'medMas') { D.meds = D.meds || []; D.meds.push({}); guardarDocPronto(); render(); }
+    else if (acc === 'medQuitar') { D.meds.splice(+a.dataset.i, 1); guardarDocPronto(); render(); }
+    else if (acc === 'labMas') { D.lab.push({}); guardarDocPronto(); render(); }
+    else if (acc === 'docDeHistoria') docDeHistoria();
+    else if (acc === 'rxMas') { D.items.push({}); guardarDocPronto(); render(); }
+    else if (acc === 'rxQuitar') { D.items.splice(+a.dataset.i, 1); guardarDocPronto(); render(); }
+    else if (acc === 'rxRapido') { const r = RX_RAPIDOS[+a.dataset.i], it = { med: r[0], cant: r[1], ind: r[2] }; const vacio = D.items.findIndex((x) => !t2(x.med) && !t2(x.ind)); if (vacio >= 0) D.items[vacio] = it; else D.items.push(it); guardarDocPronto(); render(); aviso('Agregado: ' + r[0]); }
+    else if (acc === 'rxPlant') { const x = (cfg.rxPlantillas || [])[+a.dataset.i]; if (!x) return; D.items = JSON.parse(JSON.stringify(x.items)); D.gen = x.gen || ''; D.control = x.control || ''; guardarDocPronto(); render(); aviso('Plantilla aplicada'); }
+    else if (acc === 'rxGuardarPl') { const nm = prompt('Nombre de la plantilla', D.items.map((i) => t2(i.med).split(' ')[0]).filter(Boolean).join(' + ') || 'Mi récipe'); if (!nm) return;
+      cfg.rxPlantillas = (cfg.rxPlantillas || []).concat([{ nombre: nm, items: JSON.parse(JSON.stringify(D.items.filter((i) => t2(i.med)))), gen: D.gen || '', control: D.control || '' }]); Store.guardarConfig(cfg); render(); aviso('Plantilla guardada'); }
+    else if (acc === 'rxBorrarPl') menu((cfg.rxPlantillas || []).map((x, i) => ({ t: '🗑 ' + esc(x.nombre), f: () => { cfg.rxPlantillas.splice(i, 1); Store.guardarConfig(cfg); render(); } })));
+    else if (acc === 'obsTab') { obsTab = a.dataset.v; render(); }
+    else if (acc === 'obsFr') {
+      const o = Obs.opc(H), g = Obs.GRUPOS.find((x) => x.k === a.dataset.g), v = a.dataset.v;
+      if (g.uno) o.fr[g.k] = o.fr[g.k] === v ? '' : v;
+      else { const l = o.fr[g.k] = o.fr[g.k] || []; const i = l.indexOf(v); if (i >= 0) l.splice(i, 1); else l.push(v); }
+      guardarPronto(); render();
+    }
+    else if (acc === 'pEv') { const p = H.to.pistas[a.dataset.p];
+      const tp = Pistas.info(a.dataset.p).tipo;
+      if (a.dataset.i == null && tp !== 'gas' && tp !== 'sol' && !p.agente && a.dataset.p !== 'aire') { aviso('Primero elige el ' + (a.dataset.p === 'inh' ? 'anestésico' : 'medicamento')); return; }
+      abrirEvento(a.dataset.p, a.dataset.i == null ? null : +a.dataset.i, a.dataset.t); }
+    else if (acc === 'quitarInf') { if (confirm('¿Quitar esta infusión?')) { H.inf.splice(+a.dataset.i, 1); guardarPronto(); render(); } }
+    else if (acc === 'editarReg') abrirRegistro(+a.dataset.i);
+    else if (acc === 'firmar') padFirma('Firma', (d) => { H.firma = d; guardarPronto(); render(); });
+    else if (acc === 'firmaPerfil') { H.firma = cfg.perfil.firma; if (!H.sello) H.sello = cfg.perfil.sello; guardarPronto(); render(); }
+    else if (acc === 'quitarFirma') { H.firma = ''; H.firmaSello = ''; guardarPronto(); render(); }
+    else if (acc === 'usarEscaneo') { H.firmaSello = cfg.perfil.firmaSello; if (!H.sello) H.sello = cfg.perfil.sello || Cuenta.componerSello(cfg.perfil); guardarPronto(); render(); }
+    else if (acc === 'pdf') accionesPdf();
+  });
+  $('#btnPdf').onclick = accionesPdf;
+  $('#btnAtras').onclick = () => atras();
+  $('#btnMenu').onclick = () => {
+    if (pantalla === 'doc') {
+      menu([
+        { t: 'Ver / PDF', f: pdfDoc },
+        ...(D.tipo === 'val' ? [{ t: 'Crear historia de anestesia con estos datos', f: historiaDeValoracion }] : []),
+        { t: 'Duplicar', f: () => { guardarDocYa(); const c = JSON.parse(JSON.stringify(D)); c.id = uid(); c.creado = Date.now(); c.fecha = hoyISO(); Store.guardarDoc(c); abrirDoc(c); aviso('Copia creada'); } },
+        { t: 'Mi perfil y membrete', f: () => { guardarDocYa(); D = null; pantalla = 'perfil'; render(); } },
+        { t: 'Eliminar', peligro: true, f: () => { if (confirm('¿Eliminar este documento?')) { Store.borrarDoc(D.id); D = null; pantalla = 'extras'; render(); } } },
+      ]);
+      return;
+    }
+    if (pantalla === 'editor') {
+      menu([
+        { t: 'Ver / PDF', f: accionesPdf },
+        { t: 'Nueva historia usando esta como plantilla', f: () => { guardarYa(); duplicar(H.id, false); } },
+        { t: 'Mi perfil y firma', f: () => { guardarYa(); pantalla = 'perfil'; render(); } },
+        { t: 'Lugares de trabajo', f: () => { guardarYa(); pantalla = 'sedes'; render(); } },
+        { t: 'Eliminar esta historia', peligro: true, f: () => { if (confirm('¿Eliminar esta historia? No se puede deshacer.')) { Store.borrar(H.id); H = null; pantalla = 'inicio'; render(); } } },
+      ]);
+    } else {
+      menu([
+        { t: '✦ Extras: valoración y récipe', f: () => { pantalla = 'extras'; render(); } },
+        { t: '🏥 Lugares de trabajo', f: () => { pantalla = 'sedes'; render(); } },
+        { t: '✍ Mi perfil y firma', f: () => { pantalla = 'perfil'; render(); } },
+        { t: '🗂 Respaldo (exportar / importar)', f: respaldo },
+        { t: 'ℹ Acerca de', f: () => { abrirHoja(`<h2>Morpheus MD</h2><p>Versión ${VERSION} · Registro anestésico digital</p><p class="nota">Todo se guarda solo en este teléfono; la app no tiene acceso a Internet. Usa “Respaldo” de vez en cuando para no perder tus historias si cambias o pierdes el teléfono.</p>
+          <div class="fila-btn">${Object.entries(LEGAL.TEXTOS).map(([k, x]) => `<button class="secundario chico" data-legal="${k}">${x.t}</button>`).join('')}</div>
+          <div class="acciones"><button class="primario" id="acCerrar">Cerrar</button></div>`);
+          $('#acCerrar').onclick = cerrarHoja; $$('#capa [data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal))); } },
+      ]);
+    }
+  };
+
+  function atras() {
+    if (window.Visor && Visor.abierto()) { Visor.cerrar(); return true; }
+    if (!$('#capa').hidden) { cerrarHoja(); return true; }
+    if (pantalla === 'editor') { guardarYa(); H = null; pantalla = 'inicio'; render(); return true; }
+    if (pantalla === 'doc') { guardarDocYa(); D = null; pantalla = 'extras'; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'extras') { pantalla = 'inicio'; render(); return true; }
+    if (pantalla === 'bienvenida') return false;
+    if (pantalla === 'login') { pantalla = 'bienvenida'; render(); return true; }
+    if (pantalla === 'registro') { pantalla = !cfg.cuenta && !cfg.omitirRegistro ? 'bienvenida' : 'perfil'; render(); return true; }
+    if (pantalla === 'sedes' || pantalla === 'perfil') {
+      pantalla = H ? 'editor' : 'inicio'; if (H) H = migrar(Store.cargar(H.id) || H); render(); return true;
+    }
+    return false;
+  }
+  window.app = { atras: () => atras(), pausa: () => guardarYa(), _estado: () => ({ H, cfg }) };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) guardarYa(); });
+  pantalla = 'bienvenida';
+  render();
+})();
