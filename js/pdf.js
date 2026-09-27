@@ -645,14 +645,14 @@ window.PDFHistoria = (function () {
     Parrafo(window.Obs ? Obs.texto(h) : t(h.obs), 41, 1019, 332, 1107, { size: 7.6 });
     // Rel muscular
     Sub(338, 1010.5, 398, 1018.5, 'Rel Muscular');
-    const dosis = (y, x1, x2, v) => { L(x1, y + 3.4, x2, y + 3.4, 0.5); V(v, (x1 + x2) / 2, y + 0.3, { size: 6.2, align: 'center' }); };
-    Opc(343, 1024, 'Neostigmina', !!rv.neo); dosis(1024, 418, 442, rv.neoD); T('mg', 445, 1024.3, { size: 5.4 });
-    Opc(343, 1034, 'Sugammadex', !!rv.sug); dosis(1034, 418, 442, rv.sugD); T('mg', 445, 1034.3, { size: 5.4 });
-    Opc(343, 1044, 'Atropina', !!rv.atro); dosis(1044, 418, 442, rv.atroD); T('mg', 445, 1044.3, { size: 5.4 });
+    const dosis = (y, x1, x2, v) => { L(x1, y + 3.4, x2, y + 3.4, 0.5); V(v, (x1 + x2) / 2, y + 0.3, { size: 6.2, align: 'center', maxw: x2 - x1 + 2 }); };
+    Opc(343, 1024, 'Neostigmina', !!rv.neo); dosis(1024, 418, 442, rv.neoD); T(rv.neoU || 'mg', 445, 1024.3, { size: 5.4 });
+    Opc(343, 1034, 'Sugammadex', !!rv.sug); dosis(1034, 418, 442, rv.sugD); T(rv.sugU || 'mg', 445, 1034.3, { size: 5.4 });
+    Opc(343, 1044, 'Atropina', !!rv.atro); dosis(1044, 418, 442, rv.atroD); T(rv.atroU || 'mg', 445, 1044.3, { size: 5.4 });
     Sub(468, 1010.5, 556, 1018.5, 'Opioides');
-    Opc(472, 1024, 'Naloxona', !!rv.nalo, { size: 5.7, fijo: true }); dosis(1024, 523, 543, rv.naloD); T('mcg', 546, 1024.3, { size: 5.4 });
+    Opc(472, 1024, 'Naloxona', !!rv.nalo, { size: 5.7, fijo: true }); dosis(1024, 523, 543, rv.naloD); T(rv.naloU || 'mcg', 546, 1024.3, { size: 5.4 });
     Sub(468, 1030, 556, 1038, 'Benzodiacepinas');
-    Opc(472, 1044, 'Flumazenil', !!rv.flum, { size: 5.7, fijo: true }); dosis(1044, 523, 543, rv.flumD); T('mg', 546, 1044.3, { size: 5.4 });
+    Opc(472, 1044, 'Flumazenil', !!rv.flum, { size: 5.7, fijo: true }); dosis(1044, 523, 543, rv.flumD); T(rv.flumU || 'mg', 546, 1044.3, { size: 5.4 });
     Sub(568, 1010.5, 648, 1018.5, 'SAP');
     Opc(571, 1024, 'Intravenoso', !!sp.iv); Opc(571, 1034, 'Epidural', !!sp.epi); Opc(571, 1044, 'No lleva SAP / Razón:', !!sp.no, { size: 5.4 });
     V(sp.razon, 571, 1052, { size: 5.6, maxw: 112 });

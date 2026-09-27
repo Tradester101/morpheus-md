@@ -78,7 +78,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.4';
+  const VERSION = '1.9.5';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -312,11 +312,102 @@
         '<p class="nota">Toca un fármaco para agregarlo con su dosis habitual y ajusta dosis y unidad. Puedes poner varios en el mismo ítem: en la hoja cada uno va en su línea y el espacio del recuadro se reparte solo. Los fármacos que escribas se guardan para la próxima vez.</p>');
   }
 
+  /* ---------- Dosis por peso (inducción y reversión) ---------- */
+  const pesoKg = () => { const w = num((H && H.p || {}).peso); return w > 0 ? w : 0; };
+  const fmtN = (x) => String(x).replace('.', ',');
+  // Redondeo práctico: mcg y ≥20 mg sin decimales; 1–20 con 1 decimal; <1 con 2
+  const redondear = (x) => (x >= 20 ? Math.round(x) : x >= 1 ? Math.round(x * 10) / 10 : Math.round(x * 100) / 100);
+  const sinTilde = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+  // Inducción: rango por kg [mín, máx, unidad], dosis de los botones (por kg) y nota
+  const IND_FARM = {
+    'Propofol': { r: [1.5, 2.5, 'mg/kg'], s: [2] },
+    'Etomidato': { r: [0.2, 0.3, 'mg/kg'], s: [0.3] },
+    'Ketamina': { r: [1, 2, 'mg/kg'], s: [1], nota: 'Analgésica / subanestésica: 0,15–0,5 mg/kg.' },
+    'Tiopental': { r: [3, 5, 'mg/kg'], s: [4] },
+    'Midazolam': { r: [0.02, 0.05, 'mg/kg'], s: [0.03], nota: 'Coinducción; hasta 0,1–0,2 mg/kg como inductor único.' },
+    'Fentanilo': { r: [1, 3, 'mcg/kg'], s: [2] },
+    'Remifentanilo': { r: [0.5, 1, 'mcg/kg'], s: [1] },
+    'Lidocaína': { r: [1, 1.5, 'mg/kg'], s: [1] },
+    'Rocuronio': { r: [0.6, 1.2, 'mg/kg'], s: [0.6, 1.2], nota: '1,2 mg/kg en secuencia rápida (reversible con sugammadex 16 mg/kg).' },
+    'Vecuronio': { r: [0.08, 0.1, 'mg/kg'], s: [0.1] },
+    'Cisatracurio': { r: [0.15, 0.2, 'mg/kg'], s: [0.15] },
+    'Atracurio': { r: [0.4, 0.5, 'mg/kg'], s: [0.5] },
+    'Succinilcolina': { r: [1, 1.5, 'mg/kg'], s: [1] },
+    'Sevoflurano': { fijo: ['8', '%'], nota: 'Inducción inhalatoria: 6–8 % con flujo alto; luego bajar a mantenimiento.' },
+  };
+  const UNI_IND = ['mg', 'mcg', 'g', '%', 'mL', 'UI'];
+  const buscarFarm = (tabla, n) => { const s = sinTilde(n); if (!s) return ''; return Object.keys(tabla).find((k) => { const t = sinTilde(k); return s === t || s.startsWith(t) || (s.length >= 4 && t.startsWith(s)); }) || ''; };
+  // Texto de guía: rango por kg, lo que da con el peso y cuánto es la dosis escrita por kg
+  function guiaDosis(tabla, n, d, u) {
+    const k = buscarFarm(tabla, n); if (!k) return '';
+    const f = tabla[k], w = pesoKg(); let t = '';
+    if (f.r) {
+      const [a, b, ur] = f.r, ub = ur.replace('/kg', '');
+      const cap = (x) => (f.tope && x > f.tope ? f.tope : x);
+      t = f.pasos
+        ? (w ? '' : 'Escribe el peso para calcular.')
+        : `${k}: ${fmtN(a)}${a !== b ? '–' + fmtN(b) : ''} ${ur}` + (w ? ` = <b>${fmtN(redondear(cap(a * w)))}${a !== b ? '–' + fmtN(redondear(cap(b * w))) : ''} ${ub}</b> (${fmtN(w)} kg)` : ' · escribe el peso para calcular');
+      if (f.max) t += ` · máx. ${f.max}`;
+      if (!t) t = k;
+      const d0 = num(d), uu = u || ub;
+      const dd = uu === ub ? d0 : uu === 'mcg' && ub === 'mg' ? d0 / 1000 : uu === 'mg' && ub === 'mcg' ? d0 * 1000 : NaN;
+      if (w && dd > 0) { const pk = dd / w, fuera = pk > b * 1.03 || pk < a * 0.97; t += ` · dada: <b${fuera ? ' style="color:#b3261e"' : ''}>${fmtN(Math.round(pk * 1000) / 1000)} ${ur}</b>${fuera ? ' (fuera del rango)' : ''}`; }
+      if (f.tope && dd > f.tope) t += ` · <b style="color:#b3261e">supera ${fmtN(f.tope)} ${ub} en total</b>`;
+      if (f.ml && dd > 0 && ub === f.ml[1]) t += ` · <b>${fmtN(Math.round((dd / f.ml[0]) * 100) / 100)} mL</b> de ${f.ml[2]}`;
+    }
+    if (f.nota) t += `<details><summary>▸ Guía</summary>${esc(f.nota)}</details>`;
+    return t;
+  }
+
+  // Inducción: filas {n, d, u} (A–F); ind.meds (texto) se mantiene para la hoja y versiones anteriores
+  function indLista() {
+    const I = (H.ind = H.ind || {});
+    if (!Array.isArray(I.lista) || (!I.lista.length && (I.meds || []).some((x) => String(x || '').trim()))) {
+      I.lista = (I.meds || []).filter((x) => String(x || '').trim()).map((x) => {
+        const m = String(x).trim().match(/^(.*?)\s+(\d+(?:[.,]\d+)?)\s*([a-zA-Zµ%]+)?\.?$/);
+        return m ? { n: m[1], d: m[2], u: m[3] || 'mg' } : { n: String(x).trim(), d: '', u: 'mg' };
+      });
+    }
+    return I.lista;
+  }
+  function indSincronizar() {
+    const l = H.ind.lista || [];
+    H.ind.meds = [0, 1, 2, 3, 4, 5].map((i) => { const m = l[i]; if (!m) return ''; return [m.n, m.d ? m.d + ' ' + (m.u || '') : ''].map((x) => String(x || '').trim()).filter(Boolean).join(' '); });
+  }
+  function indBotones() {
+    const w = pesoKg(), usados = (cfg.indUsados || []);
+    const chip = (n, d, u, et) => `<button type="button" class="opcion chico dos" data-acc="indAgregar" data-n="${esc(n)}" data-d="${esc(d)}" data-u="${esc(u)}">${esc(n)} ${et}</button>`;
+    let h = usados.map(([n, d, u]) => chip(n, d, u, `${esc(d)} ${esc(u)}`)).join('');
+    Object.entries(IND_FARM).forEach(([n, f]) => {
+      if (f.fijo) { h += chip(n, f.fijo[0], f.fijo[1], `${f.fijo[0]} ${f.fijo[1]}`); return; }
+      const ub = f.r[2].replace('/kg', '');
+      f.s.forEach((x) => { const d = w ? String(redondear(x * w)) : ''; h += chip(n, d, ub, `${w ? fmtN(d) + ' ' + ub : ''}<small>${fmtN(x)} ${f.r[2]}</small>`); });
+    });
+    return h;
+  }
+  function recordarInd() {
+    const l = (cfg.indUsados = cfg.indUsados || []);
+    indLista().forEach((m) => { const n = String(m.n || '').trim(); if (!n || !String(m.d || '').trim() || buscarFarm(IND_FARM, n)) return;
+      const r = [n, String(m.d).trim(), m.u || 'mg']; const j = l.findIndex((x) => x[0] === r[0] && x[1] === r[1] && x[2] === r[2]); if (j >= 0) l.splice(j, 1); l.unshift(r); });
+    cfg.indUsados = l.slice(0, 8); Store.guardarConfig(cfg);
+  }
+  function secIndMeds() {
+    const l = indLista();
+    return `<div class="grupo"><div class="etq">Medicamentos de inducción</div>
+      ${l.map((m, i) => `<div class="coad-med ind-med"><b class="letra">${'ABCDEF'[i]}.</b><input data-k="ind.lista.${i}.n" value="${esc(m.n || '')}" placeholder="Fármaco" data-indmed="${i}">
+        <input class="dosis" data-k="ind.lista.${i}.d" value="${esc(m.d || '')}" placeholder="Dosis" inputmode="decimal" data-indmed="${i}">
+        <select data-k="ind.lista.${i}.u" data-indmed="${i}">${UNI_IND.concat(UNI_IND.includes(m.u) || !m.u ? [] : [m.u]).map((u) => `<option${(m.u || 'mg') === u ? ' selected' : ''}>${u}</option>`).join('')}</select>
+        <button type="button" class="icono quitar" data-acc="indQuitar" data-i="${i}" aria-label="Quitar">×</button></div>
+        <div class="nota guia-dosis" id="indG${i}">${guiaDosis(IND_FARM, m.n, m.d, m.u)}</div>`).join('')}
+      ${l.length >= 6 ? '<p class="nota">La hoja tiene 6 renglones (A–F).</p>' : `<div class="opciones coad-chips ind-chips">${indBotones()}
+        <button type="button" class="opcion chico" data-acc="indAgregar" data-n="" data-d="" data-u="mg">+ Otro</button></div>`}
+      <p class="nota">${pesoKg() ? `Dosis calculadas con ${fmtN(pesoKg())} kg (peso en Paciente).` : 'Escribe el peso del paciente para que los botones traigan la dosis calculada.'} Son orientativas: ajústalas a tu paciente. Los fármacos que escribas se guardan para la próxima vez.</p></div>`;
+  }
+
   function secInduccion() {
     const mas = [['local', 'Local'], ['regional', 'Regional'], ['conductiva', 'Conductiva'], ['ninguna', 'Ninguna otra']];
-    return card('Inducción', R('ind.tipo', 'Tipo', [['iv', 'Intravenosa'], ['inh', 'Inhalatoria'], ['mixta', 'Mixta']]) +
-      '<div class="grupo"><div class="etq">Medicamentos de inducción</div>' +
-      rej(['A', 'B', 'C', 'D', 'E', 'F'].map((l, i) => T('ind.meds.' + i, l + '.', { ph: 'Fármaco dosis' })).join(''), true) + '</div>') +
+    return card('Inducción', R('ind.tipo', 'Tipo', [['iv', 'Intravenosa'], ['inh', 'Inhalatoria'], ['mixta', 'Mixta']]) + secIndMeds()) +
       card('Técnica', C('tec.sed', '<b>SEDACIÓN</b>') + '<div class="subbloque">' +
         R('tec.sedVia', '', [['inh', 'Inhalatoria'], ['iv', 'Intravenosa']]) + R('tec.sedMas', '+', mas) + '</div>' +
         C('tec.gen', '<b>GENERAL</b>') + '<div class="subbloque">' +
@@ -846,12 +937,35 @@
   }
 
   /* ---------- Salida ---------- */
+  // Reversión: dosis por kg; botones [dosis/kg, etiqueta]; ml = [concentración, unidad, presentación]
+  const REV_FARM = {
+    'Neostigmina': { k: 'neo', u: 'mg', r: [0.04, 0.07, 'mg/kg'], s: [[0.04], [0.05], [0.07]], tope: 5, max: '0,08 mg/kg',
+      nota: 'Solo con recuperación espontánea (TOF con 2 o más respuestas). Siempre con atropina antes o junto (jeringa aparte); si hay bradicardia, la atropina primero. Ficha técnica: hasta 0,07 mg/kg o 5 mg en total, lo que sea menor.' },
+    'Atropina': { k: 'atro', u: 'mg', r: [0.02, 0.04, 'mg/kg'], s: [[0.02], [0.04]], nota: 'Junto con la neostigmina.' },
+    'Sugammadex': { k: 'sug', u: 'mg', r: [2, 16, 'mg/kg'], pasos: [[2, 'TOF 2'], [4, 'PTC 1–2'], [16, 'inmediata']], s: [[2, 'TOF 2'], [4, 'PTC 1–2'], [16, 'inmediata']], ml: [100, 'mg', 'vial 100 mg/mL'],
+      nota: 'Peso real. 2 mg/kg: reaparece la 2.ª respuesta del TOF. 4 mg/kg: bloqueo profundo (TOF 0 y 1–2 respuestas postetánicas). 16 mg/kg: reversión inmediata tras rocuronio 1,2 mg/kg (no estudiada con vecuronio). Solo revierte rocuronio y vecuronio. Viales de 200 mg/2 mL y 500 mg/5 mL. Niños desde 2 años: 2 y 4 mg/kg; se puede diluir a 10 mg/mL.' },
+    'Naloxona': { k: 'nalo', u: 'mcg', r: [1, 2, 'mcg/kg'], s: [[1], [2]], ml: [400, 'mcg', 'ampolla 0,4 mg/mL'],
+      nota: 'Por dosis, según Aldrete y respuesta; repetir cada 2–3 min. Ampolla de 0,4 mg/mL (400 mcg/mL); diluida 1 mL + 9 mL queda a 40 mcg/mL.' },
+    'Flumazenil': { k: 'flum', u: 'mg', r: [0.003, 0.006, 'mg/kg'], s: [[0.006, 'inicial'], [0.003, 'siguientes']], ml: [0.1, 'mg', 'ampolla 0,1 mg/mL'],
+      nota: 'Según Aldrete: 0,006 mg/kg (6 mcg/kg) la dosis inicial y 0,003 mg/kg (3 mcg/kg) las siguientes. Ampolla de 0,1 mg/mL: 5 mL = 0,5 mg; 10 mL = 1 mg.' },
+  };
+  const revNombre = (k) => Object.keys(REV_FARM).find((n) => REV_FARM[n].k === k);
+  function revItem(nombre) {
+    const f = REV_FARM[nombre], k = f.k, rv = H.rev || {}, w = pesoKg(), ub = f.r[2].replace('/kg', '');
+    const u = rv[k + 'U'] || f.u, unis = ub === 'mcg' ? ['mcg', 'mg'] : ['mg', 'mcg'];
+    const chips = f.s.map(([x, et]) => { let d = w ? redondear(x * w) : ''; const tope = f.tope && d > f.tope; if (tope) d = f.tope;
+      return `<button type="button" class="opcion chico dos" data-acc="revDosis" data-c="${k}" data-d="${d}" data-u="${ub}"${w ? '' : ' disabled'}>${w ? `${fmtN(d)} ${ub}${tope ? ' (tope)' : ''}` : fmtN(x) + ' ' + f.r[2]}<small>${w ? fmtN(x) + ' ' + f.r[2] : ''}${w && et ? ' · ' : ''}${et || ''}</small></button>`; }).join('');
+    return `<div class="coad rev"><div class="check"><input type="checkbox" id="c_rev.${k}" data-k="rev.${k}"${rv[k] ? ' checked' : ''}><label for="c_rev.${k}">${nombre}</label></div>
+      <div class="coad-med rev-med"><input class="dosis" data-k="rev.${k}D" value="${esc(rv[k + 'D'] || '')}" placeholder="Dosis" inputmode="decimal" data-revmed="${k}">
+        <select data-k="rev.${k}U" data-revmed="${k}">${unis.map((x) => `<option${u === x ? ' selected' : ''}>${x}</option>`).join('')}</select></div>
+      <div class="opciones coad-chips">${chips}</div>
+      <div class="nota guia-dosis" id="revG_${k}">${guiaDosis(REV_FARM, nombre, rv[k + 'D'], u)}</div></div>`;
+  }
+
   function secSalida() {
-    return card('Reversión', '<h3 style="margin-top:0">Relajante muscular</h3>' +
-      C('rev.neo', 'Neostigmina', { k: 'rev.neoD', u: 'mg', num: true }) + C('rev.sug', 'Sugammadex', { k: 'rev.sugD', u: 'mg', num: true }) +
-      C('rev.atro', 'Atropina', { k: 'rev.atroD', u: 'mg', num: true }) +
-      '<h3>Opioides</h3>' + C('rev.nalo', 'Naloxona', { k: 'rev.naloD', u: 'mcg', num: true }) +
-      '<h3>Benzodiacepinas</h3>' + C('rev.flum', 'Flumazenil', { k: 'rev.flumD', u: 'mg', num: true })) +
+    return card('Reversión', '<h3 style="margin-top:0">Relajante muscular</h3>' + revItem('Neostigmina') + revItem('Atropina') + revItem('Sugammadex') +
+      '<h3>Opioides</h3>' + revItem('Naloxona') + '<h3>Benzodiacepinas</h3>' + revItem('Flumazenil') +
+      `<p class="nota">${pesoKg() ? `Dosis calculadas con ${fmtN(pesoKg())} kg.` : 'Escribe el peso del paciente para calcular las dosis.'} Toca un botón para poner la dosis; son orientativas y se ajustan a la respuesta del paciente.</p>`) +
       card('SAP (analgesia postoperatoria)', C('sap.iv', 'Intravenoso') + C('sap.epi', 'Epidural') + C('sap.no', 'No lleva SAP', { k: 'sap.razon', ph: 'Razón' })) +
       card('Traslado', R('tras.dest', 'Destino', [['ucpa', 'Ingreso a UCPA'], ['uci', 'Ingreso a UCI']]) +
         `<div class="rejilla tiempos"><label class="campo"><span>Hora</span><div class="con-unidad"><input type="time" data-k="tras.hora" value="${esc(val('tras.hora'))}"><button class="secundario chico" data-acc="ahora" data-p="tras.hora">Ahora</button></div></label></div>` +
@@ -1550,6 +1664,9 @@
     if (chk && el.type !== 'checkbox' && v && !chk.checked) { chk.checked = true; setP(o, chk.dataset.k, true); }
     if (o === D) { docCambio(k, el); return; }
     if (k === 'p.nombre') $('#titulo').textContent = v || 'Historia nueva';
+    if (el.dataset.indmed != null) { const i = +el.dataset.indmed, m = indLista()[i]; indSincronizar(); const g = $('#indG' + i); if (g && m) g.innerHTML = guiaDosis(IND_FARM, m.n, m.d, m.u); }
+    if (el.dataset.revmed) { const rk = el.dataset.revmed, rv = H.rev; if (v && !rv[rk]) { rv[rk] = true; const cb = $(`[data-k="rev.${rk}"]`); if (cb) cb.checked = true; }
+      const g = $('#revG_' + rk); if (g) g.innerHTML = guiaDosis(REV_FARM, revNombre(rk), rv[rk + 'D'], rv[rk + 'U'] || REV_FARM[revNombre(rk)].u); }
     refrescarCalculos(); guardarPronto();
     if ((k === 'obs' || k.startsWith('obsOpc') || k.startsWith('p.sexo')) && $('#obsPrev')) $('#obsPrev').innerHTML = obsPrevia();
   }
@@ -1563,6 +1680,7 @@
   vista.addEventListener('input', alCambiar);
   vista.addEventListener('change', alCambiar);
   vista.addEventListener('change', (e) => { const k = e.target.dataset && e.target.dataset.k; if (H && pantalla === 'editor' && ['anest', 'asist', 'ciruj', 'instr'].includes(k)) { recordarNombres(k); refrescarNombres(k); } });
+  vista.addEventListener('change', (e) => { if (H && e.target.dataset && e.target.dataset.indmed != null) recordarInd(); });
   vista.addEventListener('change', (e) => { const k = e.target.dataset && e.target.dataset.coadmed; if (k && H) { if (!H.coad[k].on) { H.coad[k].on = true; const cb = $('#c_coad_' + k); if (cb) cb.checked = true; } recordarCoad(k); } });
   document.addEventListener('click', (e) => {
     const r = e.target.closest('[data-r]');
@@ -1591,6 +1709,10 @@
     else if (acc === 'nomBorrar') { const l = cfg.equipo[a.dataset.rol]; const j = l.indexOf(a.dataset.n); if (j >= 0) l.splice(j, 1); if (!l.length) editRol = ''; Store.guardarConfig(cfg); refrescarNombres(a.dataset.rol); }
     else if (acc === 'coadAgregar') { const c = (H.coad[a.dataset.c] = H.coad[a.dataset.c] || {}); c.meds = c.meds || []; c.meds.push({ n: a.dataset.n, d: a.dataset.d, u: a.dataset.u }); c.on = true; guardarPronto(); render(); if (!a.dataset.n) { const ins = $$(`[data-coadmed="${a.dataset.c}"]`); const f = ins[ins.length - 3]; if (f) f.focus(); } }
     else if (acc === 'coadQuitar') { const c = H.coad[a.dataset.c]; c.meds.splice(+a.dataset.i, 1); if (!c.meds.length && !c.det) c.on = false; guardarPronto(); render(); }
+    else if (acc === 'indAgregar') { const l = indLista(); if (l.length >= 6) return; l.push({ n: a.dataset.n, d: a.dataset.d, u: a.dataset.u }); indSincronizar(); guardarPronto(); render();
+      const ins = $$('[data-indmed]'); const f = !a.dataset.n ? ins[ins.length - 3] : !a.dataset.d ? ins[ins.length - 2] : null; if (f) f.focus(); }
+    else if (acc === 'indQuitar') { indLista().splice(+a.dataset.i, 1); indSincronizar(); guardarPronto(); render(); }
+    else if (acc === 'revDosis') { const rv = (H.rev = H.rev || {}), k = a.dataset.c; rv[k] = true; rv[k + 'D'] = a.dataset.d; rv[k + 'U'] = a.dataset.u; guardarPronto(); render(); }
     else if (acc === 'coadNota') { const c = (H.coad[a.dataset.c] = H.coad[a.dataset.c] || {}); c._nota = true; render(); }
     else if (acc === 'marcarTodo') { CHECKLIST.forEach(([k]) => (H.chk[k] = true)); guardarPronto(); render(); }
     else if (acc === 'nuevoReg') abrirRegistro(null);

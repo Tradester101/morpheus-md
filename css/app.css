@@ -261,3 +261,18 @@ button{font:inherit;cursor:pointer}
 .via-fila{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .via-fila>span{flex:0 0 96px;font-size:14px;color:var(--suave,#5b6770)}
 .via .segmento button{padding:7px 12px;font-size:14px}
+/* inducción y reversión: dosis por peso */
+.ind-med{margin-left:0}
+.ind-med .letra{flex:0 0 22px;font-size:13px;color:var(--suave)}
+.ind-chips{margin-left:0}
+.guia-dosis{margin:0 0 8px 28px;font-size:12.5px;line-height:1.45}
+.guia-dosis:empty{display:none}
+.rev .rev-med .dosis{flex:0 0 96px}
+.rev .rev-med select{flex:0 0 78px}
+.opcion.chico small{font-size:11.5px}
+.opcion.dos{display:inline-flex;flex-direction:column;align-items:center;line-height:1.2;padding:5px 10px}
+.opcion.dos small{display:block;font-size:11px;opacity:.7}
+.opcion.dos small:empty{display:none}
+.guia-dosis details{margin-top:2px}
+.guia-dosis summary{cursor:pointer;color:var(--pri);font-weight:600;display:inline}
+.guia-dosis details[open] summary{margin-right:6px}
