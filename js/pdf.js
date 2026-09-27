@@ -271,6 +271,7 @@ window.PDFHistoria = (function () {
       // nombres de fila en negro (el color va solo en las líneas de la grilla)
       if (dd.id === 'o2') T('O2  L/min', 271, y, { b: true, size: 5.2, maxw: 76 });
       else if (dd.id === 'aire') T('Aire/N2O  L/min', 271, y, { b: true, size: 5.2, maxw: 76 });
+      else if (dd.tipo === 'sol') { if (nombres[dd.fila]) V(nombres[dd.fila], 271, y, { size: 5.4, maxw: 76, b: true }); else T(fijos[dd.fila] || '', 271, y, { b: true, size: 5, maxw: 76 }); }
       else if (p.agente) {
         const f = P.FARM[p.agente]; const u = dd.id === 'inh' ? '%' : (f ? f.uB : '');
         T(p.agente + (u ? '  ' + u : ''), 271, y, { b: true, size: 5.2, maxw: 76 });
@@ -290,12 +291,16 @@ window.PDFHistoria = (function () {
       const p = ps[dd.id]; if (!p) return;
       const y = yF(dd.fila); const col = hex(P.colorDe(dd.id, p)); const colT = col;
       const ev = P.ordenados(to, p);
-      if (dd.tipo === 'sol') { // soluciones: símbolo en cada hora, unidas con una línea negra
-        const evs = ev.filter((e) => dentro(e._o));
-        const antes = ev.filter((e) => e._o < ini).slice(-1)[0];
-        if (antes && evs.length) L(X(ini), y, X(evs[0]._o), y, 0.8, NEGRO);
-        for (let k = 1; k < evs.length; k++) L(X(evs[k - 1]._o), y, X(evs[k]._o), y, 0.8, NEGRO);
-        evs.forEach((e) => { const info = P.SOL[e.v]; Casa(X(e._o), y, !!(info && info.relleno), e.v === 'Otro' ? (e.txt || '?') : e.v); });
+      if (dd.tipo === 'sol') { // soluciones: bolsa invertida al inicio; línea negra hasta el fin (rayita vertical) o hasta la siguiente bolsa
+        const fin = (e) => (e.fin ? P.off(to, e.fin) : NaN), ini1 = ini + MINP;
+        ev.forEach((e, k) => {
+          const f = fin(e), sig = ev[k + 1];
+          let hasta = isFinite(f) && f > e._o ? f : sig ? sig._o : NaN; if (!isFinite(hasta)) return;
+          const a = Math.max(e._o, ini), b = Math.min(hasta, ini1); if (b <= a) return;
+          L(X(a), y, X(b), y, 0.8, NEGRO);
+          if (isFinite(f) && f > e._o && dentro(f)) L(X(f), y - 3.2, X(f), y + 3.2, 0.9, NEGRO);
+        });
+        ev.filter((e) => dentro(e._o)).forEach((e) => { const info = P.SOL[e.v]; Casa(X(e._o), y, !!(info && info.relleno), e.v === 'Otro' ? (e.txt || '?') : e.v); });
         return;
       }
       // tramos continuos (inhalatorio o infusiones)

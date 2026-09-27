@@ -78,7 +78,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.3';
+  const VERSION = '1.9.4';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -591,14 +591,35 @@
     if (dd.tipo === 'sol') { const info = Pistas.SOL[e.v]; return `<b>${esc(e.v === 'Otro' ? (e.txt || '?') : e.v)}</b>` + (info ? ' — ' + esc(info.nombre) : e.v === 'Otro' && e.txtLargo ? ' — ' + esc(e.txtLargo) : ''); }
     return e.tipo === 'stop' ? 'Suspende infusión' : (e.tipo === 'inf' ? 'Infusión ' : 'Bolo ') + `${esc(e.v)} ${esc(e.u || '')}`;
   }
+  /* Vía / catéter por botones: VP 1-2, calibre, miembro superior/inferior y lado; VC con sitio y lado */
+  function viaDe(fila) {
+    const V = (H.to.vias = H.to.vias || {});
+    return (V[fila] = V[fila] || (fila === 7 ? { t: 'VC' } : { t: 'VP', n: fila === 9 ? '2' : '1' }));
+  }
+  function viaTexto(v) {
+    if (v.t === 'VC') return ['VC', v.cal ? '#' + v.cal : '', v.sit || '', v.l || ''].filter(Boolean).join(' ');
+    return [('VP' + (v.n || '')), v.cal ? '#' + v.cal : '', v.m || v.l ? 'M' + (v.m || '') + (v.l || '') : ''].filter(Boolean).join(' ');
+  }
+  function viaHtml(fila) {
+    const v = viaDe(fila);
+    const b = (c, val, txt) => `<button type="button" class="${String(v[c] || '') === val ? 'sel' : ''}" data-acc="via" data-f="${fila}" data-c="${c}" data-v="${val}">${txt}</button>`;
+    const fila1 = `<div class="via-fila"><span>Vía</span><div class="segmento">${b('t', 'VP', 'Periférica')}${b('t', 'VC', 'Central')}</div>
+      ${v.t === 'VP' ? `<div class="segmento">${b('n', '1', 'VP 1')}${b('n', '2', 'VP 2')}</div>` : ''}</div>`;
+    const cals = v.t === 'VC' ? ['4', '5', '7', '8'] : ['14', '16', '18', '20', '22', '24'];
+    const fila2 = `<div class="via-fila"><span>${v.t === 'VC' ? 'Calibre (Fr)' : 'Calibre #'}</span><div class="segmento">${cals.map((c) => b('cal', c, c)).join('')}</div></div>`;
+    const fila3 = v.t === 'VC'
+      ? `<div class="via-fila"><span>Sitio</span><div class="segmento">${b('sit', 'YI', 'Yugular int.')}${b('sit', 'SC', 'Subclavia')}${b('sit', 'F', 'Femoral')}</div><div class="segmento">${b('l', 'D', 'Der')}${b('l', 'I', 'Izq')}</div></div>`
+      : `<div class="via-fila"><span>Miembro</span><div class="segmento">${b('m', 'S', 'Superior')}${b('m', 'I', 'Inferior')}</div><div class="segmento">${b('l', 'D', 'Der')}${b('l', 'I', 'Izq')}</div></div>`;
+    return `<div class="via">${fila1}${fila2}${fila3}</div>`;
+  }
   function secPistas() {
     const P = Pistas, ps = H.to.pistas, peso = H.p.peso;
     const bloques = P.DEF.map((dd) => {
       const p = ps[dd.id]; const color = P.colorDe(dd.id, p);
       let sel = '';
       if (dd.id === 'aire') sel = '<p class="nota" style="margin-top:0">En cada registro eliges Aire (amarillo) o N₂O (azul); la línea cambia de color cuando cambias de gas.</p>';
-      else if (dd.tipo === 'sol') sel = `<label class="campo" style="margin-top:0"><span>Vía / catéter</span><input data-k="to.filas.${dd.fila}" value="${esc((H.to.filas || [])[dd.fila] || '')}" placeholder="${dd.fila === 7 ? 'Ej. VC #7 YI D' : 'Ej. VP #18 MSD'}"></label>
-        <p class="nota" style="margin:6px 0 0">En cada registro eliges la solución; queda marcada con el símbolo de bolsa invertida y su hora, unida por una línea (siempre en negro).</p>`;
+      else if (dd.tipo === 'sol') sel = viaHtml(dd.fila) + `<label class="campo" style="margin-top:8px"><span>Así sale en la hoja (puedes editarlo)</span><input data-k="to.filas.${dd.fila}" value="${esc((H.to.filas || [])[dd.fila] || '')}" placeholder="${dd.fila === 7 ? 'Ej. VC #7 YI D' : 'Ej. VP1 #18 MSD'}"></label>
+        <p class="nota" style="margin:6px 0 0">Cada solución se marca con la bolsa invertida a su hora de inicio; al poner la hora de fin, la línea negra termina en una rayita vertical.</p>`;
       else if (dd.tipo === 'inh') sel = `<div class="opciones">${Object.entries(P.INH).map(([n, x]) => `<button type="button" class="opcion${p.agente === n ? ' sel' : ''}" data-acc="pAg" data-p="inh" data-v="${n}"><span class="punto" style="background:${x.color}"></span>${n}</button>`).join('')}</div>`;
       else if (dd.tipo === 'farm') {
         const lista = P.LISTAS[dd.lista]; const otro = p.agente && !lista.includes(p.agente);
@@ -615,14 +636,15 @@
         infoTxt = P.guia(p.agente, peso).map((g) => esc(g.txt)).join('<br>') + (P.FARM[p.agente].nota ? '<br>' + esc(P.FARM[p.agente].nota) : '') + (peso ? '' : '<br><i>Escribe el peso para calcular las dosis.</i>');
       }
       const ev = (p.ev || []).map((e, i) => ({ e, i })).sort((a, b) => (Pistas.off(H.to, a.e.hora) || 0) - (Pistas.off(H.to, b.e.hora) || 0));
-      const lista = ev.length ? ev.map(({ e, i }) => `<div class="evento"><b>${esc(e.hora)}</b><span>${txtEvento(dd, e)}</span>
+      const lista = ev.length ? ev.map(({ e, i }) => `<div class="evento"><b>${esc(e.hora)}${dd.tipo === 'sol' && e.fin ? '–' + esc(e.fin) : ''}</b><span>${txtEvento(dd, e)}</span>
+        ${dd.tipo === 'sol' && !e.fin ? `<button class="secundario chico" data-acc="solFin" data-p="${dd.id}" data-i="${i}">Terminó ahora</button>` : ''}
         <button class="icono chico" data-acc="pEv" data-p="${dd.id}" data-i="${i}" aria-label="Editar">✎</button></div>`).join('') : '';
       let btns = '';
       if (dd.tipo === 'gas') btns = `<button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="valor">+ Flujo / cambio</button><button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="stop">Cerrar</button>`;
       else if (dd.tipo === 'sol') btns = `<button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="valor">+ Solución</button>`;
       else if (dd.tipo === 'inh') btns = `<button class="secundario chico" data-acc="pEv" data-p="inh" data-t="valor">+ % vaporizador</button><button class="secundario chico" data-acc="pEv" data-p="inh" data-t="stop">Cerrar vaporizador</button>`;
       else btns = `<button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="bolo">+ Bolo</button><button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="inf">+ Infusión / cambio</button><button class="secundario chico" data-acc="pEv" data-p="${dd.id}" data-t="stop">Suspender</button>`;
-      return `<div class="pista" style="border-left-color:${dd.id === 'aire' ? P.GAS[P.gasDe(p, (p.ev || []).slice(-1)[0])] : color}"><div class="pista-t"><span>${dd.id === 'aire' ? `<span class="punto" style="background:${P.GAS.Aire}"></span> Aire / <span class="punto" style="background:${P.GAS.N2O}"></span> N₂O` : (dd.tipo === 'gas' ? `<span class="punto" style="background:${color}"></span> ` : '') + esc(dd.nombre)}</span>${p.agente && dd.tipo !== 'gas' ? `<b style="color:${color}">${esc(p.agente)}</b>` : ''}</div>
+      return `<div class="pista" style="border-left-color:${dd.id === 'aire' ? P.GAS[P.gasDe(p, (p.ev || []).slice(-1)[0])] : color}"><div class="pista-t"><span>${dd.id === 'aire' ? `<span class="punto" style="background:${P.GAS.Aire}"></span> Aire / <span class="punto" style="background:${P.GAS.N2O}"></span> N₂O` : (dd.tipo === 'gas' ? `<span class="punto" style="background:${color}"></span> ` : '') + esc(dd.nombre)}</span>${p.agente && dd.tipo !== 'gas' && dd.tipo !== 'sol' ? `<b style="color:${color}">${esc(p.agente)}</b>` : ''}</div>
         ${sel}${infoTxt ? `<p class="nota">${infoTxt}</p>` : ''}${lista}<div class="fila-btn">${btns}</div></div>`;
     }).join('');
     return card('Fármacos y gases (grilla)', '<p class="nota" style="margin:0 0 10px">Cada registro queda en la hora exacta. Los bolos se marcan con ▼ y la dosis; los gases (O₂ verde, aire amarillo, N₂O azul), el inhalatorio y las infusiones con una línea de su color que se corta en cada cambio.</p>' + bloques);
@@ -633,7 +655,10 @@
     const tipo = e.tipo || (dd.tipo === 'farm' ? 'bolo' : 'valor');
     if (!H.to.inicio) { const m = minDe(e.hora); const nm = Math.floor(m / 5) * 5; H.to.inicio = String(Math.floor(nm / 60)).padStart(2, '0') + ':' + String(nm % 60).padStart(2, '0'); }
     const f = P.FARM[p.agente]; const g = f ? P.guia(p.agente, H.p.peso) : [];
-    let cuerpo = `<div class="rejilla"><label class="campo"><span>Hora</span><input type="time" id="evHora" value="${esc(e.hora)}"></label>`;
+    let cuerpo = dd.tipo === 'sol'
+      ? `<div class="rejilla"><label class="campo"><span>Inicio</span><div class="con-unidad"><input type="time" id="evHora" value="${esc(e.hora)}"><button type="button" class="secundario chico" data-ahora="evHora">Ahora</button></div></label>
+        <label class="campo"><span>Fin (si ya terminó)</span><div class="con-unidad"><input type="time" id="evFin" value="${esc(e.fin || '')}"><button type="button" class="secundario chico" data-ahora="evFin">Ahora</button></div></label>`
+      : `<div class="rejilla"><label class="campo"><span>Hora</span><input type="time" id="evHora" value="${esc(e.hora)}"></label>`;
     let chipsHtml = '';
     if (tipo === 'stop') cuerpo += '</div>';
     else if (dd.tipo === 'gas') {
@@ -671,6 +696,7 @@
       ${tipo === 'inf' && CalcInf.FARMACOS[p.agente] ? '<div class="fila-btn"><button class="secundario chico" id="evCalc">🧮 Calculadora mL/h (bomba)</button></div>' : ''}
       <div class="acciones">${nuevo ? '' : '<button class="peligro" id="evBorrar">Eliminar</button>'}<button class="secundario" id="evCancelar">Cancelar</button><button class="primario" id="evOk">Guardar</button></div>`);
     $$('#capa [data-evv]').forEach((b) => (b.onclick = () => { $('#evV').value = b.dataset.evv; }));
+    $$('#capa [data-ahora]').forEach((b) => (b.onclick = () => { $('#' + b.dataset.ahora).value = ahoraHM(); }));
     $$('#evGas [data-g]').forEach((b) => (b.onclick = () => { $$('#evGas [data-g]').forEach((x) => x.classList.toggle('sel', x === b)); }));
     $$('#evSol [data-v]').forEach((b) => (b.onclick = () => { $$('#evSol [data-v]').forEach((x) => x.classList.toggle('sel', x === b)); if ($('#evSolOtro')) $('#evSolOtro').hidden = b.dataset.v !== 'Otro'; }));
     $('#evCancelar').onclick = cerrarHoja;
@@ -683,6 +709,7 @@
       if (tipo !== 'valor' && tipo) o.tipo = tipo;
       if (dd.tipo === 'sol') {
         const sb = $('#evSol .sel'); o.v = sb ? sb.dataset.v : 'SF';
+        const fn = $('#evFin').value; if (fn) { if (fn === o.hora) { aviso('El fin debe ser después del inicio'); return; } o.fin = fn; }
         if (o.v === 'Otro') { o.txt = ($('#evSolTxt').value || '').trim().toUpperCase(); if (!o.txt) { aviso('Escribe las iniciales'); return; } const nm = $('#evSolNom').value.trim(); if (nm) o.txtLargo = nm; }
       } else if (tipo !== 'stop') { o.v = ($('#evV').value || '').trim(); if (!o.v) { aviso('Falta el valor'); return; } }
       if ($('#evU')) o.u = $('#evU').value;
@@ -1553,6 +1580,11 @@
     const a = e.target.closest('[data-acc]'); if (!a) return;
     const acc = a.dataset.acc;
     if (acc === 'ahora') { setP(H, a.dataset.p, ahoraHM(+a.dataset.red || 0)); guardarPronto(); render(); }
+    else if (acc === 'via') { const f = +a.dataset.f, v = viaDe(f), c = a.dataset.c;
+      if (c === 't') { if (v.t !== a.dataset.v) { H.to.vias[f] = a.dataset.v === 'VC' ? { t: 'VC' } : { t: 'VP', n: f === 9 ? '2' : '1' }; } }
+      else v[c] = v[c] === a.dataset.v && c !== 'n' ? '' : a.dataset.v;
+      H.to.filas = H.to.filas || []; H.to.filas[f] = viaTexto(H.to.vias[f]); guardarPronto(); render(); }
+    else if (acc === 'solFin') { const e = H.to.pistas[a.dataset.p].ev[+a.dataset.i]; e.fin = ahoraHM(); guardarPronto(); render(); aviso('Fin marcado ' + e.fin); }
     else if (acc === 'nomTog') { const rol = a.dataset.rol, n = a.dataset.n, l = partirNombres(H[rol]); const j = l.findIndex((x) => x.toLowerCase() === n.toLowerCase());
       if (j >= 0) l.splice(j, 1); else l.push(n); H[rol] = l.join(', '); const inp = $(`[data-k="${rol}"]`); if (inp) inp.value = H[rol]; guardarPronto(); refrescarNombres(rol); }
     else if (acc === 'nomEditar') { const r0 = editRol; editRol = editRol === a.dataset.rol ? '' : a.dataset.rol; if (r0 && r0 !== editRol) refrescarNombres(r0); refrescarNombres(a.dataset.rol); }

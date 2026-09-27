@@ -93,7 +93,7 @@ window.Pistas = (function () {
     if (nuevo) {
       // Historias anteriores: pasar los valores de las filas 0–6 y 10 a eventos de las pistas
       const filas = to.filas || [];
-      DEF.forEach((d) => { if (d.fila >= 2 && filas[d.fila] && !to.pistas[d.id].agente) to.pistas[d.id].agente = filas[d.fila].replace(/\s+(%|mcg|mg|L\/min)$/i, ''); });
+      DEF.forEach((d) => { if (d.fila >= 2 && d.tipo !== 'sol' && filas[d.fila] && !to.pistas[d.id].agente) to.pistas[d.id].agente = filas[d.fila].replace(/\s+(%|mcg|mg|L\/min)$/i, ''); });
       (to.regs || []).forEach((r) => {
         if (!r.f) return;
         DEF.forEach((d) => {
