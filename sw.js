@@ -1,5 +1,5 @@
 /* Morpheus MD: funciona sin internet. Guarda la app en caché la primera vez que se abre. */
-const VERSION = 'morpheus-1.9.6';
+const VERSION = 'morpheus-1.9.9';
 const ARCHIVOS = [
   './',
   'css/app.css',
@@ -13,9 +13,11 @@ const ARCHIVOS = [
   'index.html',
   'js/app.js',
   'js/calc.js',
+  'js/crisis.js',
   'js/cuenta.js',
   'js/extras.js',
   'js/fuentes.js',
+  'js/guias-datos.js',
   'js/imgs.js',
   'js/legal.js',
   'js/obs.js',

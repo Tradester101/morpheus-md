@@ -78,7 +78,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.6';
+  const VERSION = '1.9.9';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -555,8 +555,9 @@
       if (st.modo === 'bic') {
         const carga = d.bolo && d.bolo.carga;
         const bloqueCarga = d.bolo ? `<h3>${carga ? '1. ' + d.bolo.nombre : 'Bolo'}</h3><p class="nota" style="margin-top:0">${esc(d.bolo.rango)}</p>
+          ${carga && d.bolo.tiempos ? `<div class="grupo"><div class="etq">Pasar en</div>${chips('tCarga', d.bolo.tiempos.map((t) => [t, t + ' min']))}</div>` : ''}
           <div class="rejilla">${campo('bolo', 'Dosis', d.bolo.u, { ph: 'Ej. ' + d.bolo.def })}${carga ? campo('tCarga', 'Pasar en', 'min') : ''}
-          <label class="campo calc"><span>Total</span><input readonly id="cBolo"></label>${carga ? '<label class="campo calc"><span>Bomba durante la carga</span><input readonly id="cCargaVel"></label>' : ''}</div>` : '';
+          <label class="campo calc"><span>Total</span><input readonly id="cBolo"></label>${carga ? '<label class="campo calc"><span>Bomba durante la carga</span><input readonly id="cCargaVel"></label>' : ''}</div><p class="nota" id="cCargaAviso" style="color:var(--peligro)"></p>` : '';
         if (carga) html += bloqueCarga;
         html += `<h3>${carga ? '2. Mantenimiento' : 'Infusión continua'}</h3><p class="nota" style="margin-top:0">${esc(d.rango || '')}</p>
           <div class="rejilla">${campo('dosis', 'Dosis', '')}<label class="campo"><span>Unidad</span><select data-ck="uDosis">${d.unidades.map((u) => `<option${st.uDosis === u ? ' selected' : ''}>${u}</option>`).join('')}</select></label>
@@ -617,6 +618,8 @@
           const ok = isFinite(tot) && tot > 0 && isFinite(ml);
           $('#cBolo').value = ok ? `${R(tot, 1)} ${mu} = ${R(ml, 1)} mL` : '';
           if ($('#cCargaVel')) $('#cCargaVel').value = ok && tc > 0 ? `${R(ml * 60 / tc, 1)} mL/h` : '';
+          $$('#capa [data-cc="tCarga"]').forEach((b) => b.classList.toggle('sel', +b.dataset.v === tc));
+          if ($('#cCargaAviso')) $('#cCargaAviso').textContent = d.bolo.tMin && tc > 0 && tc < d.bolo.tMin ? `⚠ ${d.bolo.nombre} en menos de ${d.bolo.tMin} min es demasiado rápida: pásala en ${d.bolo.tiempos.join(' o ')} min.` : '';
           if (ok) bTxt = d.bolo.carga ? `${d.bolo.nombre} ${st.bolo} ${d.bolo.u} = ${R(tot, 1)} ${mu} (${R(ml, 1)} mL) en ${tc} min = ${R(ml * 60 / tc, 1)} mL/h`
             : `bolo ${st.bolo} ${d.bolo.u} = ${R(tot, 1)} ${mu} (${R(ml, 1)} mL)`;
         }
@@ -671,6 +674,224 @@
       guardarPronto(); cerrarHoja(); render(); aviso('Cálculo agregado a la infusión');
     }
     pintar();
+  }
+
+  /* ---------- Modo crisis (js/crisis.js) ---------- */
+  let crisisDesde = 'inicio', crisisMenu = false;
+  function ctxCrisis() {
+    return { cfg, guardarCfg: () => Store.guardarConfig(cfg), aviso, enlace: (u, t) => enlace(u, t),
+      menuAlgos: () => { crisisMenu = true; render(); window.scrollTo(0, 0); },
+      irCalc: (farm, peso) => { CT = null; calcIniciar(); CT.tab = 'bic'; calcFarmaco(farm); if (peso) CT.peso = peso; calcDesde = 'crisis'; pantalla = 'calc'; render(); window.scrollTo(0, 0); } };
+  }
+  function renderCrisis(v) {
+    const act = Crisis.activa();
+    $('#titulo').textContent = act && !crisisMenu ? 'CRISIS' : 'Crisis: algoritmos';
+    if (act && !crisisMenu) Crisis.render(v, ctxCrisis()); else Crisis.renderMenu(v, ctxCrisis());
+  }
+  function irCrisis() { if (pantalla !== 'crisis') crisisDesde = pantalla; crisisMenu = false; pantalla = 'crisis'; render(); window.scrollTo(0, 0); }
+  function crisisAbrir(id) {
+    const p = (H && H.p) || {};
+    Crisis.iniciar(id, { peso: C_num(p.peso), edad: p.edad || '' });
+    if (pantalla !== 'crisis') crisisDesde = pantalla; crisisMenu = false; pantalla = 'crisis'; render(); window.scrollTo(0, 0);
+  }
+  const C_num = (x) => { const n = parseFloat(String(x || '').replace(',', '.')); return n > 0 ? n : ''; };
+
+  /* ---------- Calculadora TIVA · TCI · BIC (pantalla propia) ---------- */
+  let calcDesde = 'inicio', CT = null;
+  const PESOS = [['real', 'Real'], ['ideal', 'Ideal'], ['magra', 'Magra'], ['ajustado', 'Ajustado']];
+  function calcIniciar() {
+    const C = window.CalcInf, p = (H && H.p) || {};
+    CT = { tab: 'tiva', peso: p.peso || '', talla: p.talla || '', edad: p.edad || '', sexo: p.sexo || (p.tipoVol === '65' ? 'F' : 'M'), pesoDosis: 'real', esquema: 'roberts', farm: 'Propofol' };
+    calcFarmaco(CT.farm);
+    return C;
+  }
+  function calcFarmaco(nombre) {
+    const C = window.CalcInf, d = C.FARMACOS[nombre]; CT.farm = nombre;
+    CT.uDosis = d.uDosis; CT.uCant = d.masa; CT.cant = d.preps[0] && Array.isArray(d.preps[0]) ? d.preps[0][0] : ''; CT.vol = d.preps[0] && Array.isArray(d.preps[0]) ? d.preps[0][1] : '';
+    CT.dosis = d.dosisDef || ''; CT.bolo = d.bolo && d.bolo.prellenar ? d.bolo.def : ''; CT.tCarga = d.bolo && d.bolo.carga ? d.bolo.carga : ''; CT.mlh = '';
+    CT.modelo = d.modelos ? d.modelos[0] : ''; CT.ct = d.ct ? d.ct.def : ''; CT.pesoDosis = d.pesoSug || 'real'; CT._regla = '';
+    CT.obj = CT.modelo && CT.modelo !== 'marsh' && C.MODELOS[CT.modelo].fn({ peso: 70, talla: 170, edad: 40, sexo: 'M' }).ke0 ? 'ce' : 'cp';
+    if (nombre !== 'Propofol') CT.esquema = 'manual';
+  }
+  function calcLista() {
+    const F = window.CalcInf.FARMACOS;
+    if (CT.tab === 'tiva') return Object.keys(F).filter((k) => F[k].tiva);
+    if (CT.tab === 'tci') return Object.keys(F).filter((k) => F[k].modelos);
+    return Object.keys(F);
+  }
+  function renderCalc(v) {
+    const C = window.CalcInf; if (!CT) calcIniciar();
+    $('#titulo').textContent = 'TIVA · TCI · BIC';
+    const B = (cfg.bomba = cfg.bomba || { u: 'mlh', res: 0.1, gtt: 20 });
+    if (!calcLista().includes(CT.farm)) calcFarmaco(calcLista()[0]);
+    const d = C.FARMACOS[CT.farm];
+    const inp = (k, t, u, o = {}) => `<label class="campo"><span>${t}</span><div class="con-unidad"><input data-ct="${k}" inputmode="decimal" value="${esc(CT[k] == null ? '' : CT[k])}"${o.ph ? ` placeholder="${esc(o.ph)}"` : ''}>${u ? `<em>${u}</em>` : ''}</div></label>`;
+    const chips = (k, ops, extra = '') => `<div class="opciones"${extra}>${ops.map(([val, t, dis]) => `<button type="button" class="opcion${String(CT[k]) === String(val) ? ' sel' : ''}" data-cc="${k}" data-v="${esc(val)}"${dis ? ' disabled' : ''}>${t}</button>`).join('')}</div>`;
+    const seg = (k, ops, obj = CT) => `<div class="segmento">${ops.map(([val, t]) => `<button type="button" class="${String(obj[k]) === String(val) ? 'sel' : ''}" data-cs="${k}" data-v="${val}">${t}</button>`).join('')}</div>`;
+    const bio = C.biometria(CT.peso, CT.talla, CT.sexo);
+    const fx = (x, dd = 1) => (isFinite(x) ? String(C.r(x, dd)).replace('.', ',') : '—');
+    let h = `<section class="tarjeta"><div class="segmento calc-tabs">${[['tiva', 'TIVA'], ['tci', 'TCI'], ['bic', 'BIC']].map(([k, t]) => `<button type="button" class="${CT.tab === k ? 'sel' : ''}" data-cs="tab" data-v="${k}">${t}</button>`).join('')}</div>
+      <p class="nota" style="margin:8px 0 0">${CT.tab === 'tiva' ? 'Anestesia total intravenosa con esquemas manuales: propofol (Roberts 10–8–6 o dosis por peso), remifentanilo y coadyuvantes.' : CT.tab === 'tci' ? 'Infusión controlada por objetivo: el modelo farmacocinético calcula el bolo y las velocidades para alcanzar y mantener la concentración elegida. Sirve para programar a mano una bomba sin TCI.' : 'Bomba de infusión continua: convierte cualquier dosis en velocidad (y al revés), con bolo o carga.'}</p></section>`;
+    // Paciente
+    h += card('Paciente', `<div class="rejilla">${inp('peso', 'Peso', 'kg')}${inp('talla', 'Talla', 'cm')}${inp('edad', 'Edad', 'años')}
+        <label class="campo"><span>Sexo</span><select data-ct="sexo"><option value="M"${CT.sexo === 'M' ? ' selected' : ''}>Masculino</option><option value="F"${CT.sexo === 'F' ? ' selected' : ''}>Femenino</option></select></label></div>
+      <div class="bio" id="ctBio">${calcBioHtml(bio, fx)}</div>
+      ${CT.tab !== 'tci' ? `<div class="grupo" style="margin-top:10px"><div class="etq">Peso para dosificar</div>${chips('pesoDosis', PESOS.map(([k, t]) => [k, t, k !== 'real' && !isFinite(bio[k])]))}</div>
+      <p class="nota" id="ctPesoNota" style="margin-top:4px">${calcPesoNota(bio, d)}</p>` : '<p class="nota" style="margin-top:8px">Los modelos usan sus propias covariables (peso real, talla, edad, sexo).</p>'}`);
+    // Bomba
+    h += card('Bomba', `<div class="grupo"><div class="etq">¿En qué unidad programa tu bomba?</div>${seg('u', [['mlh', 'mL/h'], ['mlmin', 'mL/min'], ['gtt', 'gotas/min']], B).replace(/data-cs=/g, 'data-cb=')}</div>
+      ${B.u === 'mlh' ? `<div class="grupo"><div class="etq">Resolución de la bomba</div>${seg('res', [['0.1', '0,1 mL/h'], ['1', '1 mL/h']], { res: String(B.res) }).replace(/data-cs=/g, 'data-cb=')}</div>` : ''}
+      ${B.u === 'gtt' ? `<div class="grupo"><div class="etq">Equipo de venoclisis</div>${seg('gtt', [['20', 'Macrogotero 20 gotas/mL'], ['60', 'Microgotero 60 gotas/mL']], { gtt: String(B.gtt) }).replace(/data-cs=/g, 'data-cb=')}</div>` : ''}
+      <p class="nota" style="margin:4px 0 0">La mayoría de las bombas de jeringa y volumétricas usan mL/h. Se recuerda para la próxima vez.</p>`);
+    // Fármaco y concentración
+    h += card('Fármaco y concentración', `${chips('farm', calcLista().map((k) => [k, k]))}
+      ${d.preps.length ? `<div class="grupo" style="margin-top:10px"><div class="etq">Preparación</div>${chips('prep', d.preps.map((p, j) => [j, Array.isArray(p) ? p[2] : p.label]))}</div>` : ''}
+      <div class="rejilla" style="margin-top:8px"><label class="campo"><span>Cantidad de fármaco</span><div class="con-unidad"><input data-ct="cant" inputmode="decimal" value="${esc(CT.cant)}">
+        <select data-ct="uCant" style="width:auto">${['g', 'mg', 'mcg'].map((u) => `<option${(CT.uCant || d.masa) === u ? ' selected' : ''}>${u}</option>`).join('')}</select></div></label>
+        ${inp('vol', 'Volumen total', 'mL')}<label class="campo calc"><span>Concentración [ ]</span><input readonly id="ctConc"></label></div>`);
+    // Dosis
+    if (CT.tab === 'tci') {
+      h += card('Modelo y objetivo', `${chips('modelo', d.modelos.map((m) => [m, C.MODELOS[m].nombre]))}
+        ${C.MODELOS[CT.modelo].fn({ peso: 70, talla: 170, edad: 40, sexo: 'M' }).ke0 ? `<div class="grupo" style="margin-top:8px"><div class="etq">Objetivo</div>${seg('obj', [['ce', 'Sitio efecto (Ce)'], ['cp', 'Plasma (Cp)']])}</div>` : ''}
+        <div class="rejilla" style="margin-top:8px">${inp('ct', 'Concentración objetivo', d.ct.u)}</div>
+        ${d.ct.rapidos ? chips('ct', d.ct.rapidos.map((x) => [x, String(x).replace('.', ',')])) : ''}<p class="nota">${esc(d.ct.rango)}</p><div id="ctRes"></div>`);
+    } else {
+      const roberts = CT.tab === 'tiva' && d.roberts;
+      if (roberts) h += `<section class="tarjeta"><h2>Esquema</h2>${seg('esquema', [['roberts', 'Roberts 10–8–6'], ['manual', 'Dosis por peso']])}</section>`;
+      if (roberts && CT.esquema === 'roberts') {
+        h += card('Esquema de Roberts', `<p class="nota" style="margin-top:0">Bolo 1 mg/kg y luego 10, 8 y 6 mg/kg/h, cambiando a los 10 y 20 min. Busca ≈ 3 mcg/mL en plasma (con opioide). Reduce en ancianos o ASA III–IV.</p><div id="ctRes"></div>`);
+      } else {
+        const carga = d.bolo && d.bolo.carga;
+        const bloqueBolo = d.bolo ? `<h3 style="margin-top:0">${carga ? '1. ' + d.bolo.nombre : 'Bolo'}</h3><p class="nota" style="margin-top:0">${esc(d.bolo.rango)}</p>
+          ${carga && d.bolo.tiempos ? `<div class="grupo"><div class="etq">Pasar en</div>${chips('tCarga', d.bolo.tiempos.map((t) => [t, t + ' min']))}</div>` : ''}
+          <div class="rejilla">${inp('bolo', 'Dosis', d.bolo.u, { ph: 'Ej. ' + d.bolo.def })}${carga ? inp('tCarga', 'Pasar en', 'min') : ''}
+          <label class="campo calc"><span>Total</span><input readonly id="ctBolo"></label>${carga ? '<label class="campo calc"><span>Bomba durante la carga</span><input readonly id="ctCarga"></label>' : ''}</div><p class="nota" id="ctBoloAviso" style="color:var(--peligro)"></p>` : '';
+        h += card('Dosis y velocidad', `${carga ? bloqueBolo + '<h3>2. Mantenimiento</h3>' : ''}<p class="nota" style="margin-top:0">${esc(d.rango || '')}</p>
+          <div class="rejilla">${inp('dosis', 'Dosis', '')}<label class="campo"><span>Unidad</span><select data-ct="uDosis">${d.unidades.map((u) => `<option${CT.uDosis === u ? ' selected' : ''}>${u}</option>`).join('')}</select></label>
+          <label class="campo calc"><span>Velocidad</span><input readonly id="ctVel" class="grande"></label></div>
+          <p class="nota" id="ctDura" style="margin:2px 0 6px"></p>
+          ${d.rapidas && CT.uDosis === d.uDosis ? chips('dosis', d.rapidas.map((x) => [x, String(x).replace('.', ',') + ' ' + d.uDosis])) : ''}
+          <h3>De la bomba a la dosis</h3><div class="rejilla">${inp('mlh', 'Velocidad actual', B.u === 'mlmin' ? 'mL/min' : B.u === 'gtt' ? 'gotas/min' : 'mL/h')}<label class="campo calc"><span>Equivale a</span><input readonly id="ctDos"></label></div>
+          ${carga ? '' : bloqueBolo ? '<div style="margin-top:12px">' + bloqueBolo + '</div>' : ''}`);
+      }
+    }
+    h += `<section class="tarjeta"><div id="ctResumen" class="calc-resumen"></div>
+      <div class="fila-btn" style="margin-bottom:0">${H && calcDesde === 'editor' ? '<button class="primario" id="ctUsar">Agregar a la historia</button>' : ''}<button class="secundario" id="ctLimpiar">Limpiar</button></div>
+      <p class="nota">Cálculos de referencia. Verifica siempre con la bomba, la etiqueta de la jeringa y tu criterio clínico; titula según la respuesta y la monitorización (BIS/EEG, hemodinamia).</p></section>`;
+    v.innerHTML = h;
+    // Eventos
+    $$('#vista [data-ct]').forEach((e) => { e.oninput = e.onchange = () => { CT[e.dataset.ct] = e.value; if (e.dataset.ct === 'uDosis' || e.dataset.ct === 'sexo') { render(); return; } calcCalcular(); }; });
+    $$('#vista [data-cc]').forEach((b) => (b.onclick = () => {
+      const k = b.dataset.cc, val = b.dataset.v, dd = C.FARMACOS[CT.farm];
+      if (k === 'farm') calcFarmaco(val);
+      else if (k === 'prep') { const p = dd.preps[+val];
+        if (Array.isArray(p)) { CT.cant = p[0]; CT.vol = p[1]; CT.uCant = dd.masa; CT._regla = ''; }
+        else { const w = C.num(CT.peso); if (!(w > 0)) { aviso('Escribe el peso para la regla de los 6'); return; } CT.cant = C.r(p.porKg * w, 2); CT.vol = p.vol; CT.uCant = 'mg'; CT._regla = p.label; } }
+      else if (k === 'modelo') { CT.modelo = val; CT.obj = val !== 'marsh' && C.MODELOS[val].fn({ peso: 70, talla: 170, edad: 40, sexo: 'M' }).ke0 ? 'ce' : 'cp'; }
+      else CT[k] = val;
+      render();
+    }));
+    $$('#vista [data-cs]').forEach((b) => (b.onclick = () => { CT[b.dataset.cs] = b.dataset.v; render(); }));
+    $$('#vista [data-cb]').forEach((b) => (b.onclick = () => { const k = b.dataset.cb; B[k] = k === 'u' ? b.dataset.v : +b.dataset.v; CT.mlh = ''; Store.guardarConfig(cfg); render(); }));
+    $('#ctLimpiar').onclick = () => { CT = null; render(); };
+    if ($('#ctUsar')) $('#ctUsar').onclick = calcUsar;
+    calcCalcular();
+  }
+  function calcBioHtml(b, fx) {
+    if (!isFinite(b.real)) return '<p class="nota" style="margin:6px 0 0">Escribe el peso y la talla para ver IMC, peso ideal, masa magra y peso ajustado.</p>';
+    if (!isFinite(b.imc)) return '<p class="nota" style="margin:6px 0 0">Agrega la talla para calcular IMC, peso ideal, masa magra y peso ajustado.</p>';
+    const t = (et, val, u, sub) => `<div class="bio-t"><small>${et}</small><b>${val}${u ? ' <em>' + u + '</em>' : ''}</b>${sub ? `<small>${sub}</small>` : ''}</div>`;
+    return t('IMC', fx(b.imc), 'kg/m²', b.cat) + t('Peso ideal', fx(b.ideal), 'kg', 'Devine') + t('Masa magra', fx(b.magra), 'kg', 'Janmahasatian') + t('Peso ajustado', fx(b.ajustado), 'kg', 'Ideal + 40 % del exceso') + t('Sup. corporal', fx(b.sc, 2), 'm²', 'Mosteller');
+  }
+  function calcPesoNota(b, d) {
+    const w = b[CT.pesoDosis];
+    let n = isFinite(w) ? `Dosis por kg calculadas con <b>${String(window.CalcInf.r(w, 1)).replace('.', ',')} kg</b> (peso ${PESOS.find((x) => x[0] === CT.pesoDosis)[1].toLowerCase()}).` : '';
+    if (d.pesoSug === 'ideal') n += ' Para lidocaína se usa el peso ideal.';
+    if (b.imc >= 30) n += ' En obesidad se suele dosificar por masa magra o peso ajustado (relajantes no despolarizantes: masa magra; succinilcolina: peso real; sugammadex: ideal + 40 %, SOBA 2025). Titula con monitorización.';
+    return n;
+  }
+  let calcRes = { conc: '', dosis: '' };
+  function calcConc() {
+    const d = window.CalcInf.FARMACOS[CT.farm], c = window.CalcInf.num(CT.cant), vv = window.CalcInf.num(CT.vol);
+    if (!(c > 0 && vv > 0)) return NaN;
+    return (c * ({ g: 1000, mg: 1, mcg: 0.001 }[CT.uCant || d.masa]) / ({ mg: 1, mcg: 0.001 }[d.masa])) / vv;
+  }
+  function calcCalcular() {
+    const C = window.CalcInf, d = C.FARMACOS[CT.farm], mu = d.masa, B = cfg.bomba, n = C.num, R = C.r;
+    const bio = C.biometria(CT.peso, CT.talla, CT.sexo);
+    if ($('#ctBio')) $('#ctBio').innerHTML = calcBioHtml(bio, (x, dd = 1) => (isFinite(x) ? String(R(x, dd)).replace('.', ',') : '—'));
+    if ($('#ctPesoNota')) $('#ctPesoNota').innerHTML = calcPesoNota(bio, d);
+    $$('#vista [data-cc="pesoDosis"]').forEach((b) => { b.disabled = b.dataset.v !== 'real' && !isFinite(bio[b.dataset.v]); });
+    const peso = CT.tab === 'tci' ? n(CT.peso) : bio[CT.pesoDosis] || (CT.pesoDosis === 'real' ? n(CT.peso) : NaN);
+    const c = calcConc(), cTxt = isFinite(c) ? `${String(R(c, c < 1 ? 3 : 2)).replace('.', ',')} ${mu}/mL` : '';
+    $('#ctConc').value = cTxt;
+    const bomba = (mlh) => C.enBomba(mlh, B);
+    const aMlh = (x) => { const y = n(x); return B.u === 'mlmin' ? y * 60 : B.u === 'gtt' ? (y * 60) / (B.gtt || 20) : y; };
+    let prepTxt = ''; if (isFinite(c)) { const ps = (d.preps || []).find((p) => Array.isArray(p) && +p[0] === +CT.cant && +p[1] === +CT.vol && (CT.uCant || mu) === mu); prepTxt = ps ? ps[2] : `${CT.cant} ${CT.uCant || mu} en ${CT.vol} mL (${cTxt})`; }
+    calcRes = { conc: prepTxt, dosis: '' };
+    const pTxt = isFinite(peso) ? ` (${String(R(peso, 1)).replace('.', ',')} kg${CT.tab !== 'tci' && CT.pesoDosis !== 'real' ? ' ' + CT.pesoDosis : ''})` : '';
+    let res = '';
+    if (CT.tab === 'tci') {
+      const M = C.MODELOS[CT.modelo], pac = { peso: n(CT.peso), edad: n(CT.edad), talla: n(CT.talla), sexo: CT.sexo }, ct = n(CT.ct);
+      const falta = M.req.filter((k) => k !== 'sexo' && !(pac[k] > 0));
+      if (falta.length || !(ct > 0) || !isFinite(c)) { $('#ctRes').innerHTML = `<p class="nota">Falta: ${[...falta, !(ct > 0) ? 'objetivo' : '', !isFinite(c) ? 'preparación' : ''].filter(Boolean).join(', ')}.</p>`; $('#ctResumen').innerHTML = ''; return; }
+      const usarCe = CT.obj === 'ce' && M.fn(pac).ke0;
+      const T = usarCe ? C.tciCe(CT.modelo, pac, ct) : C.tci(CT.modelo, pac, ct), k = T.k;
+      const rot = (x) => (x.desde != null && x.desde > x.a ? `${String(R(x.desde, 1)).replace('.', ',')}–${x.b}` : `${x.a}–${x.b}`);
+      const mlh = (m) => (m * 60) / c, w = pac.peso;
+      const porKg = (m) => (CT.farm === 'Remifentanilo' ? `${R(m / w, 3)} mcg/kg/min` : CT.farm === 'Dexmedetomidina' ? `${R(m * 60 / w, 2)} mcg/kg/h` : `${R(m * 60 / w, 1)} mg/kg/h`).replace('.', ',');
+      const avisos = [];
+      if (k.lbm != null && (k.lbm < 0.4 * w || k.lbm > w)) avisos.push('La masa magra de James es poco fiable con este peso y talla (obesidad): el modelo puede fallar.');
+      else if (bio.imc >= 35) avisos.push(`IMC ${String(R(bio.imc, 1)).replace('.', ',')}: ${CT.modelo === 'marsh' ? 'Marsh usa el peso real y tiende a sobredosificar en obesos (muchos usan el peso ajustado).' : 'los modelos clásicos se validaron en no obesos; titula con monitorización.'}`);
+      if (pac.edad > 0 && pac.edad < 16) avisos.push('Modelo de adultos: no validado en menores de 16 años.');
+      if (pac.edad >= 65 && CT.farm === 'Propofol') avisos.push('Adulto mayor: objetivos más bajos y cambios de 0,5 en 0,5, guiados por EEG.');
+      res = avisos.map((a) => `<p class="nota" style="color:var(--peligro)">⚠ ${esc(a)}</p>`).join('') + `<div class="desplaza"><table class="tabla" style="margin-top:6px"><tr><th>Tramo</th><th>Dosis</th><th>Bomba</th></tr>
+        <tr><td class="etq">Bolo inicial</td><td>${String(R(T.bolo, 1)).replace('.', ',')} ${mu}</td><td><b>${String(R(T.bolo / c, 1)).replace('.', ',')} mL</b></td></tr>
+        ${usarCe ? `<tr><td class="etq" colspan="3">Pausa sin infusión hasta el pico del efecto (${String(R(T.tpico, 1)).replace('.', ',')} min)</td></tr>` : ''}
+        ${T.tramos.map((x) => `<tr><td class="etq">${rot(x)} min</td><td>${porKg(x.masaMin)}</td><td><b>${bomba(mlh(x.masaMin))}</b></td></tr>`).join('')}
+        <tr><td class="etq">Estable (&gt;4 h)</td><td>${porKg(T.estable)}</td><td><b>${bomba(mlh(T.estable))}</b></td></tr></table></div>
+        <p class="nota">${esc(M.nombre)} · V1 ${R(k.V1, 2)} L · k10 ${R(k.k10, 4)} · k12 ${R(k.k12, 4)} · k13 ${R(k.k13, 4)} · k21 ${R(k.k21, 4)} · k31 ${R(k.k31, 4)}${k.ke0 ? ' · ke0 ' + R(k.ke0, 3) : ''}${k.lbm ? ' · masa magra (James) ' + R(k.lbm, 1) + ' kg' : ''}. ${esc(M.nota)}
+        ${usarCe ? 'Sitio efecto: el bolo lleva el pico de Ce justo al objetivo, sin pasarlo; luego se mantiene Cp = Ce.' : 'Objetivo plasmático (método BET: bolo, eliminación y transferencia).'} Si tu bomba tiene TCI, programa el modelo y el objetivo directamente.</p>`;
+      $('#ctRes').innerHTML = res;
+      calcRes.dosis = `TCI manual ${M.nombre.split(' (')[0]} ${usarCe ? 'Ce' : 'Cp'} ${ct} ${d.ct.u}: bolo ${R(T.bolo, 1)} ${mu} (${R(T.bolo / c, 1)} mL)` + (usarCe ? `, pausa ${R(T.tpico, 1)}'` : '') + ' · ' +
+        T.tramos.slice(0, 7).map((x) => `${rot(x)}' ${bomba(mlh(x.masaMin))}`).join(' · ') + ` · estable ${bomba(mlh(T.estable))}`;
+    } else if (CT.tab === 'tiva' && d.roberts && CT.esquema === 'roberts') {
+      const t = isFinite(c) && peso > 0 ? C.roberts(peso, c) : null;
+      $('#ctRes').innerHTML = t ? `<table class="tabla" style="margin-top:6px"><tr><th>Etapa</th><th>Dosis</th><th>Bomba</th></tr>
+        ${t.map((x) => `<tr><td class="etq">${x.etapa}</td><td>${x.mgkg ? '1 mg/kg = ' + R(x.mg, 0) + ' mg' : x.mgkgh + ' mg/kg/h'}</td><td><b>${x.ml != null ? String(R(x.ml, 1)).replace('.', ',') + ' mL' : bomba(x.mlh)}</b></td></tr>`).join('')}</table>` : '<p class="nota">Falta peso o preparación.</p>';
+      if (t) calcRes.dosis = `Roberts${pTxt}: bolo ${R(t[0].mg, 0)} mg (${R(t[0].ml, 1)} mL) · 10 mg/kg/h = ${bomba(t[1].mlh)} ×10 min · 8 mg/kg/h = ${bomba(t[2].mlh)} ×10 min · luego 6 mg/kg/h = ${bomba(t[3].mlh)}`;
+    } else {
+      const vel = C.velocidad(CT.dosis, CT.uDosis, peso, c, mu);
+      $('#ctVel').value = isFinite(vel) ? bomba(vel) : '';
+      const dd = C.dosisDesde(aMlh(CT.mlh), CT.uDosis, peso, c, mu);
+      $('#ctDos').value = isFinite(dd) && n(CT.mlh) > 0 ? `${String(R(dd, 3)).replace('.', ',')} ${CT.uDosis}` : '';
+      let bTxt = '';
+      if (d.bolo && $('#ctBolo')) {
+        const tot = n(CT.bolo) * (/\/kg/.test(d.bolo.u) ? peso : 1) * (d.bolo.u.startsWith('mcg') && mu === 'mg' ? 0.001 : d.bolo.u.startsWith('mg') && mu === 'mcg' ? 1000 : 1);
+        const ml = tot / c, tc = n(CT.tCarga) || d.bolo.carga, ok = isFinite(tot) && tot > 0 && isFinite(ml);
+        $('#ctBolo').value = ok ? `${String(R(tot, 1)).replace('.', ',')} ${mu} = ${String(R(ml, 1)).replace('.', ',')} mL` : '';
+        if ($('#ctCarga')) $('#ctCarga').value = ok && tc > 0 ? bomba((ml * 60) / tc) : '';
+        const vPrep = n(CT.vol), avB = $('#ctBoloAviso');
+        $$('#vista [data-cc="tCarga"]').forEach((b) => b.classList.toggle('sel', +b.dataset.v === n(CT.tCarga)));
+        if (avB && d.bolo.tMin && n(CT.tCarga) > 0 && n(CT.tCarga) < d.bolo.tMin) avB.textContent = `⚠ ${d.bolo.nombre} en menos de ${d.bolo.tMin} min es demasiado rápida: pásala en ${d.bolo.tiempos.join(' o ')} min.`;
+        else if (avB) avB.textContent = ok && vPrep > 0 && ml > vPrep ? `⚠ El ${d.bolo.carga ? 'volumen de la carga' : 'bolo'} (${String(R(ml, 1)).replace('.', ',')} mL) supera el volumen de la preparación (${vPrep} mL): usa una preparación más concentrada o prepara aparte.` : '';
+        if (ok) bTxt = d.bolo.carga ? `${d.bolo.nombre} ${CT.bolo} ${d.bolo.u} = ${R(tot, 1)} ${mu} (${R(ml, 1)} mL) en ${tc} min = ${bomba((ml * 60) / tc)}` : `bolo ${CT.bolo} ${d.bolo.u} = ${R(tot, 1)} ${mu} (${R(ml, 1)} mL)`;
+      }
+      const vp = n(CT.vol), durH = isFinite(vel) && vel > 0 && vp > 0 ? vp / vel : NaN;
+      const durTxt = isFinite(durH) ? (durH >= 1 ? `${Math.floor(durH)} h ${Math.round((durH % 1) * 60)} min` : `${Math.round(durH * 60)} min`) : '';
+      if ($('#ctDura')) $('#ctDura').textContent = durTxt ? `A esta velocidad, la preparación de ${vp} mL dura ≈ ${durTxt}.` : '';
+      const mant = isFinite(vel) ? `${CT.dosis} ${CT.uDosis} = ${bomba(vel)}` : '';
+      calcRes.dosis = [bTxt, mant && (bTxt && d.bolo.carga ? 'luego ' : '') + mant].filter(Boolean).join(d.bolo && d.bolo.carga ? '; ' : ' · ') + (bTxt || mant ? pTxt : '');
+    }
+    calcRes.dosis = calcRes.dosis.replace(/(\d)\.(\d)/g, '$1,$2'); calcRes.conc = calcRes.conc.replace(/(\d)\.(\d)/g, '$1,$2');
+    $('#ctResumen').innerHTML = calcRes.dosis ? `<div class="etq">Resumen</div><p style="margin:4px 0 0"><b>${esc(CT.farm)}</b>${calcRes.conc ? ' · ' + esc(calcRes.conc) : ''}</p><p style="margin:4px 0 0">${esc(calcRes.dosis)}</p>` : '<p class="nota" style="margin:0">Completa los datos para ver el resumen.</p>';
+  }
+  function calcUsar() {
+    calcCalcular();
+    if (!calcRes.dosis) { aviso('Completa los datos del cálculo'); return; }
+    H.inf = H.inf || []; H.inf.push({ farm: CT.farm === 'Otra' ? '' : CT.farm, conc: calcRes.conc, dosis: calcRes.dosis });
+    if (!H.p.peso && CT.peso) H.p.peso = CT.peso; if (!H.p.talla && CT.talla) H.p.talla = CT.talla;
+    guardarPronto(); aviso('Agregado a Mezcla / Infusión de la historia');
   }
 
   /* ---------- Pistas: gases, inhalatorio, opioide, relajante y drogas ---------- */
@@ -1059,6 +1280,8 @@
     $('#secciones').hidden = pantalla !== 'editor';
     $('#pie').hidden = pantalla !== 'editor' && pantalla !== 'doc';
     $('#btnMenu').hidden = pantalla === 'login';
+    $('#btnSOS').hidden = ['login', 'bienvenida', 'registro'].includes(pantalla) || pantalla === 'crisis';
+    $('#btnSOS').classList.toggle('activa', !!(window.Crisis && Crisis.activa()));
     $('#barra').hidden = pantalla === 'bienvenida';
     bordeABorde(pantalla === 'bienvenida');
     if (pantalla === 'bienvenida') return renderBienvenida(v);
@@ -1069,6 +1292,10 @@
     if (pantalla === 'registro') { $('#btnAtras').hidden = !cfg.cuenta && !cfg.omitirRegistro ? true : false; return renderRegistro(v); }
     if (pantalla === 'login') { $('#btnAtras').hidden = true; return renderLogin(v); }
     if (pantalla === 'extras') return renderExtras(v);
+    if (pantalla === 'guias') return renderGuias(v);
+    if (pantalla === 'calc') return renderCalc(v);
+    if (pantalla === 'crisis') return renderCrisis(v);
+    if (pantalla === 'guia') return renderGuia(v);
     if (pantalla === 'doc') return D.tipo === 'val' ? renderVal(v) : renderRx(v);
     if (pantalla === 'editor') {
       calcular();
@@ -1513,7 +1740,47 @@
         <p class="nota" style="margin:0">Documentos con tu membrete (logo, nombre, registros y teléfono de "Mi perfil"), tu firma y tu sello. Se guardan en este teléfono.</p></section>` +
       card('Valoración preanestésica', `<div class="fila-btn" style="margin:0 0 12px"><button class="primario" data-acc="docNuevo" data-t="val">+ Nueva valoración</button></div>` + lista('val')) +
       card('Récipe (media carta)', `<div class="fila-btn" style="margin:0 0 12px"><button class="primario" data-acc="docNuevo" data-t="rx">+ Nuevo récipe</button></div>` + lista('rx')) +
+      card('Calculadora TIVA · TCI · BIC', `<p class="nota" style="margin:0 0 10px">Propofol (Roberts o modelos Marsh/Schnider), remifentanilo (Minto), dexmedetomidina y coadyuvantes: IMC, pesos para dosificar, concentración y velocidad en la unidad de tu bomba.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irCalc">🧮 Abrir la calculadora</button></div>`) +
+      card('Guías de consulta', `<p class="nota" style="margin:0 0 10px">Tres pestañas: Consulta (fichas de la valoración preanestésica), Crisis (reanimación y crisis en quirófano) y Técnicas. Con fuente y año, sin internet.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irGuias">📖 Abrir las guías (${GG().fichas.length})</button></div>`) +
       card('Próximamente en la 2.0', '<ul class="nota" style="margin:0;padding-left:18px;line-height:1.7"><li>Guía de medicación preoperatoria para consultar por fármaco.</li><li>Constancia de reposo e informe médico.</li><li>Más formatos con tu membrete.</li></ul>');
+  }
+
+  /* ---- Guías de consulta (fichas en js/guias-datos.js) ---- */
+  let guiaId = '', guiaBusca = '', guiaDesde = 'inicio', guiaTab = 'consulta';
+  const GG = () => window.GUIAS || { orden: [], pestanas: [], fichas: [], pendientes: [] };
+  // En la app Android el enlace se abre en el navegador del teléfono (MainActivity.shouldOverrideUrlLoading).
+  const enlace = (u, t) => `<a href="${esc(u)}"${window.Nativo ? '' : ' target="_blank" rel="noopener"'}>${esc(t)}</a>`;
+  function textoFicha(f) { return sinTilde([f.titulo, f.resumen, ...(f.secciones || []).map((s) => [s.t, ...(s.items || []), ...((s.tabla || {}).filas || []).flat()].join(' ')), ...(f.alertas || [])].join(' ')); }
+  function renderGuias(v) {
+    $('#titulo').textContent = 'Guías de consulta';
+    const G = GG(), q = sinTilde(guiaBusca), tabs = G.pestanas || [];
+    const enTab = (f) => (f.pestanas || ['consulta']).includes(guiaTab);
+    const lista = G.fichas.filter((f) => (q ? textoFicha(f).includes(q) : enTab(f)));
+    const grupos = G.orden.map((c) => [c, lista.filter((f) => f.categoria === c)]).filter(([, l]) => l.length);
+    const tabInfo = tabs.find((t) => t[0] === guiaTab) || ['', '', ''];
+    const pend = G.pendientes.filter((p) => (p[3] || 'consulta') === guiaTab);
+    const algos = guiaTab === 'crisis' && !q && window.Crisis ? `<section class="tarjeta"><h2>Algoritmos interactivos</h2><p class="nota" style="margin:0 0 8px">Paso a paso, con reloj, contador de adrenalina, dosis por peso y resumen para copiar. También con el botón SOS de arriba.</p><ul class="lista">${Crisis.LISTA.map(([, ids]) => ids).flat().map((id) => `<li class="item" data-acc="crisisAbrir" data-id="${id}"><div class="txt"><b>${esc(Crisis.ALG[id].titulo)}</b><small>${esc(Crisis.ALG[id].sub)}</small></div><span class="flecha">›</span></li>`).join('')}</ul></section>` : '';
+    v.innerHTML = `<section class="tarjeta"><div class="segmento calc-tabs" style="margin-bottom:12px">${tabs.map(([k, t]) => `<button type="button" class="${guiaTab === k ? 'sel' : ''}" data-gtab="${k}">${t}</button>`).join('')}</div>
+      <label class="campo completo" style="margin:0"><span>Buscar en todas las guías</span><input id="guiaQ" type="search" value="${esc(guiaBusca)}" placeholder="Ej. GLP-1, dantroleno, 180/120"></label>
+      <p class="nota">${q ? `Resultados en todas las pestañas (${lista.length}).` : esc(tabInfo[2]) + ' Funcionan sin internet.'}</p></section>` + algos +
+      (grupos.length ? grupos.map(([c, l]) => card(c, `<ul class="lista">${l.map((f) => `<li class="item" data-acc="guiaAbrir" data-id="${f.id}"><div class="txt"><b>${esc(f.titulo)}</b><small>${esc(f.resumen.length > 150 ? f.resumen.slice(0, 147) + '…' : f.resumen)}</small>
+        <small>${esc((f.fuentes || []).slice(0, 2).map((x) => (x.cita.split('.')[0].split(',')[0] + ' ' + (x.anio || '')).trim()).join(' · '))}</small></div><span class="flecha">›</span></li>`).join('')}</ul>`)).join('')
+        : card(q ? 'Sin resultados' : 'Aún sin fichas', `<p class="nota" style="margin:0">${q ? 'Ninguna ficha contiene ese texto.' : 'Esta pestaña se irá llenando en las próximas versiones.'}</p>`)) +
+      (!q && pend.length ? card('En preparación', `<ul class="nota" style="margin:0;padding-left:18px;line-height:1.7">${pend.map((p) => `<li>${esc(p[1])}</li>`).join('')}</ul>`) : '') +
+      '<p class="nota" style="padding:0 6px 20px">Material de consulta rápida: no sustituye el juicio clínico, la ficha técnica ni los protocolos de tu institución.</p>';
+    $$('#vista [data-gtab]').forEach((b) => (b.onclick = () => { guiaTab = b.dataset.gtab; guiaBusca = ''; renderGuias(v); window.scrollTo(0, 0); }));
+    const inp = $('#guiaQ'); inp.oninput = () => { guiaBusca = inp.value; const pos = inp.selectionStart; renderGuias(v); const n = $('#guiaQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} };
+  }
+  function renderGuia(v) {
+    const f = GG().fichas.find((x) => x.id === guiaId); if (!f) { pantalla = 'guias'; return renderGuias(v); }
+    $('#titulo').textContent = f.titulo;
+    const sec = (s) => card(esc(s.t), (s.items ? `<ul class="guia-items">${s.items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>` : '') +
+      (s.tabla ? `<div class="desplaza"><table class="tabla guia-tabla${s.tabla.cols.length > 3 ? ' ancha' : ''}"><tr>${s.tabla.cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${s.tabla.filas.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table></div>` : ''));
+    v.innerHTML = `<section class="tarjeta guia-cab"><div class="ex-marca">${esc(f.categoria)}</div><h2>${esc(f.titulo)}</h2><p class="guia-resumen">${esc(f.resumen)}</p></section>` +
+      f.secciones.map(sec).join('') +
+      (f.alertas && f.alertas.length ? `<section class="tarjeta guia-alerta"><h2>⚠ Alertas</h2><ul class="guia-items">${f.alertas.map((a) => `<li>${esc(a)}</li>`).join('')}</ul></section>` : '') +
+      card('Fuentes', `<ol class="guia-fuentes">${f.fuentes.map((x) => `<li>${esc(x.cita)}${x.doi ? ' ' + enlace('https://doi.org/' + x.doi, 'doi:' + x.doi) : x.url ? ' ' + enlace(x.url, x.url.replace(/^https?:\/\//, '')) : ''}</li>`).join('')}</ol>
+        <p class="nota">Revisado: ${esc(f.revisado || '')}. Resumen de consulta: no sustituye el juicio clínico ni los protocolos de tu institución.</p>`);
   }
 
   /* ---- Valoración preanestésica ---- */
@@ -1724,6 +1991,11 @@
     else if (acc === 'calcInf') abrirCalculadora(+a.dataset.i);
     else if (acc === 'pAg') { const p = H.to.pistas[a.dataset.p]; p.agente = p.agente === a.dataset.v && a.dataset.p === 'inh' ? '' : a.dataset.v; guardarPronto(); render(); }
     else if (acc === 'irExtras') { pantalla = 'extras'; render(); window.scrollTo(0, 0); }
+    else if (acc === 'crisisAbrir') crisisAbrir(a.dataset.id);
+    else if (acc === 'crisisSeguir') { crisisMenu = false; render(); window.scrollTo(0, 0); }
+    else if (acc === 'irCalc') { calcDesde = pantalla; pantalla = 'calc'; render(); window.scrollTo(0, 0); }
+    else if (acc === 'irGuias') { guiaDesde = pantalla; pantalla = 'guias'; render(); window.scrollTo(0, 0); }
+    else if (acc === 'guiaAbrir') { guiaId = a.dataset.id; pantalla = 'guia'; render(); window.scrollTo(0, 0); }
     else if (acc === 'docNuevo') { const x = nuevoDoc(a.dataset.t); Store.guardarDoc(x); abrirDoc(x); }
     else if (acc === 'docAbrir') { const x = Store.cargarDoc(a.dataset.id); if (x) abrirDoc(migrarDoc(x)); else aviso('No se pudo abrir'); }
     else if (acc === 'docMas') { const id = a.dataset.id; menu([
@@ -1765,6 +2037,7 @@
   });
   $('#btnPdf').onclick = accionesPdf;
   $('#btnAtras').onclick = () => atras();
+  $('#btnSOS').onclick = () => { if (pantalla === 'editor') guardarYa(); irCrisis(); };
   $('#btnMenu').onclick = () => {
     if (pantalla === 'doc') {
       menu([
@@ -1779,6 +2052,8 @@
     if (pantalla === 'editor') {
       menu([
         { t: 'Ver / PDF', f: accionesPdf },
+        { t: '🆘 Crisis: algoritmos de emergencia', f: () => { guardarYa(); irCrisis(); } },
+        { t: '🧮 Calculadora TIVA · TCI · BIC', f: () => { guardarYa(); CT = null; calcDesde = 'editor'; pantalla = 'calc'; render(); window.scrollTo(0, 0); } },
         { t: 'Nueva historia usando esta como plantilla', f: () => { guardarYa(); duplicar(H.id, false); } },
         { t: 'Mi perfil y firma', f: () => { guardarYa(); pantalla = 'perfil'; render(); } },
         { t: 'Lugares de trabajo', f: () => { guardarYa(); pantalla = 'sedes'; render(); } },
@@ -1787,6 +2062,9 @@
     } else {
       menu([
         { t: '✦ Extras: valoración y récipe', f: () => { pantalla = 'extras'; render(); } },
+        { t: '🆘 Crisis: algoritmos de emergencia', f: irCrisis },
+        { t: '🧮 Calculadora TIVA · TCI · BIC', f: () => { if (calcDesde === 'editor') CT = null; calcDesde = pantalla === 'calc' ? calcDesde : pantalla; pantalla = 'calc'; render(); window.scrollTo(0, 0); } },
+        { t: '📖 Guías de consulta', f: () => { guiaDesde = pantalla; pantalla = 'guias'; render(); window.scrollTo(0, 0); } },
         { t: '🏥 Lugares de trabajo', f: () => { pantalla = 'sedes'; render(); } },
         { t: '✍ Mi perfil y firma', f: () => { pantalla = 'perfil'; render(); } },
         { t: '🗂 Respaldo (exportar / importar)', f: respaldo },
@@ -1805,6 +2083,10 @@
     if (pantalla === 'editor') { guardarYa(); H = null; pantalla = 'inicio'; render(); return true; }
     if (pantalla === 'doc') { guardarDocYa(); D = null; pantalla = 'extras'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'extras') { pantalla = 'inicio'; render(); return true; }
+    if (pantalla === 'crisis') { if (crisisMenu && Crisis.activa()) { crisisMenu = false; render(); return true; } pantalla = ['editor', 'extras', 'guias', 'calc'].includes(crisisDesde) && (crisisDesde !== 'editor' || H) ? crisisDesde : 'inicio'; crisisMenu = false; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'calc') { if (calcDesde === 'crisis') { pantalla = 'crisis'; render(); window.scrollTo(0, 0); return true; } pantalla = ['editor', 'extras'].includes(calcDesde) && (calcDesde !== 'editor' || H) ? calcDesde : 'inicio'; if (calcDesde === 'editor') CT = null; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'guia') { pantalla = 'guias'; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'guias') { pantalla = guiaDesde === 'extras' ? 'extras' : 'inicio'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'bienvenida') return false;
     if (pantalla === 'login') { pantalla = 'bienvenida'; render(); return true; }
     if (pantalla === 'registro') { pantalla = !cfg.cuenta && !cfg.omitirRegistro ? 'bienvenida' : 'perfil'; render(); return true; }

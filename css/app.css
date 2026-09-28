@@ -276,3 +276,55 @@ button{font:inherit;cursor:pointer}
 .guia-dosis details{margin-top:2px}
 .guia-dosis summary{cursor:pointer;color:var(--pri);font-weight:600;display:inline}
 .guia-dosis details[open] summary{margin-right:6px}
+/* guías de consulta */
+.item .flecha{color:var(--suave);font-size:22px;margin-left:auto}
+.guia-cab h2{margin-bottom:6px}
+.guia-resumen{margin:0;font-size:15px;line-height:1.5}
+.guia-items{margin:0;padding-left:18px;line-height:1.5}
+.guia-items li{margin:0 0 7px}
+.guia-alerta{border-left:4px solid #b3261e;background:#fdf3f2}
+.guia-alerta h2{color:#b3261e}
+.guia-tabla{font-size:13px;width:100%;table-layout:auto}
+.guia-tabla.ancha{min-width:520px}
+.guia-tabla th{text-align:left;vertical-align:bottom}
+.guia-tabla td,.guia-tabla th{padding:5px 6px}
+.guia-tabla td{text-align:left;vertical-align:top;line-height:1.4;overflow-wrap:anywhere}
+.guia-tabla td:first-child{font-weight:600;min-width:72px;max-width:34%}
+.guia-fuentes{margin:0;padding-left:18px;font-size:13px;line-height:1.5}
+.guia-fuentes li{margin-bottom:6px;overflow-wrap:anywhere}
+.enlace-txt{color:var(--suave)}
+
+/* Calculadora TIVA · TCI · BIC */
+.calc-tabs button{font-size:16px;font-weight:600;padding:11px 4px}
+.bio{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;margin-top:10px}
+.bio-t{background:var(--acento);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.bio-t b{font-size:18px;color:var(--pri)}
+.bio-t b em{font-style:normal;font-size:12px;color:var(--suave);font-weight:400}
+.bio-t small{font-size:11.5px;color:var(--suave);line-height:1.25}
+input.grande{font-weight:700;font-size:17px;color:var(--pri)}
+.calc-resumen{background:var(--acento);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.opcion[disabled]{opacity:.4}
+
+/* Modo crisis */
+#btnSOS{font-weight:800;font-size:13px;letter-spacing:.5px;color:#fff;background:#c62828;border-radius:8px;padding:6px 9px;margin-right:4px;width:auto;height:auto}
+#btnSOS.activa{animation:sosPulso 1.2s infinite}
+@keyframes sosPulso{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.7)}50%{box-shadow:0 0 0 6px rgba(255,255,255,0)}}
+.cr-cab{position:sticky;top:var(--barra-h,64px);z-index:5;background:#8e1c1c;color:#fff;border-radius:0 0 14px 14px;padding:10px 12px 12px;margin:-4px -2px 12px;box-shadow:0 3px 10px rgba(0,0,0,.2)}
+.cr-tit b{display:block;font-size:16px}.cr-tit small{opacity:.85;font-size:12px}
+.cr-relojes{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:8px}
+.cr-r{background:rgba(255,255,255,.14);border-radius:10px;padding:6px 8px}
+.cr-r small{display:block;font-size:11px;opacity:.85}.cr-r b{font-size:24px;font-variant-numeric:tabular-nums;letter-spacing:.5px}
+.cr-r.aviso{background:#f9a825;color:#222}.cr-r.alerta{background:#fff;color:#b71c1c;animation:sosPulso 1s infinite}
+.cr-barra{height:5px;background:rgba(255,255,255,.25);border-radius:3px;margin-top:4px;overflow:hidden}.cr-barra i{display:block;height:100%;width:0;background:#fff}
+.cr-paso{border:2px solid #c62828}
+.cr-paso h2{color:#b71c1c}
+.cr-items{margin:0;padding-left:20px;line-height:1.5}.cr-items li{margin:4px 0}
+.cr-bot{display:flex;flex-direction:column;gap:8px;margin-top:12px}.cr-bot button{font-size:16px;padding:13px 10px;width:100%}
+button.ok{background:#2e7d32;color:#fff;border-color:#2e7d32}
+.cr-rap{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}.cr-rap button{padding:12px 6px;font-size:14.5px}
+.cr-rap em{font-style:normal;background:var(--pri);color:#fff;border-radius:9px;padding:0 6px;margin-left:4px;font-size:12px}
+.cr-ref summary{font-weight:700;color:var(--pri);cursor:pointer}
+.cr-log{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto;font-size:14px}.cr-log li{padding:5px 0;border-bottom:1px solid #eee}.cr-log b{font-variant-numeric:tabular-nums;margin-right:6px}
+.cr-escalera{list-style:none;margin:6px 0;padding:0;counter-reset:e}
+.cr-escalera li{margin:3px 0;padding:6px 10px;border-radius:8px;color:#fff;background:hsl(calc(45 - var(--n) * 6),85%,calc(52% - var(--n) * 2.5%));margin-left:calc(var(--n) * 10px)}
+.cr-activa{border:2px solid #c62828}

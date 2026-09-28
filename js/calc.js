@@ -13,39 +13,41 @@ window.CalcInf = (function () {
       preps: [[200, 20, '1 % sin diluir (10 mg/mL)'], [1000, 50, '2 % sin diluir (20 mg/mL)'], [500, 50, '1 % jeringa 50 mL (10 mg/mL)']],
       rango: 'Mantenimiento TIVA 4–12 mg/kg/h (≈ 70–200 mcg/kg/min); sedación 1,5–4,5 mg/kg/h (25–75 mcg/kg/min).',
       bolo: { u: 'mg/kg', rango: 'Inducción 1,5–2,5 mg/kg (menos en ancianos o ASA III–IV).', def: 1 },
-      modelos: ['marsh', 'schnider'], roberts: true, ct: { u: 'mcg/mL', def: 3, rango: 'Hipnosis habitual 2,5–4 mcg/mL (sedación 0,8–2).' },
+      modelos: ['marsh', 'schnider'], roberts: true, ct: { u: 'mcg/mL', def: 3, rango: 'Hipnosis habitual 2,5–4 mcg/mL (sedación 0,8–2); en ancianos o ASA III–IV empezar más bajo y subir de 0,5 en 0,5.', rapidos: [2, 2.5, 3, 3.5, 4, 5] },
+      rapidas: [4, 6, 8, 10], tiva: true,
     },
     'Remifentanilo': {
       masa: 'mcg', uDosis: 'mcg/kg/min', unidades: ['mcg/kg/min', 'mcg/kg/h'],
       preps: [[2000, 40, '2 mg en 40 mL (50 mcg/mL)'], [1000, 50, '1 mg en 50 mL (20 mcg/mL)'], [2000, 50, '2 mg en 50 mL (40 mcg/mL)']],
       rango: 'Mantenimiento 0,05–0,5 mcg/kg/min (habitual 0,1–0,25; ficha técnica hasta 2).',
       bolo: { u: 'mcg/kg', rango: 'Bolo opcional 0,5–1 mcg/kg en 30–60 s.', def: 1 },
-      modelos: ['minto'], ct: { u: 'ng/mL', def: 4, rango: 'Intubación 4–6 ng/mL; mantenimiento 2–8 ng/mL según estímulo.' },
+      modelos: ['minto'], ct: { u: 'ng/mL', def: 4, rango: 'Intubación 4–6 ng/mL; mantenimiento 2–8 ng/mL según estímulo.', rapidos: [2, 3, 4, 5, 6, 8] },
+      rapidas: [0.05, 0.1, 0.15, 0.2, 0.25], tiva: true,
     },
     'Dexmedetomidina': {
       masa: 'mcg', uDosis: 'mcg/kg/h', unidades: ['mcg/kg/h', 'mcg/kg/min'],
       preps: [[200, 50, '200 mcg en 50 mL (4 mcg/mL)'], [200, 100, '200 mcg en 100 mL (2 mcg/mL)'], [400, 100, '400 mcg en 100 mL (4 mcg/mL)']],
-      rango: 'Mantenimiento 0,2–0,7 mcg/kg/h (UCI hasta 1,4).', dosisDef: 0.5,
-      bolo: { u: 'mcg/kg', rango: 'Impregnación 0,5–1 mcg/kg en 10 min (procedimientos 0,25–0,5); luego mantenimiento en mcg/kg/h.', def: 1, carga: 10, prellenar: true, nombre: 'Impregnación' },
-      modelos: ['hannivoort', 'dyck'], ct: { u: 'ng/mL', def: 0.6, rango: 'Sedación 0,3–1,2 ng/mL.' },
+      rango: 'Mantenimiento 0,2–0,7 mcg/kg/h (UCI hasta 1,4). Suspender 30–60 min antes del final para no retrasar el despertar (WFSA 2024).', dosisDef: 0.5, rapidas: [0.2, 0.4, 0.5, 0.7], tiva: true,
+      bolo: { u: 'mcg/kg', rango: 'Impregnación 1 mcg/kg en 10–15 min, nunca más rápido (una carga rápida da hipertensión y bradicardia); 0,5 mcg/kg o sin carga en ancianos o inestables. Luego mantenimiento en mcg/kg/h.', def: 1, carga: 10, tiempos: [10, 15], tMin: 10, prellenar: true, nombre: 'Impregnación' },
+      modelos: ['hannivoort', 'dyck'], ct: { u: 'ng/mL', def: 0.6, rango: 'Sedación 0,3–1,2 ng/mL.', rapidos: [0.3, 0.6, 0.9, 1.2] },
     },
     'Lidocaína': {
       masa: 'mg', uDosis: 'mg/kg/h', unidades: ['mg/kg/h', 'mg/kg/min', 'mcg/kg/min'],
       preps: [[400, 20, '2 % sin diluir (20 mg/mL)'], [1000, 250, '1 g en 250 mL (4 mg/mL)'], [1000, 100, '1 g en 100 mL (10 mg/mL)']],
-      rango: 'Infusión 1–2 mg/kg/h (usar peso ideal; no pasar de 2 mg/kg/h).',
-      bolo: { u: 'mg/kg', rango: 'Bolo 1–1,5 mg/kg lento.', def: 1.5 },
+      rango: 'Infusión 1–2 mg/kg/h con peso ideal (no pasar de 2). Fuera del quirófano: ≤1,5 mg/kg/h, máximo 24 h y con monitorización (WFSA 2024).',
+      bolo: { u: 'mg/kg', rango: 'Bolo 1,5 mg/kg lento.', def: 1.5 }, rapidas: [1, 1.5, 2], tiva: true, pesoSug: 'ideal',
     },
     'Sulfato de Magnesio': {
       masa: 'mg', uDosis: 'mg/kg/h', unidades: ['mg/kg/h', 'g/h'],
       preps: [[2000, 100, '2 g en 100 mL (20 mg/mL)'], [5000, 250, '5 g en 250 mL (20 mg/mL)'], [4000, 50, '4 g en 50 mL (80 mg/mL)']],
-      rango: 'Mantenimiento 8–15 mg/kg/h (habitual 10).',
-      bolo: { u: 'mg/kg', rango: 'Carga 30–50 mg/kg en 10–15 min; luego mantenimiento en mg/kg/h.', def: 30, carga: 15, nombre: 'Carga' },
+      rango: 'Mantenimiento 6–20 mg/kg/h (habitual 10). Potencia los relajantes neuromusculares: monitorizar el TOF (WFSA 2024).',
+      bolo: { u: 'mg/kg', rango: 'Carga 20–50 mg/kg en 15–20 min; luego mantenimiento en mg/kg/h.', def: 30, carga: 15, tiempos: [15, 20], tMin: 15, nombre: 'Carga' }, rapidas: [6, 10, 15], tiva: true,
     },
     'Ketamina': {
       masa: 'mg', uDosis: 'mg/kg/h', unidades: ['mg/kg/h', 'mcg/kg/min'],
       preps: [[50, 50, '50 mg en 50 mL (1 mg/mL)'], [100, 50, '100 mg en 50 mL (2 mg/mL)'], [500, 50, '500 mg en 50 mL (10 mg/mL)']],
-      rango: 'Analgesia (dosis subanestésica) 0,1–0,3 mg/kg/h (≈ 2–5 mcg/kg/min).',
-      bolo: { u: 'mg/kg', rango: 'Bolo analgésico 0,15–0,5 mg/kg.', def: 0.25 },
+      rango: 'Analgesia (dosis subanestésica) 0,1–0,2 mg/kg/h (≈ 2–3 mcg/kg/min; algunos protocolos hasta 0,3). Suspender ≥30 min antes del final para reducir efectos psicomiméticos (WFSA 2024).',
+      bolo: { u: 'mg/kg', rango: 'Bolo analgésico 0,1–0,5 mg/kg (WFSA 2024: 0,1–1 mg/kg).', def: 0.25 }, rapidas: [0.1, 0.15, 0.2], tiva: true,
     },
     /* Vasopresores e inotrópicos (Stanford Cardiac Anesthesia; Rev Mex Anest 2016; Pediatría de México 2013) */
     'Norepinefrina': {
@@ -102,6 +104,34 @@ window.CalcInf = (function () {
   }
   function velocidad(dosis, u, peso, conc, masa) { const m = masaPorHora(dosis, u, peso, masa); return conc > 0 ? m / conc : NaN; } // mL/h
   function dosisDesde(mlh, u, peso, conc, masa) { const uno = masaPorHora(1, u, peso, masa); return uno > 0 ? (num(mlh) * conc) / uno : NaN; }
+
+
+  /* ---------- Biometría ---------- */
+  // Peso ideal (Devine), masa magra (Janmahasatian 2005), peso ajustado (ideal + 0,4 × exceso), SC (Mosteller).
+  function biometria(peso, talla, sexo) {
+    const w = num(peso), h = num(talla), f = sexo === 'F', o = {};
+    if (!(w > 0)) return o;
+    if (h > 0) {
+      o.imc = w / (h / 100) ** 2;
+      o.cat = o.imc < 18.5 ? 'Bajo peso' : o.imc < 25 ? 'Normal' : o.imc < 30 ? 'Sobrepeso' : o.imc < 35 ? 'Obesidad grado I' : o.imc < 40 ? 'Obesidad grado II' : 'Obesidad grado III';
+      o.ideal = Math.max(1, (f ? 45.5 : 50) + 0.91 * (h - 152.4));
+      o.magra = f ? (9270 * w) / (8780 + 244 * o.imc) : (9270 * w) / (6680 + 216 * o.imc);
+      o.ajustado = w > o.ideal ? o.ideal + 0.4 * (w - o.ideal) : w;
+      o.sc = Math.sqrt((h * w) / 3600);
+    }
+    o.real = w;
+    return o;
+  }
+
+  /* ---------- Velocidad en la unidad de la bomba ---------- */
+  // b = { u: 'mlh' | 'mlmin' | 'gtt', res: 0.1 | 1, gtt: 20 | 60 }
+  function enBomba(mlh, b) {
+    b = b || {}; if (!isFinite(mlh)) return '';
+    const c = (x) => String(x).replace('.', ',');
+    if (b.u === 'mlmin') return `${c(r(mlh / 60, 2))} mL/min`;
+    if (b.u === 'gtt') return `${Math.round((mlh * (b.gtt || 20)) / 60)} gotas/min`;
+    return `${c(r(mlh, b.res === 1 ? 0 : 1))} mL/h`;
+  }
 
   /* ---------- Modelos farmacocinéticos (3 compartimentos) ---------- */
   function lbmJames(peso, talla, sexo) {
@@ -197,5 +227,5 @@ window.CalcInf = (function () {
     'Ropivacaína': { sin: [3, 225], con: [3, 225] },
   };
 
-  return { FARMACOS, MODELOS, LOCALES, num, r, masaPorHora, velocidad, dosisDesde, tci, tciCe, simular, roberts, lbmJames, TRAMOS };
+  return { FARMACOS, MODELOS, LOCALES, num, r, biometria, enBomba, masaPorHora, velocidad, dosisDesde, tci, tciCe, simular, roberts, lbmJames, TRAMOS };
 })();
