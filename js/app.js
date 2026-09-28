@@ -78,7 +78,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.9';
+  const VERSION = '1.9.9.1';
   let seccion = 0;
   let timerGuardar = null;
 
