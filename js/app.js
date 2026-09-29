@@ -78,7 +78,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.9.1';
+  const VERSION = '1.9.10';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -1280,7 +1280,7 @@
     $('#secciones').hidden = pantalla !== 'editor';
     $('#pie').hidden = pantalla !== 'editor' && pantalla !== 'doc';
     $('#btnMenu').hidden = pantalla === 'login';
-    $('#btnSOS').hidden = ['login', 'bienvenida', 'registro'].includes(pantalla) || pantalla === 'crisis';
+    $('#btnSOS').hidden = ['login', 'bienvenida', 'registro', 'importar'].includes(pantalla) || pantalla === 'crisis';
     $('#btnSOS').classList.toggle('activa', !!(window.Crisis && Crisis.activa()));
     $('#barra').hidden = pantalla === 'bienvenida';
     bordeABorde(pantalla === 'bienvenida');
@@ -1289,8 +1289,9 @@
     if (pantalla === 'inicio') return renderInicio(v);
     if (pantalla === 'sedes') return renderSedes(v);
     if (pantalla === 'perfil') return renderPerfil(v);
-    if (pantalla === 'registro') { $('#btnAtras').hidden = !cfg.cuenta && !cfg.omitirRegistro ? true : false; return renderRegistro(v); }
+    if (pantalla === 'registro') { $('#btnAtras').hidden = false; return renderRegistro(v); }
     if (pantalla === 'login') { $('#btnAtras').hidden = true; return renderLogin(v); }
+    if (pantalla === 'importar') { $('#btnAtras').hidden = false; return renderImportar(v); }
     if (pantalla === 'extras') return renderExtras(v);
     if (pantalla === 'guias') return renderGuias(v);
     if (pantalla === 'calc') return renderCalc(v);
@@ -1503,7 +1504,14 @@
   }
   function renderBienvenida(v) {
     const dest = destinoInicial(), p = cfg.perfil || {};
-    const etq = dest === 'login' ? 'Iniciar sesión' : dest === 'registro' ? 'Crear mi cuenta' : 'Entrar';
+    // Sin cuenta en este dispositivo: Iniciar sesión · Crear cuenta · Importar cuenta (desde la app o la web).
+    const sinCuenta = !cfg.cuenta, nuevo = sinCuenta && !cfg.omitirRegistro;
+    const etq = dest === 'login' || nuevo ? 'Iniciar sesión' : 'Entrar';
+    const botones = nuevo
+      ? `<div class="bv-fila"><button class="bv-borde" id="bvCrear">Crear cuenta</button><button class="bv-borde" id="bvImportar">Importar cuenta</button></div>
+         <p class="bv-ayuda">¿Ya usas Morpheus MD en la app o en otro navegador? Importa tu cuenta.</p><button class="bv-sec" id="bvSin">Continuar sin cuenta</button>`
+      : sinCuenta ? `<div class="bv-links2"><button id="bvLogin">Iniciar sesión</button><button id="bvCrear">Crear cuenta</button><button id="bvImportar">Importar cuenta</button></div>`
+      : dest === 'login' ? `<div class="bv-links2"><button id="bvOlvido">Olvidé mi contraseña</button><button id="bvImportar">Usar otra cuenta</button></div>` : '';
     const titular = p.nombre ? esc(p.nombre) : 'Morpheus MD';
     v.innerHTML = `<div id="bienvenida">
       <div class="bv-foto"><img src="${p.portada || 'img/portada.jpg'}" alt="" onerror="this.remove()"></div>
@@ -1513,14 +1521,17 @@
         <h1 class="bv-titulo">Morpheus<br><i>MD</i></h1>
         <p class="bv-lema">Cada paciente, cada minuto, documentado con precisión.</p>
         <div class="bv-rasgos"><div><b>5 min</b>Grilla transoperatoria</div><div><b>TCI · BIC</b>Calculadora</div><div><b>PDF</b>Listo para imprimir</div></div>
-        <div><button class="bv-entrar" id="bvEntrar">${etq}<span>→</span></button>
-        ${dest === 'registro' ? '<button class="bv-sec" id="bvSin">Continuar sin cuenta</button>' : ''}${dest === 'login' ? '<button class="bv-sec" id="bvOlvido">Olvidé mi contraseña</button>' : ''}</div>
+        <div><button class="bv-entrar" id="bvEntrar">${etq}<span>→</span></button>${botones}</div>
       </div>
       <footer class="bv-pie">
         <nav class="bv-links"><button data-legal="privacidad">Privacidad</button><button data-legal="terminos">Términos de uso</button><button data-legal="aviso">Aviso médico</button><button data-legal="licencias">Licencias</button></nav>
         <div class="bv-copy">© ${LEGAL.ANIO} ${titular} · Todos los derechos reservados · v${VERSION}</div>
       </footer></div>`;
-    $('#bvEntrar').onclick = () => { if (dest === 'inicio' && cfg.cuenta && !sesion && cfg.sesion) iniciarSesion(true); pantalla = dest; render(); window.scrollTo(0, 0); };
+    $('#bvEntrar').onclick = () => { if (nuevo) { pantalla = 'login'; render(); window.scrollTo(0, 0); return; }
+      if (dest === 'inicio' && cfg.cuenta && !sesion && cfg.sesion) iniciarSesion(true); pantalla = dest === 'registro' ? 'inicio' : dest; render(); window.scrollTo(0, 0); };
+    if ($('#bvLogin')) $('#bvLogin').onclick = () => { pantalla = 'login'; render(); window.scrollTo(0, 0); };
+    if ($('#bvCrear')) $('#bvCrear').onclick = () => { pantalla = 'registro'; render(); window.scrollTo(0, 0); };
+    if ($('#bvImportar')) $('#bvImportar').onclick = () => irImportar('bienvenida');
     if ($('#bvSin')) $('#bvSin').onclick = () => { cfg.omitirRegistro = true; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); };
     if ($('#bvOlvido')) $('#bvOlvido').onclick = () => cambiarClaveUI(true);
     $$('[data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal)));
@@ -1553,19 +1564,102 @@
   function renderLogin(v) {
     $('#titulo').textContent = 'Morpheus MD';
     $('#btnMenu').hidden = true;
+    if (!cfg.cuenta) {
+      $('#btnAtras').hidden = false;
+      v.innerHTML = `<section class="tarjeta" style="margin-top:30px"><h2>Iniciar sesión</h2>
+        <p style="margin-top:0">En este dispositivo todavía no hay ninguna cuenta.</p>
+        <p class="nota">Tu cuenta vive en el teléfono o navegador donde la creaste. Para entrar con ella aquí, impórtala: en ese dispositivo exporta tu cuenta y abre el archivo en este.</p>
+        <div class="fila-btn" style="justify-content:space-between"><button class="secundario" id="lgCrear">Crear una cuenta nueva</button><button class="primario" id="lgImportar">Importar mi cuenta</button></div></section>`;
+      $('#lgImportar').onclick = () => irImportar('login');
+      $('#lgCrear').onclick = () => { pantalla = 'registro'; render(); window.scrollTo(0, 0); };
+      return;
+    }
     v.innerHTML = `<section class="tarjeta" style="margin-top:30px"><h2>Iniciar sesión</h2>
       ${cfg.perfil.nombre ? `<p style="margin:0 0 12px">${esc(cfg.perfil.nombre)}</p>` : ''}
       <div class="rejilla ancha"><label class="campo completo"><span>Usuario</span><input id="lgUser" value="${esc(cfg.cuenta.usuario)}" autocapitalize="none"></label>
       <label class="campo completo"><span>Contraseña</span><input id="lgClave" type="password" autofocus></label></div>
       ${recordarDe(cfg.cuenta) !== 'siempre' ? `<div class="check"><input type="checkbox" id="lgMant" checked><label for="lgMant" style="flex:1">Mantener la sesión iniciada en este equipo (volverá a pedirla ${RECORDAR.find((x) => x[0] === recordarDe(cfg.cuenta))[1].toLowerCase()})</label></div>
       <p class="nota" style="margin-top:4px">Desmárcalo si usas un computador compartido.</p>` : ''}
-      <div class="fila-btn" style="justify-content:space-between"><button class="secundario chico" id="lgOlvido">Olvidé mi contraseña</button><button class="primario" id="lgOk">Entrar</button></div></section>`;
+      <div class="fila-btn" style="justify-content:space-between"><button class="secundario chico" id="lgOlvido">Olvidé mi contraseña</button><button class="primario" id="lgOk">Entrar</button></div>
+      <p class="nota" style="margin-top:14px">¿Es otra cuenta? <button class="enlace" id="lgOtra">Importar otra cuenta</button></p></section>`;
     const entrar = () => {
       if (Cuenta.verificar(cfg.cuenta, $('#lgUser').value, $('#lgClave').value)) { iniciarSesion(!$('#lgMant') || $('#lgMant').checked); $('#btnMenu').hidden = false; pantalla = 'inicio'; render(); }
       else aviso('Usuario o contraseña incorrectos');
     };
     $('#lgOk').onclick = entrar; $('#lgClave').onkeydown = (e) => { if (e.key === 'Enter') entrar(); };
     $('#lgOlvido').onclick = () => cambiarClaveUI(true);
+    $('#lgOtra').onclick = () => irImportar('login');
+  }
+
+  /* ---------- Importar / exportar la cuenta (pasarla de la app a la web o a otro teléfono) ---------- */
+  let impDesde = 'bienvenida', impDatos = null;
+  function irImportar(desde) { impDesde = desde; impDatos = null; pantalla = 'importar'; render(); window.scrollTo(0, 0); }
+  function datosCuenta(obj) {
+    if (!obj || obj.app !== 'historia-anestesia') throw new Error('Este archivo no es de Morpheus MD.');
+    const c = obj.config && obj.config.cuenta;
+    if (!c || !c.hash) throw new Error('Este archivo no trae ninguna cuenta (se exportó sin cuenta creada).');
+    return obj;
+  }
+  function exportarCuenta() {
+    const pack = (conHist) => {
+      const r = Store.respaldo(), conf = JSON.parse(JSON.stringify(r.config || cfg)); delete conf.sesion; delete conf.omitirRegistro;
+      return { app: 'historia-anestesia', tipo: 'cuenta', version: 1, fecha: new Date().toISOString(), config: conf, historias: conHist ? r.historias : [], docs: conHist ? r.docs : [] };
+    };
+    const salir = (conHist) => {
+      const d = JSON.stringify(pack(conHist)), u = (cfg.cuenta.usuario || 'cuenta').replace(/[^a-z0-9._-]+/gi, '_');
+      const n = `morpheus-cuenta_${u}${conHist ? '_con-historias' : ''}_${hoyISO()}.json`;
+      if (window.Nativo) Nativo.exportarTexto(d, n); else descargar(new Blob([d], { type: 'application/json' }), n);
+      aviso('Archivo de cuenta listo');
+    };
+    const nh = Store.indice().length;
+    abrirHoja(`<h2>Exportar mi cuenta</h2>
+      <p>Crea un archivo con tu usuario, tu perfil, tu firma y sello y tus preferencias, para abrir tu cuenta en la web, en la app o en otro teléfono (en ese dispositivo: Inicio → <b>Importar cuenta</b>).</p>
+      <p class="nota">La contraseña va cifrada y se pide al importar. Si incluyes las historias, el archivo lleva datos de pacientes: compártelo solo contigo (no en grupos).</p>
+      <div class="acciones" style="flex-wrap:wrap"><button class="secundario" id="exSolo">Solo la cuenta</button><button class="primario" id="exTodo">Cuenta + historias (${nh})</button></div>`);
+    $('#exSolo').onclick = () => { cerrarHoja(); salir(false); };
+    $('#exTodo').onclick = () => { cerrarHoja(); salir(true); };
+  }
+  function renderImportar(v) {
+    $('#titulo').textContent = 'Importar mi cuenta';
+    $('#btnMenu').hidden = !cfg.cuenta || !sesion;
+    const d = impDatos, c = d && d.config.cuenta, p = (d && d.config.perfil) || {};
+    const nh = d ? (d.historias || []).length : 0;
+    const otra = !!(d && cfg.cuenta && cfg.cuenta.usuario !== c.usuario);
+    v.innerHTML = card('Cómo traer tu cuenta', `<ol class="pasos">
+        <li>En el dispositivo donde ya tienes tu cuenta (app o web) abre <b>⋮ → Mi perfil y firma → Mi cuenta → Exportar mi cuenta</b>.</li>
+        <li>Envíate el archivo (WhatsApp, correo o Drive) y descárgalo en este dispositivo.</li>
+        <li>Elígelo aquí y confirma con tu contraseña.</li></ol>
+        <p class="nota">También sirve un respaldo completo (⋮ → Respaldo → Exportar) hecho después de crear la cuenta.</p>`) +
+      card('Archivo de la cuenta', d
+        ? `<p style="margin:0 0 4px"><b>${esc(p.nombre || c.usuario)}</b></p><p class="nota" style="margin:0">Usuario: ${esc(c.usuario)} · ${nh ? nh + (nh === 1 ? ' historia' : ' historias') : 'sin historias'}${d.fecha && !isNaN(new Date(d.fecha)) ? ' · exportado el ' + new Date(d.fecha).toLocaleDateString('es-VE') : ''}</p>
+           <div class="fila-btn"><label class="secundario chico" style="display:inline-block">Elegir otro archivo<input type="file" id="imFile" accept="application/json,.json,*/*" hidden></label></div>`
+        : `<div class="fila-btn"><label class="primario" style="display:inline-block">Elegir archivo<input type="file" id="imFile" accept="application/json,.json,*/*" hidden></label></div>`) +
+      (d ? card('Confirma que es tu cuenta', `<div class="rejilla ancha"><label class="campo completo"><span>Usuario</span><input id="imUser" value="${esc(c.usuario)}" autocapitalize="none"></label>
+          <label class="campo completo"><span>Contraseña</span><input id="imClave" type="password"></label></div>
+          ${nh ? `<div class="check"><input type="checkbox" id="imHist" checked><label for="imHist" style="flex:1">Traer también ${nh === 1 ? 'la historia' : 'las ' + nh + ' historias'} (se suman a las de este dispositivo)</label></div>` : ''}
+          ${otra ? `<p class="nota" style="color:#b3261e">Este dispositivo ya tiene otra cuenta (${esc(cfg.cuenta.usuario)}). Se reemplazará por la importada; las historias guardadas aquí se conservan.</p>` : ''}
+          <p class="nota">¿No recuerdas la contraseña? Recupérala primero en el dispositivo original con tu código de recuperación y vuelve a exportar.</p>
+          <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="imOk">Importar y entrar</button></div>`) : '');
+    $('#imFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return; const r = new FileReader();
+      r.onload = () => { try { impDatos = datosCuenta(JSON.parse(r.result)); render(); setTimeout(() => $('#imClave') && $('#imClave').focus(), 50); } catch (er) { impDatos = null; alert('No se pudo leer: ' + (er.message || er)); render(); } };
+      r.readAsText(f); };
+    if (!d) return;
+    const ok = () => {
+      if (!Cuenta.verificar(c, $('#imUser').value, $('#imClave').value)) { aviso('Usuario o contraseña incorrectos'); return; }
+      if (otra && !confirm('¿Reemplazar la cuenta ' + cfg.cuenta.usuario + ' de este dispositivo por ' + c.usuario + '?')) return;
+      const conHist = !!($('#imHist') && $('#imHist').checked);
+      let n = 0;
+      try { n = Store.restaurar({ app: d.app, config: d.config, historias: conHist ? d.historias : [], docs: conHist ? d.docs : [] }, false); }
+      catch (er) { alert('No se pudo importar: ' + er.message); return; }
+      cfg = Store.config() || cfg;
+      const src = d.config;
+      Object.keys(src).forEach((k) => { if (['sesion', 'omitirRegistro', 'sedes'].includes(k)) return;
+        if (k === 'cuenta' || k === 'perfil' || cfg[k] === undefined) cfg[k] = JSON.parse(JSON.stringify(src[k])); });
+      cfg.omitirRegistro = false; impDatos = null;
+      iniciarSesion(true); $('#btnMenu').hidden = false; pantalla = 'inicio'; render(); window.scrollTo(0, 0);
+      aviso('Cuenta importada' + (n ? ' · ' + n + ' historias' : ''));
+    };
+    $('#imOk').onclick = ok; $('#imClave').onkeydown = (e) => { if (e.key === 'Enter') ok(); };
   }
 
   function renderPerfil(v) {
@@ -1581,8 +1675,10 @@
       card('Mi cuenta', c ? `<p style="margin:0 0 8px">Usuario: <b>${esc(c.usuario)}</b></p>
           <label class="campo completo"><span>Pedir la contraseña</span><select id="ctRec">${RECORDAR.map(([k, t]) => `<option value="${k}"${recordarDe(c) === k ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
           <p class="nota">Mientras la sesión esté iniciada, la app abre sin pedir la contraseña. En un computador compartido elige “Cada vez que abro la app” o cierra sesión al terminar.</p>
-          <div class="fila-btn"><button class="secundario" id="ctClave">Cambiar contraseña</button><button class="secundario" id="ctSalir">Cerrar sesión</button></div>`
-        : `<p class="nota" style="margin-top:0">Aún no tienes cuenta. Crea una para proteger la app con usuario y contraseña.</p><div class="fila-btn"><button class="primario" id="ctCrear">Crear mi cuenta</button></div>`) +
+          <div class="fila-btn"><button class="secundario" id="ctClave">Cambiar contraseña</button><button class="secundario" id="ctSalir">Cerrar sesión</button></div>
+          <div class="fila-btn"><button class="primario" id="ctExportar">Exportar mi cuenta</button></div>
+          <p class="nota">Para abrir tu cuenta en la web, en la app o en otro teléfono: exporta aquí y en el otro dispositivo toca “Importar cuenta”.</p>`
+        : `<p class="nota" style="margin-top:0">Aún no tienes cuenta en este dispositivo. Crea una para proteger la app con usuario y contraseña, o importa la que ya usas en la app o en la web.</p><div class="fila-btn"><button class="secundario" id="ctImportar">Importar mi cuenta</button><button class="primario" id="ctCrear">Crear mi cuenta</button></div>`) +
       card('Mis preferencias de cálculo', `<div class="rejilla ancha">
         <label class="campo"><span>Fórmula de PMP por defecto</span><select id="pfForm">${Object.entries(FORM_PMP).map(([k, x]) => `<option value="${k}"${(p.formPmp || 'rapida') === k ? ' selected' : ''}>${x.t}</option>`).join('')}</select></label>
         <label class="campo"><span>Hto mínimo aceptable por defecto</span><div class="con-unidad"><input id="pfHto" inputmode="decimal" value="${esc(p.htoMin || '')}" placeholder="30"><em>%</em></div></label></div>
@@ -1624,6 +1720,8 @@
     if ($('#ctRec')) $('#ctRec').onchange = (e) => { cfg.cuenta.recordar = e.target.value; cfg.cuenta.pedirClave = e.target.value !== 'nunca'; iniciarSesion(true); aviso('Guardado'); };
     if ($('#ctSalir')) $('#ctSalir').onclick = cerrarSesion;
     if ($('#ctCrear')) $('#ctCrear').onclick = () => { pantalla = 'registro'; render(); };
+    if ($('#ctImportar')) $('#ctImportar').onclick = () => irImportar('perfil');
+    if ($('#ctExportar')) $('#ctExportar').onclick = exportarCuenta;
     if ($('#ctClave')) $('#ctClave').onclick = () => cambiarClaveUI(false);
     $('#pfForm').onchange = (e) => { p.formPmp = e.target.value; Store.guardarConfig(cfg); };
     $('#pfHto').oninput = (e) => { p.htoMin = e.target.value; Store.guardarConfig(cfg); };
@@ -2089,7 +2187,8 @@
     if (pantalla === 'guias') { pantalla = guiaDesde === 'extras' ? 'extras' : 'inicio'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'bienvenida') return false;
     if (pantalla === 'login') { pantalla = 'bienvenida'; render(); return true; }
-    if (pantalla === 'registro') { pantalla = !cfg.cuenta && !cfg.omitirRegistro ? 'bienvenida' : 'perfil'; render(); return true; }
+    if (pantalla === 'importar') { impDatos = null; pantalla = impDesde === 'perfil' && cfg.cuenta ? 'perfil' : impDesde === 'login' ? 'login' : 'bienvenida'; render(); return true; }
+    if (pantalla === 'registro') { pantalla = !cfg.cuenta && !cfg.omitirRegistro ? 'bienvenida' : cfg.cuenta || sesion ? 'perfil' : 'bienvenida'; render(); return true; }
     if (pantalla === 'sedes' || pantalla === 'perfil') {
       pantalla = H ? 'editor' : 'inicio'; if (H) H = migrar(Store.cargar(H.id) || H); render(); return true;
     }
