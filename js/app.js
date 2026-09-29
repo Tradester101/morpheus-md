@@ -78,7 +78,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.10';
+  const VERSION = '1.9.10.1';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -1511,7 +1511,8 @@
       ? `<div class="bv-fila"><button class="bv-borde" id="bvCrear">Crear cuenta</button><button class="bv-borde" id="bvImportar">Importar cuenta</button></div>
          <p class="bv-ayuda">¿Ya usas Morpheus MD en la app o en otro navegador? Importa tu cuenta.</p><button class="bv-sec" id="bvSin">Continuar sin cuenta</button>`
       : sinCuenta ? `<div class="bv-links2"><button id="bvLogin">Iniciar sesión</button><button id="bvCrear">Crear cuenta</button><button id="bvImportar">Importar cuenta</button></div>`
-      : dest === 'login' ? `<div class="bv-links2"><button id="bvOlvido">Olvidé mi contraseña</button><button id="bvImportar">Usar otra cuenta</button></div>` : '';
+      : dest === 'login' ? `<div class="bv-links2"><button id="bvOlvido">Olvidé mi contraseña</button><button id="bvImportar">Importar otra cuenta</button><button id="bvOtra">Crear otra cuenta</button></div>`
+      : `<p class="bv-ayuda">Sesión iniciada como <b>${esc(cfg.cuenta.usuario)}</b></p><div class="bv-links2"><button id="bvSalir">Cerrar sesión</button><button id="bvImportar">Importar otra cuenta</button><button id="bvOtra">Crear otra cuenta</button></div>`;
     const titular = p.nombre ? esc(p.nombre) : 'Morpheus MD';
     v.innerHTML = `<div id="bienvenida">
       <div class="bv-foto"><img src="${p.portada || 'img/portada.jpg'}" alt="" onerror="this.remove()"></div>
@@ -1532,6 +1533,8 @@
     if ($('#bvLogin')) $('#bvLogin').onclick = () => { pantalla = 'login'; render(); window.scrollTo(0, 0); };
     if ($('#bvCrear')) $('#bvCrear').onclick = () => { pantalla = 'registro'; render(); window.scrollTo(0, 0); };
     if ($('#bvImportar')) $('#bvImportar').onclick = () => irImportar('bienvenida');
+    if ($('#bvSalir')) $('#bvSalir').onclick = cerrarSesion;
+    if ($('#bvOtra')) $('#bvOtra').onclick = () => { if (!confirm('Este dispositivo ya tiene la cuenta “' + cfg.cuenta.usuario + '”. Si creas otra, la reemplaza aquí (tus historias se conservan). ¿Continuar?')) return; pantalla = 'registro'; render(); window.scrollTo(0, 0); };
     if ($('#bvSin')) $('#bvSin').onclick = () => { cfg.omitirRegistro = true; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); };
     if ($('#bvOlvido')) $('#bvOlvido').onclick = () => cambiarClaveUI(true);
     $$('[data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal)));
