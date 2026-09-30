@@ -33,13 +33,12 @@
   let cfg = Store.config();
   if (!cfg) {
     cfg = {
-      sedes: [{ id: 'hcuamp', nombre: 'HOSPITAL CENTRAL UNIVERSITARIO DR. ANTONIO MARÍA PINEDA', sub: 'BARQUISIMETO, EDO. LARA', logo: '' }],
-      sedeActual: 'hcuamp',
-      perfil: { nombre: '', sello: '', firma: '' },
+      sedes: [], sedeActual: '', sedesV2: true, onbPend: true,
+      perfil: { nombre: '', sello: '', firma: '', marcaOn: false },
     };
     Store.guardarConfig(cfg);
   }
-  // Lugares de trabajo de Antonio (se agregan una sola vez; se pueden editar o borrar en "Lugares de trabajo")
+  // Lugares de trabajo precargados solo para instalaciones anteriores a 1.9.12 (las nuevas empiezan vacías y el asistente los pregunta)
   const SEDES_PRE = [
     ['llanosalud', 'LLANOSALUD A.P.S. C.A.', 'CABUDARE, EDO. LARA'],
     ['ieq', 'INSTITUTO DE ESPECIALIDADES QUIRÚRGICAS CENTRO DEL ESTE (IEQ)', 'AV. LARA, BARQUISIMETO, EDO. LARA'],
@@ -78,7 +77,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.11';
+  const VERSION = '1.9.12';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -1274,13 +1273,14 @@
   }
 
   /* ---------- Pantallas ---------- */
-  function render() {
+  function render() { render0(); ponerTip(); }
+  function render0() {
     const v = $('#vista');
     $('#btnAtras').hidden = pantalla === 'inicio';
     $('#secciones').hidden = pantalla !== 'editor';
     $('#pie').hidden = pantalla !== 'editor' && pantalla !== 'doc';
-    $('#btnMenu').hidden = pantalla === 'login';
-    $('#btnSOS').hidden = ['login', 'bienvenida', 'registro', 'importar'].includes(pantalla) || pantalla === 'crisis';
+    $('#btnMenu').hidden = pantalla === 'login' || pantalla === 'config';
+    $('#btnSOS').hidden = ['login', 'bienvenida', 'registro', 'importar', 'config'].includes(pantalla) || pantalla === 'crisis';
     $('#btnSOS').classList.toggle('activa', !!(window.Crisis && Crisis.activa()));
     $('#barra').hidden = pantalla === 'bienvenida';
     bordeABorde(pantalla === 'bienvenida');
@@ -1298,6 +1298,9 @@
     if (pantalla === 'crisis') return renderCrisis(v);
     if (pantalla === 'guia') return renderGuia(v);
     if (pantalla === 'bloqueos') return renderBloqueos(v);
+    if (pantalla === 'config') return renderConfig(v);
+    if (pantalla === 'farmacia') return renderFarmacia(v);
+    if (pantalla === 'ayuda') return renderAyuda(v);
     if (pantalla === 'bloqueo') return renderBloqueo(v);
     if (pantalla === 'doc') return D.tipo === 'val' ? renderVal(v) : renderRx(v);
     if (pantalla === 'editor') {
@@ -1326,6 +1329,7 @@
         <span class="chipsede">${esc(abrev(sede(x.sede).nombre))}</span></div><button class="icono" style="color:var(--suave)" data-mas="${x.id}" aria-label="Opciones">&#8942;</button></li>`).join('')}</ul>` :
         `<div class="vacio"><b>${idx.length ? 'Sin resultados' : 'Aún no hay historias'}</b>${idx.length ? '' : 'Toca “Nueva historia” para empezar.'}</div>`);
     const fab = document.createElement('button'); fab.className = 'fab'; fab.textContent = '+ Nueva historia'; fab.onclick = crear; document.body.appendChild(fab);
+    if (cfg.tourPend && !$('#tour')) setTimeout(() => { if (pantalla === 'inicio' && !$('#tour')) tour(0); }, 250); else setTimeout(() => { if (pantalla === 'inicio') revisarNovedades(); }, 300);
     const b = $('#buscar'); b.oninput = () => { renderInicio.q = b.value; const pos = b.selectionStart; render(); const nb = $('#buscar'); nb.focus(); nb.setSelectionRange(pos, pos); };
   }
   function abrev(n) { n = n || ''; return n.length > 42 ? n.slice(0, 40) + '…' : n; }
@@ -1474,6 +1478,7 @@
     const r = recordarDe(c); if (r === 'nunca') return true; if (r === 'siempre') return false;
     return !!(cfg.sesion && cfg.sesion.hasta > Date.now());
   }
+  function trasEntrar() { if (cfg.onbPend) return irConfiguracion(); pantalla = 'inicio'; render(); window.scrollTo(0, 0); }
   function iniciarSesion(mantener) {
     sesion = true; const r = recordarDe(cfg.cuenta);
     if (mantener && r !== 'siempre' && r !== 'nunca') cfg.sesion = { hasta: Date.now() + Number(r) * 864e5 };
@@ -1531,13 +1536,13 @@
         <div class="bv-copy">© ${LEGAL.ANIO} ${titular} · Todos los derechos reservados · v${VERSION}</div>
       </footer></div>`;
     $('#bvEntrar').onclick = () => { if (nuevo) { pantalla = 'login'; render(); window.scrollTo(0, 0); return; }
-      if (dest === 'inicio' && cfg.cuenta && !sesion && cfg.sesion) iniciarSesion(true); pantalla = dest === 'registro' ? 'inicio' : dest; render(); window.scrollTo(0, 0); };
+      if (dest === 'inicio' && cfg.cuenta && !sesion && cfg.sesion) iniciarSesion(true); if (dest === 'registro' || dest === 'inicio') return trasEntrar(); pantalla = dest; render(); window.scrollTo(0, 0); };
     if ($('#bvLogin')) $('#bvLogin').onclick = () => { pantalla = 'login'; render(); window.scrollTo(0, 0); };
     if ($('#bvCrear')) $('#bvCrear').onclick = () => { pantalla = 'registro'; render(); window.scrollTo(0, 0); };
     if ($('#bvImportar')) $('#bvImportar').onclick = () => irImportar('bienvenida');
     if ($('#bvSalir')) $('#bvSalir').onclick = cerrarSesion;
     if ($('#bvOtra')) $('#bvOtra').onclick = () => { if (!confirm('Este dispositivo ya tiene la cuenta “' + cfg.cuenta.usuario + '”. Si creas otra, la reemplaza aquí (tus historias se conservan). ¿Continuar?')) return; pantalla = 'registro'; render(); window.scrollTo(0, 0); };
-    if ($('#bvSin')) $('#bvSin').onclick = () => { cfg.omitirRegistro = true; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); };
+    if ($('#bvSin')) $('#bvSin').onclick = () => { cfg.omitirRegistro = true; Store.guardarConfig(cfg); trasEntrar(); };
     if ($('#bvOlvido')) $('#bvOlvido').onclick = () => cambiarClaveUI(true);
     $$('[data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal)));
   }
@@ -1555,7 +1560,7 @@
       `<div class="fila-btn" style="justify-content:space-between"><button class="secundario" id="rgLuego">Ahora no</button><button class="primario" id="rgOk">Crear mi cuenta</button></div>`;
     enlazarMedico(p); enlazarFirmaSello(p);
     $$('[data-md="correo"]').forEach((e) => e.addEventListener('input', () => { const u = $('#rgUser'); if (u && (!u.value || u.dataset.auto)) { u.value = e.value.trim(); u.dataset.auto = '1'; } }));
-    $('#rgLuego').onclick = () => { cfg.omitirRegistro = true; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); };
+    $('#rgLuego').onclick = () => { cfg.omitirRegistro = true; Store.guardarConfig(cfg); trasEntrar(); };
     $('#rgOk').onclick = () => {
       if (!p.nombre) { aviso('Escribe tu nombre'); return; }
       const u = $('#rgUser').value.trim(), c1 = $('#rgC1').value;
@@ -1563,7 +1568,7 @@
       if (c1 !== $('#rgC2').value) { aviso('Las contraseñas no coinciden'); return; }
       const r = Cuenta.crear(u, c1); r.cuenta.recordar = $('#rgRec').value; r.cuenta.pedirClave = r.cuenta.recordar !== 'nunca'; cfg.cuenta = r.cuenta; cfg.omitirRegistro = false;
       iniciarSesion(true);
-      mostrarCodigo(r.codigo, () => { pantalla = 'inicio'; render(); aviso('Cuenta creada'); });
+      mostrarCodigo(r.codigo, () => { trasEntrar(); aviso('Cuenta creada'); });
     };
   }
   function renderLogin(v) {
@@ -1660,7 +1665,7 @@
       const src = d.config;
       Object.keys(src).forEach((k) => { if (['sesion', 'omitirRegistro', 'sedes'].includes(k)) return;
         if (k === 'cuenta' || k === 'perfil' || cfg[k] === undefined) cfg[k] = JSON.parse(JSON.stringify(src[k])); });
-      cfg.omitirRegistro = false; impDatos = null;
+      cfg.omitirRegistro = false; impDatos = null; delete cfg.onbPend;
       iniciarSesion(true); $('#btnMenu').hidden = false; pantalla = 'inicio'; render(); window.scrollTo(0, 0);
       aviso('Cuenta importada' + (n ? ' · ' + n + ' historias' : ''));
     };
@@ -1845,7 +1850,7 @@
       card('Récipe (media carta)', `<div class="fila-btn" style="margin:0 0 12px"><button class="primario" data-acc="docNuevo" data-t="rx">+ Nuevo récipe</button></div>` + lista('rx')) +
       card('Calculadora TIVA · TCI · BIC', `<p class="nota" style="margin:0 0 10px">Propofol (Roberts o modelos Marsh/Schnider), remifentanilo (Minto), dexmedetomidina y coadyuvantes: IMC, pesos para dosificar, concentración y velocidad en la unidad de tu bomba.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irCalc">🧮 Abrir la calculadora</button></div>`) +
       card('Guías de consulta', `<p class="nota" style="margin:0 0 10px">Tres pestañas: Consulta (fichas de la valoración preanestésica), Crisis (reanimación y crisis en quirófano) y Técnicas. Con fuente y año, sin internet.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irGuias">📖 Abrir las guías (${GG().fichas.length})</button></div>`) +
-      card('Bloqueos regionales', `<p class="nota" style="margin:0 0 10px">${BQ().fichas.length} bloqueos: indicaciones, nervios, territorio sensitivo y motor, técnica ecoguiada, volúmenes, mezclas con los fármacos del HCUAMP, imágenes con licencia abierta y calculadora de dosis máxima.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irBloqueos">💉 Abrir bloqueos</button></div>`) +
+      card('Bloqueos regionales', `<p class="nota" style="margin:0 0 10px">${BQ().fichas.length} bloqueos: indicaciones, nervios, territorio sensitivo y motor, técnica ecoguiada, volúmenes, mezclas según tu farmacia, imágenes con licencia abierta y calculadora de dosis máxima.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irBloqueos">💉 Abrir bloqueos</button></div>`) +
       card('Próximamente en la 2.0', '<ul class="nota" style="margin:0;padding-left:18px;line-height:1.7"><li>Guía de medicación preoperatoria para consultar por fármaco.</li><li>Constancia de reposo e informe médico.</li><li>Más formatos con tu membrete.</li></ul>');
   }
 
@@ -1888,6 +1893,215 @@
         <p class="nota">Revisado: ${esc(f.revisado || '')}. Resumen de consulta: no sustituye el juicio clínico ni los protocolos de tu institución.</p>`);
   }
 
+  /* ---- Mi farmacia: qué presentaciones tiene el usuario en su hospital o clínica ---- */
+  const FARMACIA = [
+    ['Anestésicos locales', [['lido1', 'Lidocaína 1 %'], ['lido2', 'Lidocaína 2 %'], ['lidoEpi', 'Lidocaína con epinefrina'], ['lido4', 'Lidocaína 4 % (tópica)'], ['lido10', 'Lidocaína 10 % spray'],
+      ['bupi', 'Bupivacaína 0,5 % isobárica'], ['bupiHiper', 'Bupivacaína 0,5 % hiperbárica (pesada)'], ['ropi', 'Ropivacaína'], ['levobupi', 'Levobupivacaína'], ['prilo', 'Prilocaína 2 % hiperbárica']]],
+    ['Coadyuvantes y opioides', [['dexa', 'Dexametasona'], ['dexme', 'Dexmedetomidina'], ['clon', 'Clonidina'], ['epi', 'Epinefrina (adrenalina) en ampolla'], ['fenta', 'Fentanilo'], ['sufen', 'Sufentanilo'], ['morf', 'Morfina sin conservantes']]],
+    ['Rescate', [['lipido', 'Emulsión lipídica 20 % (LAST)'], ['dantro', 'Dantroleno (hipertermia maligna)'], ['sugam', 'Sugammadex']]],
+  ];
+  const farm = (k) => !cfg.farmacia || cfg.farmacia[k] !== false;
+  const farmLido = () => farm('lido1') || farm('lido2');
+  // Qué fármacos necesita una línea de mezcla (se lee el comienzo de la línea, antes de la cita).
+  function farmNecesita(linea) {
+    const c = sinTilde(String(linea).split(/[(:;]|\. /)[0]); const k = [];
+    if (/levobupivacaina/.test(c)) k.push('levobupi');
+    if (/(^|[^o])bupivacaina/.test(c.replace(/levobupivacaina/g, ''))) k.push(/hiperbar|pesada/.test(c) ? 'bupiHiper' : 'bupi');
+    if (/ropivacaina/.test(c)) k.push('ropi');
+    if (/prilocaina/.test(c)) k.push('prilo');
+    if (/lidocaina/.test(c)) k.push(/lidocaina 10|10 ?% spray/.test(c) ? 'lido10' : /lidocaina 4/.test(c) ? 'lido4' : /epinefrina|adrenalina/.test(c) ? 'lidoEpi' : /lidocaina 2/.test(c) ? 'lido2' : /lidocaina 1 /.test(c) ? 'lido1' : 'lido');
+    if (/^dexametasona|\+ dexametasona|con dexametasona/.test(c)) k.push('dexa');
+    if (/dexmedetomidina/.test(c)) k.push('dexme');
+    if (/clonidina/.test(c)) k.push('clon');
+    if (/sufentanil/.test(c)) k.push('sufen'); else if (/fentanil/.test(c)) k.push('fenta');
+    if (/morfina/.test(c)) k.push('morf');
+    return k;
+  }
+  const farmFalta = (linea) => farmNecesita(linea).filter((k) => (k === 'lido' ? !farmLido() : !farm(k)));
+  function farmUI() {
+    const F = cfg.farmacia || {}, pres = cfg.pres || {};
+    return FARMACIA.map(([g, l]) => `<h3>${esc(g)}</h3><div class="opciones">${l.map(([k, t]) => `<button type="button" class="opcion${F[k] !== false ? ' sel' : ''}" data-farm="${k}">${F[k] !== false ? '✓ ' : ''}${esc(t)}</button>`).join('')}</div>`).join('') +
+      (window.Crisis ? `<h3>Presentaciones para las dosis de Crisis</h3>${Object.entries(Crisis.PRES_OPC).map(([k, o]) => `<div class="grupo"><div class="etq">${esc(o.t)}</div><div class="opciones">${o.ops.map(([val, t]) => `<button type="button" class="opcion${(pres[k] != null ? pres[k] : o.def) === val ? ' sel' : ''}" data-pres="${k}" data-v="${val}">${esc(t)}</button>`).join('')}</div></div>`).join('')}` : '') +
+      '<p class="nota">Lo que no marques se muestra atenuado en las mezclas de Bloqueos y no aparece en la calculadora de dosis máxima. Puedes cambiarlo cuando quieras en Menú › Mi farmacia.</p>';
+  }
+  function farmEnlazar(rehacer) {
+    $$('#vista [data-farm]').forEach((b) => (b.onclick = () => { cfg.farmacia = cfg.farmacia || {}; const k = b.dataset.farm; cfg.farmacia[k] = cfg.farmacia[k] === false; Store.guardarConfig(cfg); rehacer(); }));
+    $$('#vista [data-pres]').forEach((b) => (b.onclick = () => { cfg.pres = cfg.pres || {}; cfg.pres[b.dataset.pres] = +b.dataset.v; Store.guardarConfig(cfg); rehacer(); }));
+  }
+  let farmDesde = 'inicio';
+  function renderFarmacia(v) {
+    $('#titulo').textContent = 'Mi farmacia';
+    v.innerHTML = card('Qué tienes en tu hospital o clínica', '<p class="nota" style="margin-top:0">Marca las presentaciones disponibles. La app las usa para las mezclas de bloqueos, la calculadora de dosis máxima y las dosis de Crisis.</p>' + farmUI());
+    farmEnlazar(() => { const y = window.scrollY; renderFarmacia(v); window.scrollTo(0, y); });
+  }
+
+  /* ---- Asistente de configuración (al crear la cuenta o al entrar sin cuenta por primera vez) ---- */
+  let cfgPaso = 0;
+  function irConfiguracion() { cfgPaso = 0; pantalla = 'config'; render(); window.scrollTo(0, 0); }
+  function terminarConfiguracion(conTour) { delete cfg.onbPend; cfg.novVista = VERSION; cfg.tourPend = !!conTour; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); window.scrollTo(0, 0); }
+  function renderConfig(v) {
+    $('#titulo').textContent = 'Configurar Morpheus MD';
+    $('#btnAtras').hidden = cfgPaso === 0; $('#btnSOS').hidden = true;
+    const pasos = ['Lugares de trabajo', 'Mi farmacia', 'Listo'];
+    const cab = `<div class="cf-pasos">${pasos.map((p, i) => `<span class="${i === cfgPaso ? 'act' : i < cfgPaso ? 'hecho' : ''}">${i + 1}. ${p}</span>`).join('')}</div>`;
+    const pie = (sig) => `<div class="fila-btn" style="justify-content:space-between"><button class="secundario" id="cfOmitir">Omitir</button><button class="primario" id="cfSig">${sig}</button></div>`;
+    if (cfgPaso === 0) {
+      if (!cfg.sedes.length) cfg.sedes.push({ id: uid(), nombre: '', sub: '', logo: '' });
+      v.innerHTML = cab + card('¿Dónde trabajas?', `<p class="nota" style="margin-top:0">Agrega los hospitales o clínicas donde trabajas. El lugar que elijas en cada historia sale en el encabezado del PDF. El logo y los demás datos se editan después en Menú › Lugares de trabajo.</p>
+        ${cfg.sedes.map((s, i) => `<div class="med"><div class="rejilla ancha"><label class="campo completo"><span>Hospital o clínica ${i + 1}</span><input data-cfsede="${i}" data-c="nombre" value="${esc(s.nombre)}" placeholder="Nombre del hospital o clínica"></label>
+          <label class="campo completo"><span>Ciudad (opcional)</span><input data-cfsede="${i}" data-c="sub" value="${esc(s.sub)}" placeholder="Ciudad, estado o país"></label></div>
+          ${cfg.sedes.length > 1 ? `<div class="fila-btn" style="justify-content:flex-end;margin-top:6px"><button class="peligro chico" data-cfquitar="${i}">Quitar</button></div>` : ''}</div>`).join('')}
+        <div class="fila-btn"><button class="secundario" id="cfMas">+ Otro lugar de trabajo</button></div>`) + pie('Siguiente');
+      $$('[data-cfsede]').forEach((e) => (e.oninput = () => { cfg.sedes[+e.dataset.cfsede][e.dataset.c] = e.value; Store.guardarConfig(cfg); }));
+      $$('[data-cfquitar]').forEach((e) => (e.onclick = () => { cfg.sedes.splice(+e.dataset.cfquitar, 1); Store.guardarConfig(cfg); render(); }));
+      $('#cfMas').onclick = () => { cfg.sedes.push({ id: uid(), nombre: '', sub: '', logo: '' }); Store.guardarConfig(cfg); render(); const l = $$('[data-cfsede][data-c="nombre"]'); l[l.length - 1].focus(); };
+      $('#cfSig').onclick = () => { cfg.sedes = cfg.sedes.filter((s, i) => s.nombre.trim() || i === 0); if (!cfg.sedeActual || !cfg.sedes.some((s) => s.id === cfg.sedeActual)) cfg.sedeActual = cfg.sedes[0] && cfg.sedes[0].id; Store.guardarConfig(cfg); cfgPaso = 1; render(); window.scrollTo(0, 0); };
+    } else if (cfgPaso === 1) {
+      if (!cfg.farmacia) { cfg.farmacia = {}; Store.guardarConfig(cfg); }
+      v.innerHTML = cab + card('¿Qué fármacos tienes?', '<p class="nota" style="margin-top:0">Marca lo que hay en tu hospital o clínica (toca para marcar o desmarcar). Si trabajas en varios sitios, marca lo que sueles tener.</p>' + farmUI()) + pie('Siguiente');
+      farmEnlazar(() => { const y = window.scrollY; render(); window.scrollTo(0, y); });
+      $('#cfSig').onclick = () => { cfgPaso = 2; render(); window.scrollTo(0, 0); };
+    } else {
+      v.innerHTML = cab + card('¡Listo!', `<p style="margin-top:0">Tu configuración quedó guardada en este dispositivo.</p>
+        <ul class="guia-items"><li>Tus datos, firma y sello se editan en Menú › Mi perfil y firma.</li><li>Lugares de trabajo y Mi farmacia también están en el Menú.</li>
+        <li>La Guía de uso (Menú › ❓ Guía de uso) explica cada función y te lleva a ella.</li></ul>
+        <p class="nota">Te recomendamos el recorrido rápido: 7 pasos para ver dónde está cada cosa.</p>`) +
+        `<div class="fila-btn" style="justify-content:space-between"><button class="secundario" id="cfSinTour">Ir a la app</button><button class="primario" id="cfTour">Ver el recorrido</button></div>`;
+      $('#cfTour').onclick = () => terminarConfiguracion(true);
+      $('#cfSinTour').onclick = () => terminarConfiguracion(false);
+      return;
+    }
+    $('#cfOmitir').onclick = () => terminarConfiguracion(true);
+  }
+
+  /* ---- Recorrido guiado (A) ---- */
+  const TOUR = [
+    { t: 'Bienvenido a Morpheus MD', x: 'Registro anestésico digital y herramientas de consulta para anestesiólogos. Todo lo que escribes se guarda solo en este dispositivo: no se envía a ningún servidor. En 7 pasos te mostramos dónde está cada cosa.' },
+    { sel: '.fab', t: 'Nueva historia', x: 'Crea la historia de anestesia de un paciente. Se guarda sola mientras escribes. Si trabajas en varios lugares, te pregunta en cuál.' },
+    { sel: '#buscar', t: 'Tus historias', x: 'Debajo aparece la lista de historias. Búscalas por nombre, cédula, cirugía o fecha. El botón ⋮ de cada una permite verla en PDF, duplicarla como plantilla o eliminarla.' },
+    { sel: '.ex-banner', t: 'Extras', x: 'Valoración preanestésica y récipe con tu membrete, tu firma y tu sello.' },
+    { sel: '#btnSOS', t: 'SOS: crisis', x: 'Algoritmos de emergencia paso a paso: paro, arritmias, anafilaxia, toxicidad por anestésicos locales, hipertermia maligna y vía aérea difícil, con reloj y dosis por peso. Siempre está arriba.' },
+    { sel: '#btnMenu', t: 'Menú', x: 'Aquí están las Guías de consulta, los Bloqueos regionales, la Calculadora TIVA · TCI · BIC, Mi farmacia, Mi perfil y firma, Lugares de trabajo, el Respaldo y la Guía de uso.' },
+    { t: 'Dentro de una historia', x: 'Las secciones (Paciente, Valoración, … Notas y firma) están en la barra de arriba: tócalas o usa los botones de abajo. Al final, “Vista previa / PDF” para imprimir o compartir. ¿Dudas? Menú › ❓ Guía de uso.' },
+  ];
+  let tourPaso = -1;
+  function tour(i) {
+    let ov = $('#tour');
+    if (i < 0 || i >= TOUR.length) { if (ov) ov.remove(); tourPaso = -1; cfg.tourPend = false; cfg.tourVisto = true; Store.guardarConfig(cfg); return; }
+    tourPaso = i; if (!ov) { ov = document.createElement('div'); ov.id = 'tour'; document.body.appendChild(ov); }
+    const p = TOUR[i], el = p.sel && $(p.sel), ult = i === TOUR.length - 1;
+    let hueco = '', clase = 'centro', estilo = '';
+    if (el && el.getClientRects().length && !el.hidden) {
+      const r = el.getBoundingClientRect(), m = 6;
+      hueco = `<div class="tr-hueco" style="left:${r.left - m}px;top:${r.top - m}px;width:${r.width + 2 * m}px;height:${r.height + 2 * m}px"></div>`;
+      const abajo = r.top + r.height / 2 < window.innerHeight / 2; clase = abajo ? 'abajo' : 'arriba';
+      estilo = abajo ? `top:${Math.round(r.bottom + 14)}px` : `bottom:${Math.round(window.innerHeight - r.top + 14)}px`;
+    }
+    ov.className = hueco ? '' : 'sin-hueco';
+    ov.innerHTML = hueco + `<div class="tr-globo ${clase}" style="${estilo}" role="dialog" aria-live="polite"><div class="tr-paso">${i + 1} de ${TOUR.length}</div><h3>${esc(p.t)}</h3><p>${esc(p.x)}</p>
+      <div class="tr-bot">${ult ? '<span></span>' : '<button class="enlace" id="trSaltar">Saltar</button>'}<span>${i ? '<button class="secundario chico" id="trAtras">Atrás</button> ' : ''}<button class="primario chico" id="trSig">${ult ? 'Terminar' : 'Siguiente'}</button></span></div></div>`;
+    $('#trSig').onclick = () => tour(ult ? -1 : i + 1);
+    if ($('#trAtras')) $('#trAtras').onclick = () => tour(i - 1);
+    if ($('#trSaltar')) $('#trSaltar').onclick = () => tour(-1);
+  }
+  window.addEventListener('resize', () => { if (tourPaso >= 0) tour(tourPaso); });
+  function empezarTour() { pantalla = 'inicio'; render(); window.scrollTo(0, 0); setTimeout(() => tour(0), 150); }
+
+  /* ---- Avisos de primera vez (C) ---- */
+  const TIPS = {
+    editor: 'Las secciones de la historia están en la barra de arriba (desliza para ver todas) y abajo tienes los botones para avanzar. Todo se guarda solo. En la última sección está “Vista previa / PDF”.',
+    grilla: 'Transoperatorio: toca la grilla para anotar signos vitales a cada hora. En las pistas registras gases, inhalatorio, opioide, relajante y drogas (bolos e infusiones); el botón de calculadora ayuda con las infusiones.',
+    calc: 'Escribe peso, talla, edad y sexo del paciente. Pestañas: TIVA (esquemas por peso), TCI (Marsh, Schnider, Minto…) y BIC (bombas). Ajusta la unidad de tu bomba abajo.',
+    bloqueos: 'Elige la región arriba o busca por palabra. En Generales está la calculadora de dosis máxima de anestésicos locales. Las mezclas con fármacos que no marcaste en Mi farmacia se ven atenuadas.',
+    guias: 'Tres pestañas: Consulta (valoración preanestésica), Crisis y Técnicas. Cada ficha dice su fuente y año. El buscador revisa todas las guías.',
+    extras: 'Aquí creas valoraciones preanestésicas y récipes con tu membrete. El membrete, la firma y el sello salen de Menú › Mi perfil y firma.',
+  };
+  function tipId() {
+    if (pantalla === 'editor') return SECCIONES[seccion] && SECCIONES[seccion].id === 'to' ? 'grilla' : 'editor';
+    return { calc: 'calc', bloqueos: 'bloqueos', guias: 'guias', extras: 'extras' }[pantalla];
+  }
+  function ponerTip() {
+    const id = tipId(), v = $('#vista'); if (!id || !v || (cfg.tips || {})[id] || $('#tour')) return;
+    v.insertAdjacentHTML('afterbegin', `<section class="tarjeta tip" id="tipCaja"><b>💡 Primera vez aquí</b><p>${esc(TIPS[id])}</p><div class="fila-btn" style="justify-content:flex-end;margin:0"><button class="secundario chico" id="tipOk">Entendido</button></div></section>`);
+    $('#tipOk').onclick = () => { cfg.tips = cfg.tips || {}; cfg.tips[id] = true; Store.guardarConfig(cfg); const c = $('#tipCaja'); if (c) c.remove(); };
+  }
+
+  /* ---- Novedades de cada versión ---- */
+  const NOVEDADES = [
+    ['1.9.12', ['Guía de uso (Menú › ❓ Guía de uso) y recorrido guiado para quien entra por primera vez.', 'Mi farmacia: marca los fármacos de tu hospital; las mezclas de bloqueos y la calculadora se adaptan.',
+      'Al crear la cuenta, un asistente pregunta tus lugares de trabajo y tu farmacia.', 'Bloqueos: dosis de ropivacaína y levobupivacaína, lidocaína 4 % y 10 % en vía aérea, raquídea con dosis habituales y límites de volumen, PENG con sus acotaciones.',
+      'Calculadora de dosis máxima con ropivacaína, levobupivacaína y lidocaína 4 %.']],
+    ['1.9.11', ['Nueva sección Bloqueos regionales: 39 bloqueos con técnica, volúmenes, mezclas, imágenes con licencia abierta y calculadora de dosis máxima.']],
+    ['1.9.10', ['Inicio con Iniciar sesión, Crear cuenta e Importar cuenta; exportar tu cuenta para usarla en otro teléfono o en la web.']],
+  ];
+  const cmpVer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 4; i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
+  function verNovedades(todas) {
+    const desde = todas ? '0' : cfg.novVista || '1.9.10.1';
+    const l = NOVEDADES.filter(([ver]) => cmpVer(ver, desde) > 0); if (!l.length) return;
+    abrirHoja(`<h2>Novedades</h2>${l.map(([ver, it]) => `<h3>Versión ${esc(ver)}</h3><ul class="guia-items">${it.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`).join('')}
+      <div class="acciones">${todas ? '' : '<button class="secundario" id="novGuia">Abrir la Guía de uso</button>'}<button class="primario" id="novOk">Entendido</button></div>`);
+    const fin = () => { cfg.novVista = VERSION; Store.guardarConfig(cfg); cerrarHoja(); };
+    $('#novOk').onclick = fin; if ($('#novGuia')) $('#novGuia').onclick = () => { fin(); irAyuda(); };
+  }
+  function revisarNovedades() {
+    if ($('#tour') || cfg.tourPend || cfg.onbPend || !$('#capa').hidden) return;
+    if (cfg.novVista !== VERSION) verNovedades(false);
+  }
+
+  /* ---- Guía de uso (B) ---- */
+  let ayudaDesde = 'inicio', ayudaBusca = '';
+  function irAyuda() { if (pantalla !== 'ayuda') ayudaDesde = pantalla; pantalla = 'ayuda'; render(); window.scrollTo(0, 0); }
+  const AYUDA = [
+    { t: 'Primeros pasos', ir: 'tour', b: 'Ver el recorrido', p: ['Morpheus MD funciona sin internet. Todo lo que escribes se guarda solo en este dispositivo (teléfono o navegador): no se envía a ningún servidor.',
+      'Tu cuenta (usuario y contraseña) también vive en este dispositivo. Para usarla en otro teléfono o en la web: Menú › Mi perfil y firma › Exportar mi cuenta, y en el otro dispositivo “Importar cuenta”.',
+      'Haz un respaldo de tus historias de vez en cuando (Menú › Respaldo), sobre todo antes de cambiar de teléfono.'] },
+    { t: 'Instalar la versión web como app', web: true, p: ['Android (Chrome): menú ⋮ del navegador › “Instalar app” o “Agregar a la pantalla de inicio”.', 'iPhone (Safari): botón Compartir › “Agregar a inicio”.', 'Tus datos quedan en ese navegador: si borras los datos del navegador, se borran. Respáldalos.'] },
+    { t: 'Crear una historia de anestesia', ir: 'nueva', b: 'Crear una historia', p: ['En la pantalla de inicio toca “+ Nueva historia”. Si tienes varios lugares de trabajo, elige dónde.',
+      'La historia tiene 10 secciones: Paciente, Valoración, Preparación, Inducción y técnica, Vía aérea, Regional, Transoperatorio, Balance y gases, Salida, Notas y firma. Pásalas con la barra de arriba o los botones de abajo.',
+      'Se guarda sola. Para reutilizar una historia como plantilla: en la lista, botón ⋮ › “Nueva historia usando esta como plantilla”.'] },
+    { t: 'La grilla transoperatoria', p: ['En la sección Transoperatorio anotas signos vitales (PA, FC, SpO₂…) en la grilla por hora.', 'En las pistas registras O₂ y aire/N₂O, el inhalatorio, el opioide, el relajante y otras drogas: bolos, inicio o cambio de infusión y suspensión, con su hora.',
+      'Las infusiones tienen calculadora (dosis ↔ mL/h según tu bomba). El balance y los gases van en la sección siguiente.'] },
+    { t: 'Vista previa, PDF y compartir', p: ['En la última sección toca “Vista previa / PDF”, o en la lista de historias botón ⋮ › “Ver / PDF”.', 'Desde la vista previa puedes guardar, imprimir o compartir el PDF.',
+      'El encabezado sale del lugar de trabajo de la historia; la firma, el sello y el membrete, de Mi perfil y firma.'] },
+    { t: 'Crisis (botón SOS)', ir: 'crisis', b: 'Abrir Crisis', p: ['El botón rojo SOS abre los algoritmos de emergencia: paro en adulto, embarazada, pediátrico y neonatal, bradicardia, taquicardia, anafilaxia, LAST, hipertermia maligna y vía aérea difícil no prevista.',
+      'Cada algoritmo va paso a paso, con reloj de ciclos, contador de adrenalina y dosis calculadas con el peso y las presentaciones de tu hospital.', 'Al terminar obtienes un resumen con horas para copiar o compartir; no se escribe nada en la historia.'] },
+    { t: 'Calculadora TIVA · TCI · BIC', ir: 'calc', b: 'Abrir la calculadora', p: ['TIVA: esquemas por peso (propofol, remifentanilo, dexmedetomidina, ketamina, lidocaína, magnesio).', 'TCI: modelos Marsh, Schnider, Minto y otros, con bolo y velocidades por tramo.',
+      'BIC: convierte dosis ↔ velocidad para cualquier fármaco. Configura la unidad de tu bomba (mL/h, mL/min o gotas/min). Desde una historia, “Agregar a la historia”.'] },
+    { t: 'Guías de consulta', ir: 'guias', b: 'Abrir las guías', p: ['Fichas resumidas de guías vigentes, con fuente y año: Consulta (valoración preanestésica), Crisis y Técnicas.', 'El buscador revisa todas las fichas. Los enlaces DOI abren el artículo original.'] },
+    { t: 'Bloqueos regionales', ir: 'bloqueos', b: 'Abrir bloqueos', p: ['39 bloqueos por región (miembro superior e inferior, tórax, abdomen, cabeza y cuello, neuroeje) con indicaciones, nervios, territorio, técnica ecoguiada, volúmenes, mezclas e imágenes.',
+      'En la pestaña Generales: calculadora de dosis máxima y mezclas de anestésicos locales, coadyuvantes, antitrombóticos y seguridad.', 'Las mezclas con fármacos que no están en tu farmacia se ven atenuadas.'] },
+    { t: 'Extras: valoración y récipe', ir: 'extras', b: 'Abrir Extras', p: ['Valoración preanestésica completa (riesgos, vía aérea, laboratorios, medicación con la conducta preoperatoria sugerida) y récipe en media carta.', 'Salen con tu membrete, firma y sello.'] },
+    { t: 'Mi perfil, firma y sello', ir: 'perfil', b: 'Abrir Mi perfil', p: ['Tus datos profesionales, firma (dibujada o escaneada), sello y marca de agua del PDF.', 'Aquí también exportas o importas tu cuenta y cambias la contraseña.'] },
+    { t: 'Lugares de trabajo', ir: 'sedes', b: 'Abrir Lugares de trabajo', p: ['Cada lugar tiene nombre, ciudad y logo; es el encabezado del PDF de la historia.', 'Al crear una historia eliges el lugar; puedes cambiarlo en la sección Paciente.'] },
+    { t: 'Mi farmacia', ir: 'farmacia', b: 'Abrir Mi farmacia', p: ['Marca los anestésicos locales, coadyuvantes y fármacos de rescate que tienes. La app usa esa lista en Bloqueos (mezclas y calculadora) y en Crisis (presentaciones y avisos, p. ej., si no hay emulsión lipídica).'] },
+    { t: 'Respaldo y cambio de teléfono', ir: 'respaldo', b: 'Hacer un respaldo', p: ['Menú › Respaldo exporta todas tus historias y documentos en un archivo; guárdalo fuera del teléfono (correo, nube).', 'Para pasar a otro teléfono: respalda aquí, instala la app allá e importa el archivo.'] },
+  ];
+  function renderAyuda(v) {
+    $('#titulo').textContent = 'Guía de uso';
+    const q = sinTilde(ayudaBusca);
+    const l = AYUDA.filter((a) => (!a.web || !window.Nativo) && (!q || sinTilde(a.t + ' ' + a.p.join(' ')).includes(q)));
+    v.innerHTML = `<section class="tarjeta"><label class="campo completo" style="margin:0"><span>Buscar en la guía</span><input id="ayQ" type="search" value="${esc(ayudaBusca)}" placeholder="Ej. PDF, firma, respaldo, infusión"></label>
+      <div class="fila-btn" style="margin:10px 0 0"><button class="secundario chico" data-acc="ayIr" data-ir="tour">▶ Recorrido guiado</button><button class="secundario chico" data-acc="ayIr" data-ir="novedades">Novedades</button></div></section>` +
+      (l.length ? l.map((a, i) => `<details class="tarjeta ay-tema"${q || i === 0 ? ' open' : ''}><summary>${esc(a.t)}</summary><ul class="guia-items">${a.p.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+        ${a.ir ? `<div class="fila-btn" style="margin:6px 0 0"><button class="primario chico" data-acc="ayIr" data-ir="${a.ir}">${esc(a.b)} ›</button></div>` : ''}</details>`).join('')
+        : card('Sin resultados', '<p class="nota" style="margin:0">Prueba con otra palabra.</p>')) +
+      `<p class="nota" style="padding:0 6px 20px">Morpheus MD ${VERSION}. Material de apoyo: no sustituye el juicio clínico ni los protocolos de tu institución.</p>`;
+    const inp = $('#ayQ'); inp.oninput = () => { ayudaBusca = inp.value; const pos = inp.selectionStart; renderAyuda(v); const n = $('#ayQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} };
+  }
+  function ayudaIr(d) {
+    if (d === 'tour') return empezarTour();
+    if (d === 'novedades') return verNovedades(true);
+    if (d === 'nueva') { pantalla = 'inicio'; render(); return crear(); }
+    if (d === 'crisis') return irCrisis();
+    if (d === 'calc') { if (calcDesde === 'editor') CT = null; calcDesde = 'ayuda'; pantalla = 'calc'; }
+    else if (d === 'guias') { guiaDesde = 'ayuda'; pantalla = 'guias'; }
+    else if (d === 'bloqueos') return irBloqueos();
+    else if (d === 'farmacia') { farmDesde = 'ayuda'; pantalla = 'farmacia'; }
+    else if (d === 'respaldo') return respaldo();
+    else pantalla = d;
+    render(); window.scrollTo(0, 0);
+  }
+
   /* ---- Bloqueos regionales (fichas en js/bloqueos-datos.js) ---- */
   let bqId = '', bqBusca = '', bqDesde = 'inicio', bqTab = 'superior';
   const BQ = () => window.BLOQUEOS || { regiones: [], fichas: [], generales: [], hadzic: '' };
@@ -1924,12 +2138,15 @@
     }
     v.innerHTML = `<section class="tarjeta"><div class="bq-tabs" role="tablist">${G.regiones.map(([k, t]) => `<button type="button" class="opcion${bqTab === k && !q ? ' sel' : ''}" data-bqtab="${k}">${esc(t)}</button>`).join('')}</div>
       <label class="campo completo" style="margin:10px 0 0"><span>Buscar en todos los bloqueos</span><input id="bqQ" type="search" value="${esc(bqBusca)}" placeholder="Ej. frénico, cadera, cesárea, dexametasona"></label>
-      <p class="nota">${G.fichas.length} bloqueos con indicaciones, nervios, territorio, técnica ecoguiada, volúmenes y mezclas con los fármacos del HCUAMP. Funcionan sin internet.</p></section>` + cuerpo +
+      <p class="nota">${G.fichas.length} bloqueos con indicaciones, nervios, territorio, técnica ecoguiada, volúmenes y mezclas (se marcan las que usan fármacos que no están en tu farmacia). Funcionan sin internet.</p></section>` + cuerpo +
       '<p class="nota" style="padding:0 6px 20px">Material de consulta y docencia: no sustituye la formación práctica, el juicio clínico ni los protocolos de tu institución.</p>';
     $$('#vista [data-bqtab]').forEach((b) => (b.onclick = () => { bqTab = b.dataset.bqtab; bqBusca = ''; renderBloqueos(v); window.scrollTo(0, 0); }));
     const inp = $('#bqQ'); inp.oninput = () => { bqBusca = inp.value; const pos = inp.selectionStart; renderBloqueos(v); const n = $('#bqQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} };
     if (!q && bqTab === 'generales') bqCalcEnlazar();
   }
+  const bqMezclas = (l) => { if (!l || !l.length) return ''; let nd = 0;
+    const h = l.map((i) => { const f = farmFalta(i); if (f.length) nd++; return `<li${f.length ? ' class="bq-nd"' : ''}>${esc(i)}${f.length ? '<small class="bq-ndt">No está en tu farmacia</small>' : ''}</li>`; }).join('');
+    return `<ul class="guia-items">${h}</ul>` + (nd ? '<p class="nota">Atenuadas: usan fármacos que no marcaste en <button class="enlace" data-acc="bqFarm">Mi farmacia</button>.</p>' : ''); };
   const bqLista = (l, ord) => (l && l.length ? `<${ord ? 'ol' : 'ul'} class="guia-items">${l.map((i) => `<li>${esc(i)}</li>`).join('')}</${ord ? 'ol' : 'ul'}>` : '');
   const bqDef = (pares) => `<dl class="bq-dl">${pares.filter(([, x]) => x).map(([t, x]) => `<dt>${esc(t)}</dt><dd>${esc(x)}</dd>`).join('')}</dl>`;
   const bqFuentes = (f) => `<ol class="guia-fuentes">${(f.fuentes || []).map((x) => `<li>${esc(x.cita)}${x.doi ? ' ' + enlace('https://doi.org/' + x.doi, 'doi:' + x.doi) : x.url ? ' ' + enlace(x.url, x.url.replace(/^https?:\/\//, '').slice(0, 60)) : ''}</li>`).join('')}</ol>`;
@@ -1963,7 +2180,7 @@
       card('Posición y sonda', bqDef([['Paciente', P.paciente], ['Sonda', P.sonda], ['Profundidad', P.profundidad]])) +
       card('Sonoanatomía', bqLista(f.sonoanatomia)) +
       card('Técnica', bqLista(f.tecnica, true)) +
-      card('Aguja, volumen y mezclas', bqDef([['Aguja', f.aguja], ['Volumen adulto', V.adulto], ['Volumen niño', V.nino]]) + '<h3>Mezclas con los fármacos del HCUAMP</h3>' + bqLista(f.mezclas) +
+      card('Aguja, volumen y mezclas', bqDef([['Aguja', f.aguja], ['Volumen adulto', V.adulto], ['Volumen niño', V.nino]]) + '<h3>Mezclas</h3>' + bqMezclas(f.mezclas) +
         (f.duracion ? bqDef([['Duración', f.duracion]]) : '') + '<p class="nota">Antes de cargar: calcula el tope con el peso del paciente (botón “Dosis máxima”). En bloqueos bilaterales suma ambos lados.</p>') +
       card('Complicaciones', bqLista(f.complicaciones)) +
       (f.consejos && f.consejos.length ? card('Consejos', bqLista(f.consejos)) : '') +
@@ -1976,7 +2193,7 @@
     const G = BQ(), porUrl = {};
     G.fichas.forEach((f) => (f.imagenes || []).forEach((im) => { const k = im.url; (porUrl[k] = porUrl[k] || { cred: im.credito.replace(/\s*Figura\s*[\w.,\s y]+\.?$/i, '').trim(), lic: im.licencia, url: im.url, usos: [] }).usos.push(f.nombre + ' (' + im.archivo + ')'); }));
     v.innerHTML = card('Descargo de responsabilidad', `<ul class="guia-items">
-        <li>Esta sección es material de consulta y docencia para anestesiólogos. No sustituye la formación práctica supervisada, el juicio clínico, la ficha técnica de cada fármaco ni los protocolos del HCUAMP.</li>
+        <li>Esta sección es material de consulta y docencia para anestesiólogos. No sustituye la formación práctica supervisada, el juicio clínico, la ficha técnica de cada fármaco ni los protocolos de tu institución.</li>
         <li>Los textos están redactados con palabras propias a partir de guías, artículos, NYSORA y libros de referencia, que se citan en cada ficha. No se copian textos literales.</li>
         <li>Morpheus MD no reclama la propiedad de ninguna imagen. Todas las imágenes pertenecen a sus autores y editoriales, provienen de artículos publicados con licencia Creative Commons Atribución (CC BY 4.0), que permite compartirlas y adaptarlas citando la fuente, y se muestran con su crédito completo y un enlace al artículo original.</li>
         <li>Las figuras de libros (Miller, Hadzic, Tornero y otros), de NYSORA y de otros sitios web están protegidas por derechos de autor y no se reproducen: cada ficha indica dónde verlas (botón “Ver en NYSORA” y capítulo del libro).</li>
@@ -1995,13 +2212,19 @@
   }
 
   /* Calculadora de dosis máxima de AL y mezclas (regla de fracciones aditivas). Topes: ficha general "dosis-maximas". */
-  const BQ_PRES = [['bupi05', 'Bupivacaína 0,5 %', { b: 5 }], ['bupi0375', 'Bupivacaína 0,375 %', { b: 3.75 }], ['bupi025', 'Bupivacaína 0,25 %', { b: 2.5 }], ['bupi0125', 'Bupivacaína 0,125 %', { b: 1.25 }],
-    ['lido2', 'Lidocaína 2 %', { l: 20 }], ['lido1', 'Lidocaína 1 %', { l: 10 }], ['mezcla', 'Mezcla 1:1 bupi 0,5 % + lido 2 %', { b: 2.5, l: 10 }]];
+  // Fármacos: l lidocaína, b bupivacaína, r ropivacaína, v levobupivacaína (mg/mL de cada uno en la solución).
+  const BQ_DROGA = { l: ['Lidocaína', 'lidocaina'], b: ['Bupivacaína', 'bupivacaina'], r: ['Ropivacaína', 'ropivacaina'], v: ['Levobupivacaína', 'levobupivacaina'] };
+  const BQ_PRES = [['bupi05', 'Bupivacaína 0,5 %', { b: 5 }, ['bupi']], ['bupi0375', 'Bupivacaína 0,375 %', { b: 3.75 }, ['bupi']], ['bupi025', 'Bupivacaína 0,25 %', { b: 2.5 }, ['bupi']], ['bupi0125', 'Bupivacaína 0,125 %', { b: 1.25 }, ['bupi']],
+    ['ropi075', 'Ropivacaína 0,75 %', { r: 7.5 }, ['ropi']], ['ropi05', 'Ropivacaína 0,5 %', { r: 5 }, ['ropi']], ['ropi0375', 'Ropivacaína 0,375 %', { r: 3.75 }, ['ropi']], ['ropi02', 'Ropivacaína 0,2 %', { r: 2 }, ['ropi']],
+    ['levo05', 'Levobupivacaína 0,5 %', { v: 5 }, ['levobupi']], ['levo025', 'Levobupivacaína 0,25 %', { v: 2.5 }, ['levobupi']], ['levo0125', 'Levobupivacaína 0,125 %', { v: 1.25 }, ['levobupi']],
+    ['lido2', 'Lidocaína 2 %', { l: 20 }, ['lido2']], ['lido1', 'Lidocaína 1 %', { l: 10 }, ['lido1']], ['lido4', 'Lidocaína 4 % (tópica)', { l: 40 }, ['lido4']],
+    ['mezcla', 'Mezcla 1:1 bupi 0,5 % + lido 2 %', { b: 2.5, l: 10 }, ['bupi', 'lido2']]];
+  const bqPresDisp = () => { const l = BQ_PRES.filter((p) => p[3].every(farm)); return l.length ? l : BQ_PRES; };
   const BQ_GRUPOS = [['adulto', 'Adulto'], ['mayor', 'Adulto mayor'], ['nino', 'Niño (≥ 4 meses)'], ['lactante', 'Lactante 1–4 meses'], ['neonato', 'Neonato (< 1 mes)']];
   const BQ_FACT = [['emb', 'Embarazo'], ['ic', 'Insuficiencia cardíaca grave'], ['hep', 'Hepatopatía con bolos repetidos o infusión'], ['ure', 'Uremia con acidosis metabólica'], ['rep', 'Dosis repetidas o infusión']];
-  const bqC = { peso: '', grupo: 'adulto', fact: {}, manual: '', filas: [{ p: 'bupi05', epi: false, ml: '' }] };
-  function bqTopes() { // mg máximos por fármaco y epinefrina, con la reducción aplicada
-    const d = (BQ().generales.find((g) => g.id === 'dosis-maximas') || {}).calc; const peso = num(bqC.peso);
+  const bqC = { peso: '', grupo: 'adulto', fact: {}, manual: '', filas: [{ p: '', epi: false, ml: '' }] };
+  function bqTopes() { // mg máximos por fármaco (t.x0 sin epinefrina, t.x1 con), con la reducción aplicada
+    const g = BQ().generales.find((x) => x.id === 'dosis-maximas') || {}, d = g.calc, dp = g.calc_ped || {}; const peso = num(bqC.peso);
     if (!d || !(peso > 0)) return null;
     const ped = ['nino', 'lactante', 'neonato'].includes(bqC.grupo);
     const avisos = []; let red = 0;
@@ -2011,22 +2234,27 @@
     const fs = BQ_FACT.filter(([k]) => bqC.fact[k]);
     if (fs.length) { red = Math.max(red, 20); avisos.push(`${fs.map((x) => x[1]).join(', ')}: las fuentes indican reducir pero no dan un porcentaje; la app aplica −20 % por prudencia. Ajusta la reducción si lo crees necesario.`); }
     if (bqC.manual !== '') { red = num(bqC.manual); avisos.push(`Reducción fijada a mano: −${red} %.`); }
-    const k = 1 - Math.min(Math.max(red, 0), 90) / 100;
-    const tope = (mgkg, techo) => Math.min(mgkg * peso, techo) * k;
-    const t = ped ? { l0: tope(5, d.lidocaina.sin_epi_max_mg), l1: tope(5, d.lidocaina.con_epi_max_mg), b0: tope(2.5, d.bupivacaina.sin_epi_max_mg), b1: tope(2.5, d.bupivacaina.con_epi_max_mg) }
-      : { l0: tope(d.lidocaina.sin_epi_mgkg, d.lidocaina.sin_epi_max_mg), l1: tope(d.lidocaina.con_epi_mgkg, d.lidocaina.con_epi_max_mg), b0: tope(d.bupivacaina.sin_epi_mgkg, d.bupivacaina.sin_epi_max_mg), b1: tope(d.bupivacaina.con_epi_mgkg, d.bupivacaina.con_epi_max_mg) };
-    if (ped) avisos.push('Niños: tope por dosis única de NYSORA (lidocaína 5 mg/kg, bupivacaína 2,5 mg/kg), sin distinguir epinefrina.');
+    const k = 1 - Math.min(Math.max(red, 0), 90) / 100, t = {};
+    Object.entries(BQ_DROGA).forEach(([x, [, key]]) => {
+      const a = d[key]; if (!a) return;
+      const pm = ped && dp[key] && dp[key].max_mgkg;
+      t[x + '0'] = Math.min((ped ? pm || a.sin_epi_mgkg : a.sin_epi_mgkg) * peso, a.sin_epi_max_mg) * k;
+      t[x + '1'] = Math.min((ped ? pm || a.con_epi_mgkg : a.con_epi_mgkg) * peso, a.con_epi_max_mg) * k;
+    });
+    if (ped) avisos.push('Niños: tope por dosis única de NYSORA (lidocaína 5 mg/kg; bupivacaína, ropivacaína y levobupivacaína 2,5 mg/kg), sin distinguir epinefrina. Caudal con ropivacaína: 2 mg/kg (ESRA/ASRA).');
     return { t, red, avisos, ped };
   }
   function bqCalcUI() {
+    const disp = bqPresDisp();
+    bqC.filas.forEach((r) => { if (!disp.some((p) => p[0] === r.p)) r.p = disp[0][0]; });
     const opt = (l, sel) => l.map(([k, t]) => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(t)}</option>`).join('');
-    return `<p class="nota" style="margin-top:0">Tope de lidocaína y bupivacaína por peso y suma de fracciones cuando se mezclan (la toxicidad es aditiva: la suma debe quedar ≤ 100 %).</p>
+    return `<p class="nota" style="margin-top:0">Tope de cada anestésico local por peso y suma de fracciones cuando se mezclan (la toxicidad es aditiva: la suma debe quedar ≤ 100 %). Solo aparecen las soluciones de <button class="enlace" data-acc="bqFarm">Mi farmacia</button>.</p>
       <div class="rejilla"><label class="campo"><span>Peso</span><div class="con-unidad"><input id="bqPeso" inputmode="decimal" value="${esc(bqC.peso)}" placeholder="70"><em>kg</em></div></label>
       <label class="campo"><span>Paciente</span><select id="bqGrupo">${opt(BQ_GRUPOS, bqC.grupo)}</select></label></div>
       <div class="opciones" style="margin:10px 0">${BQ_FACT.map(([k, t]) => `<button type="button" class="opcion${bqC.fact[k] ? ' sel' : ''}" data-bqfact="${k}">${esc(t)}</button>`).join('')}</div>
       <label class="campo" style="max-width:240px"><span>Reducción a mano (opcional)</span><select id="bqManual"><option value="">Automática</option>${[0, 10, 15, 20, 25, 30, 40, 50].map((x) => `<option value="${x}"${String(x) === String(bqC.manual) ? ' selected' : ''}>−${x} %</option>`).join('')}</select></label>
       <h3>Lo que vas a inyectar</h3>
-      ${bqC.filas.map((r, i) => `<div class="med"><div class="rejilla"><label class="campo"><span>Solución ${i + 1}</span><select data-bqf="${i}" data-c="p">${opt(BQ_PRES, r.p)}</select></label>
+      ${bqC.filas.map((r, i) => `<div class="med"><div class="rejilla"><label class="campo"><span>Solución ${i + 1}</span><select data-bqf="${i}" data-c="p">${opt(disp, r.p)}</select></label>
         <label class="campo"><span>Volumen</span><div class="con-unidad"><input data-bqf="${i}" data-c="ml" inputmode="decimal" value="${esc(r.ml)}" placeholder="0"><em>mL</em></div></label></div>
         <div class="fila-btn" style="justify-content:space-between;margin-top:6px"><div class="check" style="margin:0"><input type="checkbox" id="bqEpi${i}" data-bqf="${i}" data-c="epi"${r.epi ? ' checked' : ''}><label for="bqEpi${i}">Con epinefrina 1:200 000</label></div>
         ${bqC.filas.length > 1 ? `<button class="peligro chico" data-acc="bqQuitar" data-i="${i}">Quitar</button>` : ''}</div></div>`).join('')}
@@ -2036,24 +2264,25 @@
   function bqCalcPintar() {
     const e = $('#bqRes'); if (!e) return; const T = bqTopes();
     if (!T) { e.innerHTML = '<p class="nota">Escribe el peso para ver los topes.</p>'; return; }
-    const { t } = T, f1 = (x) => (Math.round(x * 10) / 10).toLocaleString('es-VE');
+    const { t } = T, f1 = (x) => (Math.round(x * 10) / 10).toLocaleString('es-VE'), disp = bqPresDisp();
+    const fr = (c, epi) => Object.entries(c).reduce((a, [x, mg]) => a + mg / t[x + (epi ? '1' : '0')], 0); // fracción del tope por mL
     let frac = 0; const det = [];
     bqC.filas.forEach((r) => {
-      const pr = BQ_PRES.find((x) => x[0] === r.p), ml = num(r.ml); if (!(ml > 0)) return;
-      const epi = r.epi && r.p !== 'mezcla', c = pr[2], mgB = (c.b || 0) * ml, mgL = (c.l || 0) * ml;
-      const fr = mgB / (epi ? t.b1 : t.b0) + mgL / (epi ? t.l1 : t.l0); frac += fr;
-      det.push(`${f1(ml)} mL ${pr[1]}${r.epi ? ' con epi' : ''}: ${[mgB && f1(mgB) + ' mg bupi', mgL && f1(mgL) + ' mg lido'].filter(Boolean).join(' + ')} = ${Math.round(fr * 100)} % del tope`);
+      const pr = BQ_PRES.find((x) => x[0] === r.p), ml = num(r.ml); if (!pr || !(ml > 0)) return;
+      const epi = r.epi && r.p !== 'mezcla', c = pr[2], f = fr(c, epi) * ml; frac += f;
+      det.push(`${f1(ml)} mL ${pr[1]}${r.epi ? ' con epi' : ''}: ${Object.entries(c).map(([x, mg]) => f1(mg * ml) + ' mg ' + BQ_DROGA[x][0].toLowerCase()).join(' + ')} = ${Math.round(f * 100)} % del tope`);
     });
     const pct = Math.round(frac * 100), cls = frac > 1 ? 'mal' : frac > 0.8 ? 'ojo' : 'bien', resto = Math.max(0, 1 - frac);
-    const queda = BQ_PRES.map(([, n, c]) => [n, c]).flatMap(([n, c]) => (c.b && c.l ? [[n, resto / (c.b / t.b0 + c.l / t.l0)]] : c.b ? [[n, resto * t.b0 / c.b], [n + ' con epi', resto * t.b1 / c.b]] : [[n, resto * t.l0 / c.l], [n + ' con epi', resto * t.l1 / c.l]]));
+    const drogas = [...new Set(disp.flatMap((p) => Object.keys(p[2])))];
+    const queda = disp.flatMap(([id, n, c]) => [[n, resto / fr(c, false)]].concat(id === 'mezcla' ? [] : [[n + ' con epi', resto / fr(c, true)]]));
     e.innerHTML = `<div class="desplaza"><table class="tabla guia-tabla"><tr><th>Tope para este paciente</th><th>Sin epinefrina</th><th>Con epinefrina</th></tr>
-        <tr><td>Lidocaína</td><td>${f1(t.l0)} mg</td><td>${f1(t.l1)} mg</td></tr><tr><td>Bupivacaína</td><td>${f1(t.b0)} mg</td><td>${f1(t.b1)} mg</td></tr></table></div>` +
+        ${drogas.map((x) => `<tr><td>${BQ_DROGA[x][0]}</td><td>${f1(t[x + '0'])} mg</td><td>${f1(t[x + '1'])} mg</td></tr>`).join('')}</table></div>` +
       (det.length ? `<div class="bq-barra ${cls}"><div style="width:${Math.min(pct, 100)}%"></div></div><p class="bq-total ${cls}">Usado: <b>${pct} %</b> del tope${frac > 1 ? ' · SE PASA DEL TOPE: reduce volumen o concentración' : frac > 0.8 ? ' · cerca del tope' : ''}</p><ul class="guia-items">${det.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '') +
       (resto > 0 ? `<h3>${det.length ? 'Todavía puedes agregar (una sola de estas)' : 'Volumen máximo de cada solución (usada sola)'}</h3><div class="desplaza"><table class="tabla guia-tabla">${queda.map(([n, ml]) => `<tr><td style="text-align:left">${esc(n)}</td><td><b>${f1(Math.floor(ml * 10) / 10)} mL</b></td></tr>`).join('')}</table></div>` : '') +
       `<ul class="guia-items bq-avisos">${T.avisos.map((a) => `<li>${esc(a)}</li>`).join('')}
-        <li>La mezcla 1:1 con epinefrina se calcula con los topes sin epinefrina (por prudencia, ficha Dosis máximas).</li>
+        <li>La mezcla 1:1 con epinefrina se calcula con los topes sin epinefrina (por prudencia, ficha Dosis máximas). Levobupivacaína: la ficha técnica no distingue epinefrina.</li>
         <li>El tope no protege de una inyección intravascular: aspirar, fraccionar e inyectar despacio. Absorción alta en intercostal, paravertebral, caudal y planos fasciales bilaterales.</li>
-        <li>En obesos considera el peso magro (calculadora TIVA). Sin Intralipid en el HCUAMP: repasa Crisis › LAST.</li></ul>`;
+        <li>En obesos considera el peso magro (calculadora TIVA).${farm('lipido') ? '' : ' Si no tienes emulsión lipídica 20 %, repasa Crisis › LAST.'}</li></ul>`;
   }
   function bqCalcEnlazar() {
     const p = $('#bqPeso'); if (!p) return;
@@ -2282,7 +2511,9 @@
     else if (acc === 'bqAbrir') { bqId = a.dataset.id; pantalla = 'bloqueo'; render(); window.scrollTo(0, 0); }
     else if (acc === 'bqIrCalc') { bqTab = 'generales'; bqBusca = ''; pantalla = 'bloqueos'; render(); const c = $('#bqPeso'); if (c) { c.scrollIntoView({ block: 'center' }); if (!bqC.peso) c.focus(); } }
     else if (acc === 'bqZoom') bqZoom(a.dataset.src);
-    else if (acc === 'bqMas') { bqC.filas.push({ p: 'lido2', epi: false, ml: '' }); render(); const r = $('#bqRes'); if (r) r.scrollIntoView({ block: 'end' }); }
+    else if (acc === 'bqMas') { bqC.filas.push({ p: (bqPresDisp().find((x) => x[0] === 'lido2') || bqPresDisp()[0])[0], epi: false, ml: '' }); render(); const r = $('#bqRes'); if (r) r.scrollIntoView({ block: 'end' }); }
+    else if (acc === 'ayIr') ayudaIr(a.dataset.ir);
+    else if (acc === 'bqFarm') { farmDesde = pantalla; pantalla = 'farmacia'; render(); window.scrollTo(0, 0); }
     else if (acc === 'bqQuitar') { bqC.filas.splice(+a.dataset.i, 1); render(); }
     else if (acc === 'guiaAbrir') { guiaId = a.dataset.id; pantalla = 'guia'; render(); window.scrollTo(0, 0); }
     else if (acc === 'docNuevo') { const x = nuevoDoc(a.dataset.t); Store.guardarDoc(x); abrirDoc(x); }
@@ -2345,6 +2576,7 @@
         { t: '🧮 Calculadora TIVA · TCI · BIC', f: () => { guardarYa(); CT = null; calcDesde = 'editor'; pantalla = 'calc'; render(); window.scrollTo(0, 0); } },
         { t: 'Nueva historia usando esta como plantilla', f: () => { guardarYa(); duplicar(H.id, false); } },
         { t: 'Mi perfil y firma', f: () => { guardarYa(); pantalla = 'perfil'; render(); } },
+        { t: '❓ Guía de uso', f: () => { guardarYa(); irAyuda(); } },
         { t: 'Lugares de trabajo', f: () => { guardarYa(); pantalla = 'sedes'; render(); } },
         { t: 'Eliminar esta historia', peligro: true, f: () => { if (confirm('¿Eliminar esta historia? No se puede deshacer.')) { Store.borrar(H.id); H = null; pantalla = 'inicio'; render(); } } },
       ]);
@@ -2355,6 +2587,8 @@
         { t: '🧮 Calculadora TIVA · TCI · BIC', f: () => { if (calcDesde === 'editor') CT = null; calcDesde = pantalla === 'calc' ? calcDesde : pantalla; pantalla = 'calc'; render(); window.scrollTo(0, 0); } },
         { t: '📖 Guías de consulta', f: () => { guiaDesde = pantalla; pantalla = 'guias'; render(); window.scrollTo(0, 0); } },
         { t: '💉 Bloqueos regionales', f: () => irBloqueos() },
+        { t: '💊 Mi farmacia', f: () => { farmDesde = pantalla; pantalla = 'farmacia'; render(); window.scrollTo(0, 0); } },
+        { t: '❓ Guía de uso', f: irAyuda },
         { t: '🏥 Lugares de trabajo', f: () => { pantalla = 'sedes'; render(); } },
         { t: '✍ Mi perfil y firma', f: () => { pantalla = 'perfil'; render(); } },
         { t: '🗂 Respaldo (exportar / importar)', f: respaldo },
@@ -2368,17 +2602,21 @@
   };
 
   function atras() {
+    if ($('#tour')) { tour(-1); return true; }
+    if (pantalla === 'ayuda') { pantalla = ['editor', 'extras', 'guias', 'bloqueos', 'calc'].includes(ayudaDesde) && (ayudaDesde !== 'editor' || H) ? ayudaDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'farmacia') { pantalla = ['ayuda', 'bloqueos', 'bloqueo', 'extras', 'editor'].includes(farmDesde) && (farmDesde !== 'editor' || H) ? farmDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'config') { if (cfgPaso > 0) { cfgPaso--; render(); window.scrollTo(0, 0); } return true; }
     if (window.Visor && Visor.abierto()) { Visor.cerrar(); return true; }
     if (!$('#capa').hidden) { cerrarHoja(); return true; }
     if (pantalla === 'editor') { guardarYa(); H = null; pantalla = 'inicio'; render(); return true; }
     if (pantalla === 'doc') { guardarDocYa(); D = null; pantalla = 'extras'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'extras') { pantalla = 'inicio'; render(); return true; }
     if (pantalla === 'crisis') { if (crisisMenu && Crisis.activa()) { crisisMenu = false; render(); return true; } pantalla = ['editor', 'extras', 'guias', 'calc', 'bloqueos', 'bloqueo'].includes(crisisDesde) && (crisisDesde !== 'editor' || H) ? crisisDesde : 'inicio'; crisisMenu = false; render(); window.scrollTo(0, 0); return true; }
-    if (pantalla === 'calc') { if (calcDesde === 'crisis') { pantalla = 'crisis'; render(); window.scrollTo(0, 0); return true; } pantalla = ['editor', 'extras'].includes(calcDesde) && (calcDesde !== 'editor' || H) ? calcDesde : 'inicio'; if (calcDesde === 'editor') CT = null; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'calc') { if (calcDesde === 'crisis') { pantalla = 'crisis'; render(); window.scrollTo(0, 0); return true; } pantalla = ['editor', 'extras', 'ayuda'].includes(calcDesde) && (calcDesde !== 'editor' || H) ? calcDesde : 'inicio'; if (calcDesde === 'editor') CT = null; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'guia') { pantalla = 'guias'; render(); window.scrollTo(0, 0); return true; }
-    if (pantalla === 'guias') { pantalla = guiaDesde === 'extras' ? 'extras' : 'inicio'; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'guias') { pantalla = ['extras', 'ayuda'].includes(guiaDesde) ? guiaDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'bloqueo') { pantalla = 'bloqueos'; render(); window.scrollTo(0, 0); return true; }
-    if (pantalla === 'bloqueos') { pantalla = ['extras', 'guias', 'guia'].includes(bqDesde) ? bqDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'bloqueos') { pantalla = ['extras', 'guias', 'guia', 'ayuda', 'farmacia'].includes(bqDesde) ? bqDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'bienvenida') return false;
     if (pantalla === 'login') { pantalla = 'bienvenida'; render(); return true; }
     if (pantalla === 'importar') { impDatos = null; pantalla = impDesde === 'perfil' && cfg.cuenta ? 'perfil' : impDesde === 'login' ? 'login' : 'bienvenida'; render(); return true; }
@@ -2388,7 +2626,7 @@
     }
     return false;
   }
-  window.app = { atras: () => atras(), pausa: () => guardarYa(), _estado: () => ({ H, cfg }) };
+  window.app = { version: VERSION, atras: () => atras(), pausa: () => guardarYa(), _estado: () => ({ H, cfg }) };
   document.addEventListener('visibilitychange', () => { if (document.hidden) guardarYa(); });
   pantalla = 'bienvenida';
   render();

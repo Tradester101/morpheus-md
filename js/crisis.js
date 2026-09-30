@@ -9,7 +9,7 @@ window.Crisis = (function () {
   const hora = (ms) => new Date(ms).toTimeString().slice(0, 8);
   const mmss = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
 
-  /* ---------- Presentaciones (HCUAMP; editables en "Presentaciones") ---------- */
+  /* ---------- Presentaciones (editables en "Presentaciones de tu hospital" y en Mi farmacia) ---------- */
   const PRES_OPC = {
     lido: { t: 'Lidocaína', u: 'mg/mL', ops: [[10, '1 % (10 mg/mL)'], [20, '2 % (20 mg/mL)']], def: 20 },
     atro: { t: 'Atropina', u: 'mg/mL', ops: [[0.5, '0,5 mg/mL'], [1, '1 mg/mL']], def: 0.5 },
@@ -280,7 +280,7 @@ window.Crisis = (function () {
       titulo: 'Toxicidad por anestésicos locales (LAST)', sub: 'ASRA 2020 · emulsión lipídica 20 %', fuente: 'ASRA Local Anesthetic Systemic Toxicity Checklist 2020 v1.1; NYSORA; Shalaby, Clin Exp Emerg Med 2024;11:121.', url: 'https://www.asra.com/news-publications/asra-updates/blog-landing/legacy-b-blog-posts/2020/11/01/checklist-for-treatment-of-local-anesthetic-systemic-toxicity-(last)', pideEdad: false,
       rapidos: ['lipBolo', 'lipInf', 'benzo', 'adrLast', 'nota'],
       ref: [{ t: 'Escalera de signos (a más concentración, más grave)', escalera: ['Adormecimiento de la lengua y la boca', 'Alteraciones sensoriales y de la conducta (acúfenos, sabor metálico, agitación)', 'Contracciones musculares', 'Inconsciencia', 'Convulsiones generalizadas', 'Falla respiratoria', 'Toxicidad cardiovascular (arritmias, hipotensión)', 'Paro cardíaco'], nota: 'Hasta la mitad de los casos son atípicos (solo cardiovasculares o síntomas leves) y pueden aparecer > 5 min y hasta 1 h después de la inyección.' },
-        { t: 'Si no hay Intralipid 20 %', items: ['Intralipid es la emulsión más estudiada. Otras emulsiones lipídicas al 20 % de nutrición parenteral se han usado en reportes de casos: consulta con farmacia qué hay disponible y tenla en el kit de LAST.', 'El propofol NO sustituye a la emulsión lipídica: tiene solo 10 % de lípidos y deprime el miocardio.'], nota: 'Nota práctica para centros sin Intralipid; verifica con tu farmacia.' },
+        { t: 'Si no hay Intralipid 20 %', si: 'sinLipido', items: ['Intralipid es la emulsión más estudiada. Otras emulsiones lipídicas al 20 % de nutrición parenteral se han usado en reportes de casos: consulta con farmacia qué hay disponible y tenla en el kit de LAST.', 'El propofol NO sustituye a la emulsión lipídica: tiene solo 10 % de lípidos y deprime el miocardio.'], nota: 'Nota práctica para centros sin Intralipid; verifica con tu farmacia.' },
         { t: 'Prevención', items: ['Monitoreo cardiorrespiratorio antes de inyectar; aspirar, dosis fraccionadas, ecografía.', 'Vigila al menos 30 min después de la inyección.', 'Usa la calculadora de dosis máxima de anestésico local de la app.'] }],
       inicio: 'l0',
       pasos: {
@@ -445,7 +445,7 @@ window.Crisis = (function () {
     h += `<section class="tarjeta cr-paso"><h2>${val(paso.t)}</h2><ul class="cr-items">${val(paso.items).map((i) => `<li>${i}</li>`).join('')}</ul>
       <div class="cr-bot">${(paso.bot || []).map((b, i) => `<button class="${b.cls || 'secundario'}" data-crb="${i}">${b.t}</button>`).join('')}</div></section>`;
     h += `<section class="tarjeta"><div class="cr-rap">${A.rapidos.map((k) => `<button class="secundario" data-crr="${k}">${RAP[k].t}${k === 'desc' && S.nDesc ? ` <em>${S.nDesc}</em>` : k === 'adr' && S.nAdr ? ` <em>${S.nAdr}</em>` : ''}</button>`).join('')}</div></section>`;
-    h += A.ref.map((r) => `<details class="tarjeta cr-ref"><summary>${esc(r.t)}</summary>${r.items ? `<ul class="cr-items">${r.items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>` : ''}${r.tabla ? `<table class="tabla">${r.tabla.map((x) => `<tr><td class="etq">${esc(x[0])}</td><td><b>${esc(x[1])}</b></td></tr>`).join('')}</table>` : ''}${r.escalera ? `<ol class="cr-escalera">${r.escalera.map((x, i) => `<li style="--n:${i}">${esc(x)}</li>`).join('')}</ol>` : ''}${r.nota ? `<p class="nota">${esc(r.nota)}</p>` : ''}</details>`).join('');
+    h += A.ref.filter((r) => !r.si || (r.si === 'sinLipido' && !((C.farmacia || {}).lipido))).map((r) => `<details class="tarjeta cr-ref"><summary>${esc(r.t)}</summary>${r.items ? `<ul class="cr-items">${r.items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>` : ''}${r.tabla ? `<table class="tabla">${r.tabla.map((x) => `<tr><td class="etq">${esc(x[0])}</td><td><b>${esc(x[1])}</b></td></tr>`).join('')}</table>` : ''}${r.escalera ? `<ol class="cr-escalera">${r.escalera.map((x, i) => `<li style="--n:${i}">${esc(x)}</li>`).join('')}</ol>` : ''}${r.nota ? `<p class="nota">${esc(r.nota)}</p>` : ''}</details>`).join('');
     h += `<section class="tarjeta"><h2>Registro</h2>${S.ev.length ? `<ul class="cr-log">${S.ev.slice().reverse().map((e) => `<li><b>${hora(e.ms)}</b> ${esc(e.txt)}</li>`).join('')}</ul>` : '<p class="nota">Aún sin eventos.</p>'}
       <div class="fila-btn"><button class="primario" id="crFin">Terminar y ver resumen</button><button class="secundario" id="crOtro">Otro algoritmo</button></div>
       <p class="nota">Fuente: ${esc(A.fuente)} ${ctx.enlace(A.url, 'Ver algoritmo oficial')} · Diseño propio de Morpheus MD; no sustituye la guía ni el juicio clínico.</p></section>`;
