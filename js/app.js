@@ -78,7 +78,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.10.1';
+  const VERSION = '1.9.11';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -1297,6 +1297,8 @@
     if (pantalla === 'calc') return renderCalc(v);
     if (pantalla === 'crisis') return renderCrisis(v);
     if (pantalla === 'guia') return renderGuia(v);
+    if (pantalla === 'bloqueos') return renderBloqueos(v);
+    if (pantalla === 'bloqueo') return renderBloqueo(v);
     if (pantalla === 'doc') return D.tipo === 'val' ? renderVal(v) : renderRx(v);
     if (pantalla === 'editor') {
       calcular();
@@ -1843,6 +1845,7 @@
       card('Récipe (media carta)', `<div class="fila-btn" style="margin:0 0 12px"><button class="primario" data-acc="docNuevo" data-t="rx">+ Nuevo récipe</button></div>` + lista('rx')) +
       card('Calculadora TIVA · TCI · BIC', `<p class="nota" style="margin:0 0 10px">Propofol (Roberts o modelos Marsh/Schnider), remifentanilo (Minto), dexmedetomidina y coadyuvantes: IMC, pesos para dosificar, concentración y velocidad en la unidad de tu bomba.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irCalc">🧮 Abrir la calculadora</button></div>`) +
       card('Guías de consulta', `<p class="nota" style="margin:0 0 10px">Tres pestañas: Consulta (fichas de la valoración preanestésica), Crisis (reanimación y crisis en quirófano) y Técnicas. Con fuente y año, sin internet.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irGuias">📖 Abrir las guías (${GG().fichas.length})</button></div>`) +
+      card('Bloqueos regionales', `<p class="nota" style="margin:0 0 10px">${BQ().fichas.length} bloqueos: indicaciones, nervios, territorio sensitivo y motor, técnica ecoguiada, volúmenes, mezclas con los fármacos del HCUAMP, imágenes con licencia abierta y calculadora de dosis máxima.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irBloqueos">💉 Abrir bloqueos</button></div>`) +
       card('Próximamente en la 2.0', '<ul class="nota" style="margin:0;padding-left:18px;line-height:1.7"><li>Guía de medicación preoperatoria para consultar por fármaco.</li><li>Constancia de reposo e informe médico.</li><li>Más formatos con tu membrete.</li></ul>');
   }
 
@@ -1860,10 +1863,11 @@
     const grupos = G.orden.map((c) => [c, lista.filter((f) => f.categoria === c)]).filter(([, l]) => l.length);
     const tabInfo = tabs.find((t) => t[0] === guiaTab) || ['', '', ''];
     const pend = G.pendientes.filter((p) => (p[3] || 'consulta') === guiaTab);
+    const bqCard = guiaTab === 'tecnicas' && !q && window.BLOQUEOS ? `<section class="tarjeta"><h2>Bloqueos regionales</h2><p class="nota" style="margin:0 0 8px">${BQ().fichas.length} bloqueos por región, con técnica, volúmenes, mezclas, imágenes y calculadora de dosis máxima.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irBloqueos">💉 Abrir bloqueos regionales</button></div></section>` : '';
     const algos = guiaTab === 'crisis' && !q && window.Crisis ? `<section class="tarjeta"><h2>Algoritmos interactivos</h2><p class="nota" style="margin:0 0 8px">Paso a paso, con reloj, contador de adrenalina, dosis por peso y resumen para copiar. También con el botón SOS de arriba.</p><ul class="lista">${Crisis.LISTA.map(([, ids]) => ids).flat().map((id) => `<li class="item" data-acc="crisisAbrir" data-id="${id}"><div class="txt"><b>${esc(Crisis.ALG[id].titulo)}</b><small>${esc(Crisis.ALG[id].sub)}</small></div><span class="flecha">›</span></li>`).join('')}</ul></section>` : '';
     v.innerHTML = `<section class="tarjeta"><div class="segmento calc-tabs" style="margin-bottom:12px">${tabs.map(([k, t]) => `<button type="button" class="${guiaTab === k ? 'sel' : ''}" data-gtab="${k}">${t}</button>`).join('')}</div>
       <label class="campo completo" style="margin:0"><span>Buscar en todas las guías</span><input id="guiaQ" type="search" value="${esc(guiaBusca)}" placeholder="Ej. GLP-1, dantroleno, 180/120"></label>
-      <p class="nota">${q ? `Resultados en todas las pestañas (${lista.length}).` : esc(tabInfo[2]) + ' Funcionan sin internet.'}</p></section>` + algos +
+      <p class="nota">${q ? `Resultados en todas las pestañas (${lista.length}).` : esc(tabInfo[2]) + ' Funcionan sin internet.'}</p></section>` + algos + bqCard +
       (grupos.length ? grupos.map(([c, l]) => card(c, `<ul class="lista">${l.map((f) => `<li class="item" data-acc="guiaAbrir" data-id="${f.id}"><div class="txt"><b>${esc(f.titulo)}</b><small>${esc(f.resumen.length > 150 ? f.resumen.slice(0, 147) + '…' : f.resumen)}</small>
         <small>${esc((f.fuentes || []).slice(0, 2).map((x) => (x.cita.split('.')[0].split(',')[0] + ' ' + (x.anio || '')).trim()).join(' · '))}</small></div><span class="flecha">›</span></li>`).join('')}</ul>`)).join('')
         : card(q ? 'Sin resultados' : 'Aún sin fichas', `<p class="nota" style="margin:0">${q ? 'Ninguna ficha contiene ese texto.' : 'Esta pestaña se irá llenando en las próximas versiones.'}</p>`)) +
@@ -1882,6 +1886,184 @@
       (f.alertas && f.alertas.length ? `<section class="tarjeta guia-alerta"><h2>⚠ Alertas</h2><ul class="guia-items">${f.alertas.map((a) => `<li>${esc(a)}</li>`).join('')}</ul></section>` : '') +
       card('Fuentes', `<ol class="guia-fuentes">${f.fuentes.map((x) => `<li>${esc(x.cita)}${x.doi ? ' ' + enlace('https://doi.org/' + x.doi, 'doi:' + x.doi) : x.url ? ' ' + enlace(x.url, x.url.replace(/^https?:\/\//, '')) : ''}</li>`).join('')}</ol>
         <p class="nota">Revisado: ${esc(f.revisado || '')}. Resumen de consulta: no sustituye el juicio clínico ni los protocolos de tu institución.</p>`);
+  }
+
+  /* ---- Bloqueos regionales (fichas en js/bloqueos-datos.js) ---- */
+  let bqId = '', bqBusca = '', bqDesde = 'inicio', bqTab = 'superior';
+  const BQ = () => window.BLOQUEOS || { regiones: [], fichas: [], generales: [], hadzic: '' };
+  const BQ_NIVEL = { basico: 'Básico', intermedio: 'Intermedio', avanzado: 'Avanzado' };
+  const bqRegion = (k) => ((BQ().regiones.find((r) => r[0] === k) || [])[1] || k);
+  const bqTodas = () => BQ().fichas.concat(BQ().generales);
+  function bqTexto(f) {
+    const pl = (x) => (x == null ? '' : typeof x === 'string' ? x : Array.isArray(x) ? x.map(pl).join(' ') : typeof x === 'object' ? Object.values(x).map(pl).join(' ') : String(x));
+    return sinTilde(pl([f.nombre, f.titulo, f.nombre_en, f.alias, f.resumen, f.indicaciones, f.nervios, f.sensitivo, f.motor, f.respeta, f.tecnica, f.mezclas, f.complicaciones, f.consejos, f.secciones, f.alertas]));
+  }
+  function irBloqueos(tab, id) {
+    if (pantalla !== 'bloqueos' && pantalla !== 'bloqueo') bqDesde = pantalla;
+    if (tab) bqTab = tab; bqBusca = '';
+    if (id) { bqId = id; pantalla = 'bloqueo'; } else pantalla = 'bloqueos';
+    render(); window.scrollTo(0, 0);
+  }
+  function renderBloqueos(v) {
+    $('#titulo').textContent = 'Bloqueos regionales';
+    const G = BQ(), q = sinTilde(bqBusca);
+    const fila = (f) => `<li class="item bq-item" data-acc="bqAbrir" data-id="${f.id}"><div class="txt"><b>${esc(f.nombre || f.titulo)}</b>
+      ${f.nombre_en ? `<small>${esc(f.nombre_en + (f.nivel ? ' · ' + BQ_NIVEL[f.nivel] : ''))}</small>` : ''}<small class="bq-res1">${esc(f.resumen)}</small></div>
+      ${(f.imagenes || []).length ? '<span class="bq-ico" aria-label="Con imagen">▣</span>' : ''}<span class="flecha">›</span></li>`;
+    let cuerpo;
+    if (q) {
+      const l = bqTodas().filter((f) => bqTexto(f).includes(q));
+      cuerpo = l.length ? card(`Resultados (${l.length})`, `<ul class="lista">${l.map(fila).join('')}</ul>`) : card('Sin resultados', '<p class="nota" style="margin:0">Ningún bloqueo contiene ese texto.</p>');
+    } else if (bqTab === 'generales') {
+      cuerpo = card('Calculadora: dosis máxima y mezclas', bqCalcUI()) +
+        card('Fichas generales', `<ul class="lista">${G.generales.map(fila).join('')}</ul>`) +
+        card('Fuentes, imágenes y descargo', `<ul class="lista"><li class="item" data-acc="bqAbrir" data-id="_creditos"><div class="txt"><b>Fuentes, créditos de imágenes y descargo de responsabilidad</b><small>Origen y licencia de cada imagen; libros y guías consultados.</small></div><span class="flecha">›</span></li></ul>`);
+    } else {
+      const l = G.fichas.filter((f) => f.region === bqTab);
+      cuerpo = card(esc(bqRegion(bqTab)) + ` (${l.length})`, `<ul class="lista">${l.map(fila).join('')}</ul>`);
+    }
+    v.innerHTML = `<section class="tarjeta"><div class="bq-tabs" role="tablist">${G.regiones.map(([k, t]) => `<button type="button" class="opcion${bqTab === k && !q ? ' sel' : ''}" data-bqtab="${k}">${esc(t)}</button>`).join('')}</div>
+      <label class="campo completo" style="margin:10px 0 0"><span>Buscar en todos los bloqueos</span><input id="bqQ" type="search" value="${esc(bqBusca)}" placeholder="Ej. frénico, cadera, cesárea, dexametasona"></label>
+      <p class="nota">${G.fichas.length} bloqueos con indicaciones, nervios, territorio, técnica ecoguiada, volúmenes y mezclas con los fármacos del HCUAMP. Funcionan sin internet.</p></section>` + cuerpo +
+      '<p class="nota" style="padding:0 6px 20px">Material de consulta y docencia: no sustituye la formación práctica, el juicio clínico ni los protocolos de tu institución.</p>';
+    $$('#vista [data-bqtab]').forEach((b) => (b.onclick = () => { bqTab = b.dataset.bqtab; bqBusca = ''; renderBloqueos(v); window.scrollTo(0, 0); }));
+    const inp = $('#bqQ'); inp.oninput = () => { bqBusca = inp.value; const pos = inp.selectionStart; renderBloqueos(v); const n = $('#bqQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} };
+    if (!q && bqTab === 'generales') bqCalcEnlazar();
+  }
+  const bqLista = (l, ord) => (l && l.length ? `<${ord ? 'ol' : 'ul'} class="guia-items">${l.map((i) => `<li>${esc(i)}</li>`).join('')}</${ord ? 'ol' : 'ul'}>` : '');
+  const bqDef = (pares) => `<dl class="bq-dl">${pares.filter(([, x]) => x).map(([t, x]) => `<dt>${esc(t)}</dt><dd>${esc(x)}</dd>`).join('')}</dl>`;
+  const bqFuentes = (f) => `<ol class="guia-fuentes">${(f.fuentes || []).map((x) => `<li>${esc(x.cita)}${x.doi ? ' ' + enlace('https://doi.org/' + x.doi, 'doi:' + x.doi) : x.url ? ' ' + enlace(x.url, x.url.replace(/^https?:\/\//, '').slice(0, 60)) : ''}</li>`).join('')}</ol>`;
+  const bqLibro = (f) => (f.libro ? card('Para ver figuras en tu libro', `<p style="margin:0">${esc(f.libro)}</p><p class="nota">${esc(BQ().hadzic)} Las figuras de los libros no se reproducen en la app por derechos de autor.</p>`) : '');
+  function renderBloqueo(v) {
+    if (bqId === '_creditos') return renderBqCreditos(v);
+    const f = bqTodas().find((x) => x.id === bqId); if (!f) { pantalla = 'bloqueos'; return renderBloqueos(v); }
+    if (f.secciones) { // ficha general
+      $('#titulo').textContent = f.titulo;
+      const sec = (s) => card(esc(s.t), bqLista(s.items) + (s.tabla ? `<div class="desplaza"><table class="tabla guia-tabla${s.tabla.cols.length > 3 ? ' ancha' : ''}"><tr>${s.tabla.cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${s.tabla.filas.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table></div>` : ''));
+      v.innerHTML = `<section class="tarjeta guia-cab"><div class="ex-marca">Bloqueos · Generales</div><h2>${esc(f.titulo)}</h2><p class="guia-resumen">${esc(f.resumen)}</p>
+        ${f.calc ? '<div class="fila-btn" style="margin:10px 0 0"><button class="secundario" data-acc="bqIrCalc">🧮 Abrir la calculadora</button></div>' : ''}</section>` +
+        (f.alertas && f.alertas.length ? `<section class="tarjeta guia-alerta"><h2>⚠ Alertas</h2>${bqLista(f.alertas)}</section>` : '') +
+        f.secciones.map(sec).join('') + bqLibro(f) +
+        card('Fuentes', bqFuentes(f) + `<p class="nota">Revisado: ${esc(f.revisado || '')}. Resumen de consulta: no sustituye el juicio clínico ni los protocolos de tu institución.</p>`);
+      return;
+    }
+    $('#titulo').textContent = f.nombre;
+    const P = f.posicion || {}, V = f.volumen || {};
+    const imgs = (f.imagenes || []).map((im, i) => `<figure class="bq-fig"><img src="img/bloqueos/${esc(im.archivo)}" alt="${esc(f.nombre)}, figura ${i + 1}" loading="lazy" data-acc="bqZoom" data-src="img/bloqueos/${esc(im.archivo)}">
+      <figcaption>${esc(im.pie)}<small>Fuente: ${esc(im.credito)} Licencia ${esc(im.licencia)}. ${enlace(im.url, 'Ver artículo')}</small></figcaption></figure>`).join('');
+    v.innerHTML = `<section class="tarjeta guia-cab"><div class="ex-marca">${esc(bqRegion(f.region))}${f.nivel ? ' · ' + BQ_NIVEL[f.nivel] : ''}</div><h2>${esc(f.nombre)}</h2>
+        <p class="nota" style="margin:0 0 8px">${esc([f.nombre_en, (f.alias || []).join(', ')].filter(Boolean).join(' · '))}</p><p class="guia-resumen">${esc(f.resumen)}</p>
+        <div class="fila-btn" style="margin:10px 0 0">${f.nysora ? `<a class="boton secundario" href="${esc(f.nysora)}"${window.Nativo ? '' : ' target="_blank" rel="noopener"'}>Ver en NYSORA ↗</a>` : ''}<button class="secundario" data-acc="bqIrCalc">🧮 Dosis máxima</button></div></section>` +
+      (imgs ? card('Imágenes', imgs + '<p class="nota">Toca una imagen para ampliarla. Imágenes de artículos con licencia abierta (Creative Commons), usadas con atribución.</p>') : '') +
+      card('Indicaciones', bqLista(f.indicaciones)) +
+      (f.contraindicaciones && f.contraindicaciones.length ? card('Contraindicaciones y precauciones', bqLista(f.contraindicaciones)) : '') +
+      card('Nervios que se bloquean', bqLista(f.nervios)) +
+      card('Territorio', bqDef([['Sensitivo', f.sensitivo], ['Motor', f.motor], ['No cubre', f.respeta]])) +
+      card('Anatomía clave', bqLista(f.anatomia)) +
+      card('Posición y sonda', bqDef([['Paciente', P.paciente], ['Sonda', P.sonda], ['Profundidad', P.profundidad]])) +
+      card('Sonoanatomía', bqLista(f.sonoanatomia)) +
+      card('Técnica', bqLista(f.tecnica, true)) +
+      card('Aguja, volumen y mezclas', bqDef([['Aguja', f.aguja], ['Volumen adulto', V.adulto], ['Volumen niño', V.nino]]) + '<h3>Mezclas con los fármacos del HCUAMP</h3>' + bqLista(f.mezclas) +
+        (f.duracion ? bqDef([['Duración', f.duracion]]) : '') + '<p class="nota">Antes de cargar: calcula el tope con el peso del paciente (botón “Dosis máxima”). En bloqueos bilaterales suma ambos lados.</p>') +
+      card('Complicaciones', bqLista(f.complicaciones)) +
+      (f.consejos && f.consejos.length ? card('Consejos', bqLista(f.consejos)) : '') +
+      (f.evidencia && f.evidencia.length ? card('Evidencia y guías', bqLista(f.evidencia)) : '') +
+      bqLibro(f) +
+      card('Fuentes', bqFuentes(f) + `<p class="nota">Revisado: ${esc(f.revisado || '')}. Texto redactado a partir de las fuentes citadas; no reemplaza la formación práctica supervisada.</p>`);
+  }
+  function renderBqCreditos(v) {
+    $('#titulo').textContent = 'Fuentes y créditos';
+    const G = BQ(), porUrl = {};
+    G.fichas.forEach((f) => (f.imagenes || []).forEach((im) => { const k = im.url; (porUrl[k] = porUrl[k] || { cred: im.credito.replace(/\s*Figura\s*[\w.,\s y]+\.?$/i, '').trim(), lic: im.licencia, url: im.url, usos: [] }).usos.push(f.nombre + ' (' + im.archivo + ')'); }));
+    v.innerHTML = card('Descargo de responsabilidad', `<ul class="guia-items">
+        <li>Esta sección es material de consulta y docencia para anestesiólogos. No sustituye la formación práctica supervisada, el juicio clínico, la ficha técnica de cada fármaco ni los protocolos del HCUAMP.</li>
+        <li>Los textos están redactados con palabras propias a partir de guías, artículos, NYSORA y libros de referencia, que se citan en cada ficha. No se copian textos literales.</li>
+        <li>Morpheus MD no reclama la propiedad de ninguna imagen. Todas las imágenes pertenecen a sus autores y editoriales, provienen de artículos publicados con licencia Creative Commons Atribución (CC BY 4.0), que permite compartirlas y adaptarlas citando la fuente, y se muestran con su crédito completo y un enlace al artículo original.</li>
+        <li>Las figuras de libros (Miller, Hadzic, Tornero y otros), de NYSORA y de otros sitios web están protegidas por derechos de autor y no se reproducen: cada ficha indica dónde verlas (botón “Ver en NYSORA” y capítulo del libro).</li>
+        <li>Si eres autor o titular de alguna imagen y quieres que se retire o se corrija su atribución, escríbenos y se hará en la siguiente versión.</li></ul>`) +
+      card('Libros y guías de referencia', `<ul class="guia-items"><li>${esc(G.hadzic)}</li>
+        <li>El-Boghdadly K, Albrecht E, Wolmarans M, et al. Standardizing nomenclature in regional anesthesia: an ASRA-ESRA Delphi consensus study of upper and lower limb nerve blocks. Reg Anesth Pain Med 2024;49:782–792. ${enlace('https://doi.org/10.1136/rapm-2023-104884', 'doi:10.1136/rapm-2023-104884')}</li>
+        <li>El-Boghdadly K, Wolmarans M, Stengel AD, et al. Standardizing nomenclature in regional anesthesia: an ASRA-ESRA Delphi consensus study of abdominal wall, paraspinal, and chest wall blocks. Reg Anesth Pain Med 2021;46:571–580. ${enlace('https://doi.org/10.1136/rapm-2020-102451', 'doi:10.1136/rapm-2020-102451')}</li>
+        <li>NYSORA, The New York School of Regional Anesthesia (nysora.com): páginas de técnica consultadas en septiembre de 2026.</li>
+        <li>BJA Education (Elsevier, CC BY) y guías PROSPECT (ESRA), citadas en cada ficha.</li></ul>`) +
+      card(`Imágenes (${Object.keys(porUrl).length} artículos)`, `<ol class="guia-fuentes">${Object.values(porUrl).map((x) => `<li>${esc(x.cred)} Licencia ${esc(x.lic)}. ${enlace(x.url, x.url.replace('https://doi.org/', 'doi:'))}<br><small>Usada en: ${esc(x.usos.join('; '))}</small></li>`).join('')}</ol>
+        <p class="nota">Las imágenes se recortaron o redimensionaron para verlas en el teléfono; el contenido no se modificó. Pies de figura traducidos y redactados en español.</p>`);
+  }
+  function bqZoom(src) {
+    abrirHoja(`<div class="bq-zoom"><img src="${esc(src)}" alt="Imagen ampliada" id="bqZimg"></div><p class="nota">Toca la imagen para acercar o alejar; desliza para moverte.</p><div class="acciones"><button class="primario" id="bqZcerrar">Cerrar</button></div>`);
+    $('#bqZcerrar').onclick = cerrarHoja; const im = $('#bqZimg'); im.onclick = () => im.classList.toggle('grande');
+  }
+
+  /* Calculadora de dosis máxima de AL y mezclas (regla de fracciones aditivas). Topes: ficha general "dosis-maximas". */
+  const BQ_PRES = [['bupi05', 'Bupivacaína 0,5 %', { b: 5 }], ['bupi0375', 'Bupivacaína 0,375 %', { b: 3.75 }], ['bupi025', 'Bupivacaína 0,25 %', { b: 2.5 }], ['bupi0125', 'Bupivacaína 0,125 %', { b: 1.25 }],
+    ['lido2', 'Lidocaína 2 %', { l: 20 }], ['lido1', 'Lidocaína 1 %', { l: 10 }], ['mezcla', 'Mezcla 1:1 bupi 0,5 % + lido 2 %', { b: 2.5, l: 10 }]];
+  const BQ_GRUPOS = [['adulto', 'Adulto'], ['mayor', 'Adulto mayor'], ['nino', 'Niño (≥ 4 meses)'], ['lactante', 'Lactante 1–4 meses'], ['neonato', 'Neonato (< 1 mes)']];
+  const BQ_FACT = [['emb', 'Embarazo'], ['ic', 'Insuficiencia cardíaca grave'], ['hep', 'Hepatopatía con bolos repetidos o infusión'], ['ure', 'Uremia con acidosis metabólica'], ['rep', 'Dosis repetidas o infusión']];
+  const bqC = { peso: '', grupo: 'adulto', fact: {}, manual: '', filas: [{ p: 'bupi05', epi: false, ml: '' }] };
+  function bqTopes() { // mg máximos por fármaco y epinefrina, con la reducción aplicada
+    const d = (BQ().generales.find((g) => g.id === 'dosis-maximas') || {}).calc; const peso = num(bqC.peso);
+    if (!d || !(peso > 0)) return null;
+    const ped = ['nino', 'lactante', 'neonato'].includes(bqC.grupo);
+    const avisos = []; let red = 0;
+    if (bqC.grupo === 'mayor') { red = 20; avisos.push('Adulto mayor: se aplicó −20 % (las fuentes dicen reducir 10–20 %, sobre todo con dosis repetidas; El-Boghdadly 2018).'); }
+    if (bqC.grupo === 'lactante') { red = 15; avisos.push('Menor de 4 meses: se aplicó −15 % sobre el tope pediátrico (El-Boghdadly 2018).'); }
+    if (bqC.grupo === 'neonato') { red = 50; avisos.push('Neonato: se aplicó −50 % sobre el tope pediátrico (NYSORA: usar la mitad; se elige la reducción mayor).'); }
+    const fs = BQ_FACT.filter(([k]) => bqC.fact[k]);
+    if (fs.length) { red = Math.max(red, 20); avisos.push(`${fs.map((x) => x[1]).join(', ')}: las fuentes indican reducir pero no dan un porcentaje; la app aplica −20 % por prudencia. Ajusta la reducción si lo crees necesario.`); }
+    if (bqC.manual !== '') { red = num(bqC.manual); avisos.push(`Reducción fijada a mano: −${red} %.`); }
+    const k = 1 - Math.min(Math.max(red, 0), 90) / 100;
+    const tope = (mgkg, techo) => Math.min(mgkg * peso, techo) * k;
+    const t = ped ? { l0: tope(5, d.lidocaina.sin_epi_max_mg), l1: tope(5, d.lidocaina.con_epi_max_mg), b0: tope(2.5, d.bupivacaina.sin_epi_max_mg), b1: tope(2.5, d.bupivacaina.con_epi_max_mg) }
+      : { l0: tope(d.lidocaina.sin_epi_mgkg, d.lidocaina.sin_epi_max_mg), l1: tope(d.lidocaina.con_epi_mgkg, d.lidocaina.con_epi_max_mg), b0: tope(d.bupivacaina.sin_epi_mgkg, d.bupivacaina.sin_epi_max_mg), b1: tope(d.bupivacaina.con_epi_mgkg, d.bupivacaina.con_epi_max_mg) };
+    if (ped) avisos.push('Niños: tope por dosis única de NYSORA (lidocaína 5 mg/kg, bupivacaína 2,5 mg/kg), sin distinguir epinefrina.');
+    return { t, red, avisos, ped };
+  }
+  function bqCalcUI() {
+    const opt = (l, sel) => l.map(([k, t]) => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(t)}</option>`).join('');
+    return `<p class="nota" style="margin-top:0">Tope de lidocaína y bupivacaína por peso y suma de fracciones cuando se mezclan (la toxicidad es aditiva: la suma debe quedar ≤ 100 %).</p>
+      <div class="rejilla"><label class="campo"><span>Peso</span><div class="con-unidad"><input id="bqPeso" inputmode="decimal" value="${esc(bqC.peso)}" placeholder="70"><em>kg</em></div></label>
+      <label class="campo"><span>Paciente</span><select id="bqGrupo">${opt(BQ_GRUPOS, bqC.grupo)}</select></label></div>
+      <div class="opciones" style="margin:10px 0">${BQ_FACT.map(([k, t]) => `<button type="button" class="opcion${bqC.fact[k] ? ' sel' : ''}" data-bqfact="${k}">${esc(t)}</button>`).join('')}</div>
+      <label class="campo" style="max-width:240px"><span>Reducción a mano (opcional)</span><select id="bqManual"><option value="">Automática</option>${[0, 10, 15, 20, 25, 30, 40, 50].map((x) => `<option value="${x}"${String(x) === String(bqC.manual) ? ' selected' : ''}>−${x} %</option>`).join('')}</select></label>
+      <h3>Lo que vas a inyectar</h3>
+      ${bqC.filas.map((r, i) => `<div class="med"><div class="rejilla"><label class="campo"><span>Solución ${i + 1}</span><select data-bqf="${i}" data-c="p">${opt(BQ_PRES, r.p)}</select></label>
+        <label class="campo"><span>Volumen</span><div class="con-unidad"><input data-bqf="${i}" data-c="ml" inputmode="decimal" value="${esc(r.ml)}" placeholder="0"><em>mL</em></div></label></div>
+        <div class="fila-btn" style="justify-content:space-between;margin-top:6px"><div class="check" style="margin:0"><input type="checkbox" id="bqEpi${i}" data-bqf="${i}" data-c="epi"${r.epi ? ' checked' : ''}><label for="bqEpi${i}">Con epinefrina 1:200 000</label></div>
+        ${bqC.filas.length > 1 ? `<button class="peligro chico" data-acc="bqQuitar" data-i="${i}">Quitar</button>` : ''}</div></div>`).join('')}
+      ${bqC.filas.length < 4 ? '<div class="fila-btn"><button class="secundario chico" data-acc="bqMas">+ Otra solución</button></div>' : ''}
+      <div id="bqRes" class="bq-res"></div>`;
+  }
+  function bqCalcPintar() {
+    const e = $('#bqRes'); if (!e) return; const T = bqTopes();
+    if (!T) { e.innerHTML = '<p class="nota">Escribe el peso para ver los topes.</p>'; return; }
+    const { t } = T, f1 = (x) => (Math.round(x * 10) / 10).toLocaleString('es-VE');
+    let frac = 0; const det = [];
+    bqC.filas.forEach((r) => {
+      const pr = BQ_PRES.find((x) => x[0] === r.p), ml = num(r.ml); if (!(ml > 0)) return;
+      const epi = r.epi && r.p !== 'mezcla', c = pr[2], mgB = (c.b || 0) * ml, mgL = (c.l || 0) * ml;
+      const fr = mgB / (epi ? t.b1 : t.b0) + mgL / (epi ? t.l1 : t.l0); frac += fr;
+      det.push(`${f1(ml)} mL ${pr[1]}${r.epi ? ' con epi' : ''}: ${[mgB && f1(mgB) + ' mg bupi', mgL && f1(mgL) + ' mg lido'].filter(Boolean).join(' + ')} = ${Math.round(fr * 100)} % del tope`);
+    });
+    const pct = Math.round(frac * 100), cls = frac > 1 ? 'mal' : frac > 0.8 ? 'ojo' : 'bien', resto = Math.max(0, 1 - frac);
+    const queda = BQ_PRES.map(([, n, c]) => [n, c]).flatMap(([n, c]) => (c.b && c.l ? [[n, resto / (c.b / t.b0 + c.l / t.l0)]] : c.b ? [[n, resto * t.b0 / c.b], [n + ' con epi', resto * t.b1 / c.b]] : [[n, resto * t.l0 / c.l], [n + ' con epi', resto * t.l1 / c.l]]));
+    e.innerHTML = `<div class="desplaza"><table class="tabla guia-tabla"><tr><th>Tope para este paciente</th><th>Sin epinefrina</th><th>Con epinefrina</th></tr>
+        <tr><td>Lidocaína</td><td>${f1(t.l0)} mg</td><td>${f1(t.l1)} mg</td></tr><tr><td>Bupivacaína</td><td>${f1(t.b0)} mg</td><td>${f1(t.b1)} mg</td></tr></table></div>` +
+      (det.length ? `<div class="bq-barra ${cls}"><div style="width:${Math.min(pct, 100)}%"></div></div><p class="bq-total ${cls}">Usado: <b>${pct} %</b> del tope${frac > 1 ? ' · SE PASA DEL TOPE: reduce volumen o concentración' : frac > 0.8 ? ' · cerca del tope' : ''}</p><ul class="guia-items">${det.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '') +
+      (resto > 0 ? `<h3>${det.length ? 'Todavía puedes agregar (una sola de estas)' : 'Volumen máximo de cada solución (usada sola)'}</h3><div class="desplaza"><table class="tabla guia-tabla">${queda.map(([n, ml]) => `<tr><td style="text-align:left">${esc(n)}</td><td><b>${f1(Math.floor(ml * 10) / 10)} mL</b></td></tr>`).join('')}</table></div>` : '') +
+      `<ul class="guia-items bq-avisos">${T.avisos.map((a) => `<li>${esc(a)}</li>`).join('')}
+        <li>La mezcla 1:1 con epinefrina se calcula con los topes sin epinefrina (por prudencia, ficha Dosis máximas).</li>
+        <li>El tope no protege de una inyección intravascular: aspirar, fraccionar e inyectar despacio. Absorción alta en intercostal, paravertebral, caudal y planos fasciales bilaterales.</li>
+        <li>En obesos considera el peso magro (calculadora TIVA). Sin Intralipid en el HCUAMP: repasa Crisis › LAST.</li></ul>`;
+  }
+  function bqCalcEnlazar() {
+    const p = $('#bqPeso'); if (!p) return;
+    p.oninput = () => { bqC.peso = p.value; bqCalcPintar(); };
+    $('#bqGrupo').onchange = (ev) => { bqC.grupo = ev.target.value; bqCalcPintar(); };
+    $('#bqManual').onchange = (ev) => { bqC.manual = ev.target.value; bqCalcPintar(); };
+    $$('#vista [data-bqfact]').forEach((b) => (b.onclick = () => { const k = b.dataset.bqfact; bqC.fact[k] = !bqC.fact[k]; b.classList.toggle('sel', bqC.fact[k]); bqCalcPintar(); }));
+    $$('#vista [data-bqf]').forEach((el) => { const ev = el.type === 'checkbox' || el.tagName === 'SELECT' ? 'onchange' : 'oninput';
+      el[ev] = () => { const r = bqC.filas[+el.dataset.bqf]; r[el.dataset.c] = el.type === 'checkbox' ? el.checked : el.value; bqCalcPintar(); }; });
+    bqCalcPintar();
   }
 
   /* ---- Valoración preanestésica ---- */
@@ -2096,6 +2278,12 @@
     else if (acc === 'crisisSeguir') { crisisMenu = false; render(); window.scrollTo(0, 0); }
     else if (acc === 'irCalc') { calcDesde = pantalla; pantalla = 'calc'; render(); window.scrollTo(0, 0); }
     else if (acc === 'irGuias') { guiaDesde = pantalla; pantalla = 'guias'; render(); window.scrollTo(0, 0); }
+    else if (acc === 'irBloqueos') irBloqueos(a.dataset.tab);
+    else if (acc === 'bqAbrir') { bqId = a.dataset.id; pantalla = 'bloqueo'; render(); window.scrollTo(0, 0); }
+    else if (acc === 'bqIrCalc') { bqTab = 'generales'; bqBusca = ''; pantalla = 'bloqueos'; render(); const c = $('#bqPeso'); if (c) { c.scrollIntoView({ block: 'center' }); if (!bqC.peso) c.focus(); } }
+    else if (acc === 'bqZoom') bqZoom(a.dataset.src);
+    else if (acc === 'bqMas') { bqC.filas.push({ p: 'lido2', epi: false, ml: '' }); render(); const r = $('#bqRes'); if (r) r.scrollIntoView({ block: 'end' }); }
+    else if (acc === 'bqQuitar') { bqC.filas.splice(+a.dataset.i, 1); render(); }
     else if (acc === 'guiaAbrir') { guiaId = a.dataset.id; pantalla = 'guia'; render(); window.scrollTo(0, 0); }
     else if (acc === 'docNuevo') { const x = nuevoDoc(a.dataset.t); Store.guardarDoc(x); abrirDoc(x); }
     else if (acc === 'docAbrir') { const x = Store.cargarDoc(a.dataset.id); if (x) abrirDoc(migrarDoc(x)); else aviso('No se pudo abrir'); }
@@ -2166,6 +2354,7 @@
         { t: '🆘 Crisis: algoritmos de emergencia', f: irCrisis },
         { t: '🧮 Calculadora TIVA · TCI · BIC', f: () => { if (calcDesde === 'editor') CT = null; calcDesde = pantalla === 'calc' ? calcDesde : pantalla; pantalla = 'calc'; render(); window.scrollTo(0, 0); } },
         { t: '📖 Guías de consulta', f: () => { guiaDesde = pantalla; pantalla = 'guias'; render(); window.scrollTo(0, 0); } },
+        { t: '💉 Bloqueos regionales', f: () => irBloqueos() },
         { t: '🏥 Lugares de trabajo', f: () => { pantalla = 'sedes'; render(); } },
         { t: '✍ Mi perfil y firma', f: () => { pantalla = 'perfil'; render(); } },
         { t: '🗂 Respaldo (exportar / importar)', f: respaldo },
@@ -2184,10 +2373,12 @@
     if (pantalla === 'editor') { guardarYa(); H = null; pantalla = 'inicio'; render(); return true; }
     if (pantalla === 'doc') { guardarDocYa(); D = null; pantalla = 'extras'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'extras') { pantalla = 'inicio'; render(); return true; }
-    if (pantalla === 'crisis') { if (crisisMenu && Crisis.activa()) { crisisMenu = false; render(); return true; } pantalla = ['editor', 'extras', 'guias', 'calc'].includes(crisisDesde) && (crisisDesde !== 'editor' || H) ? crisisDesde : 'inicio'; crisisMenu = false; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'crisis') { if (crisisMenu && Crisis.activa()) { crisisMenu = false; render(); return true; } pantalla = ['editor', 'extras', 'guias', 'calc', 'bloqueos', 'bloqueo'].includes(crisisDesde) && (crisisDesde !== 'editor' || H) ? crisisDesde : 'inicio'; crisisMenu = false; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'calc') { if (calcDesde === 'crisis') { pantalla = 'crisis'; render(); window.scrollTo(0, 0); return true; } pantalla = ['editor', 'extras'].includes(calcDesde) && (calcDesde !== 'editor' || H) ? calcDesde : 'inicio'; if (calcDesde === 'editor') CT = null; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'guia') { pantalla = 'guias'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'guias') { pantalla = guiaDesde === 'extras' ? 'extras' : 'inicio'; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'bloqueo') { pantalla = 'bloqueos'; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'bloqueos') { pantalla = ['extras', 'guias', 'guia'].includes(bqDesde) ? bqDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'bienvenida') return false;
     if (pantalla === 'login') { pantalla = 'bienvenida'; render(); return true; }
     if (pantalla === 'importar') { impDatos = null; pantalla = impDesde === 'perfil' && cfg.cuenta ? 'perfil' : impDesde === 'login' ? 'login' : 'bienvenida'; render(); return true; }

@@ -337,3 +337,28 @@ button.ok{background:#2e7d32;color:#fff;border-color:#2e7d32}
 .cr-escalera{list-style:none;margin:6px 0;padding:0;counter-reset:e}
 .cr-escalera li{margin:3px 0;padding:6px 10px;border-radius:8px;color:#fff;background:hsl(calc(45 - var(--n) * 6),85%,calc(52% - var(--n) * 2.5%));margin-left:calc(var(--n) * 10px)}
 .cr-activa{border:2px solid #c62828}
+/* Bloqueos regionales */
+.bq-tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;margin:0 -2px}
+.bq-tabs::-webkit-scrollbar{display:none}
+.bq-tabs .opcion{flex:0 0 auto;padding:7px 12px;font-size:14px}
+.bq-ico{color:var(--pri2);font-size:13px;margin-right:6px}
+.bq-fig{margin:0 0 14px}
+.bq-fig img{width:100%;height:auto;border-radius:8px;border:1px solid var(--borde);background:#000;display:block;cursor:zoom-in}
+.bq-fig figcaption{font-size:13.5px;line-height:1.45;margin-top:6px}
+.bq-fig figcaption small{display:block;color:var(--suave);font-size:11.5px;margin-top:4px;line-height:1.4;word-break:break-word}
+.bq-dl{margin:0}
+.bq-dl dt{font-size:12.5px;color:var(--suave);font-weight:600;margin-top:8px}
+.bq-dl dd{margin:2px 0 0;line-height:1.45}
+a.secundario{display:inline-block;text-decoration:none;font-size:14px}
+.bq-res{margin-top:12px}
+.bq-barra{height:10px;border-radius:6px;background:var(--acento);overflow:hidden;margin:12px 0 4px}
+.bq-barra div{height:100%;background:var(--ok)}
+.bq-barra.ojo div{background:#c77700}.bq-barra.mal div{background:var(--peligro)}
+.bq-total{margin:4px 0 6px;font-size:15px}.bq-total.mal{color:var(--peligro);font-weight:600}.bq-total.ojo{color:#8a5300}
+.bq-avisos{font-size:12.5px;color:var(--suave)}
+.bq-zoom{overflow:auto;max-height:70vh;margin:-4px -4px 8px;-webkit-overflow-scrolling:touch}
+.bq-zoom img{width:100%;display:block;cursor:zoom-in}
+.bq-zoom img.grande{width:220%;max-width:none;cursor:zoom-out}
+ol.guia-items{padding-left:22px}
+.bq-item b{white-space:normal;line-height:1.3}
+.bq-item small.bq-res1{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
