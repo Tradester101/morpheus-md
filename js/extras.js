@@ -1,4 +1,4 @@
-/* Extras (vista previa de la versión 2.0): valoración preanestésica y récipe.
+/* Extras: valoración preanestésica y récipe.
    Datos clínicos, catálogo de conciliación de medicación y generación de los PDF con membrete del médico. */
 window.Extras = (function () {
   'use strict';

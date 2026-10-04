@@ -76,6 +76,7 @@ window.Nube = (function () {
       async rpc(fn, a) {
         const d = db(), u = yo(); if (!u) return err('permission denied');
         if (fn === 'mi_estado') return { data: estadoJson(d, u.id), error: null };
+        if (fn === 'ajustes') return { data: d.ajustes || null, error: null };
         if (!esAdmin(d) && fn !== 'borrar_mi_cuenta') return err('Solo administradores');
         if (fn === 'revisar_pago') {
           const p = d.pagos.find((x) => x.id === a.p_id); if (!p || p.estado !== 'pendiente') return err('Ese pago ya fue revisado');
@@ -85,6 +86,7 @@ window.Nube = (function () {
         }
         if (fn === 'admin_usuarios') return { data: Object.keys(d.users).map((c) => { const x = d.users[c], s = d.subs[x.id]; return { user_id: x.id, correo: c, nombre: x.nombre, creado: x.creado, estado: Date.parse(s.vence) <= Date.now() ? 'vencida' : s.estado, plan: s.plan, canal: s.canal, vence: s.vence }; }), error: null };
         if (fn === 'admin_extender') { const s = d.subs[a.p_user]; Object.assign(s, { estado: 'activa', canal: 'manual', plan: ['mensual', 'anual', 'clinica'].includes(a.p_plan) ? a.p_plan : s.plan, vence: new Date(Math.max(Date.parse(s.vence), Date.now()) + a.p_dias * 864e5).toISOString() }); save(d); return { data: {}, error: null }; }
+        if (fn === 'admin_guardar_ajustes') { d.ajustes = a.p_datos; save(d); return { data: d.ajustes, error: null }; }
         if (fn === 'borrar_mi_cuenta') { const c = Object.keys(d.users).find((k) => d.users[k].id === u.id); delete d.users[c]; save(d); return { data: null, error: null }; }
         return err('función desconocida');
       },
@@ -182,6 +184,11 @@ window.Nube = (function () {
     const { error } = await sb.from('pagos').insert({ user_id: usuario.id, plan: p.plan, canal: p.canal, monto: p.monto || null, moneda: p.moneda || 'USD', referencia: p.referencia, nota: p.nota || '' });
     if (error) throw falla(error);
   }
+  /* Precios y datos de cobro: los define el administrador en Supabase (tabla ajustes); sin conexión se usa la última copia. */
+  const K_AJ = 'morpheus-ajustes';
+  const ajustesCache = () => { try { return JSON.parse(ls.get(K_AJ) || 'null'); } catch (e) { return null; } };
+  async function ajustes() { const { data, error } = await sb.rpc('ajustes'); if (error) throw falla(error); if (data) ls.set(K_AJ, JSON.stringify(data)); return data; }
+  async function admAjustes(datos) { const { data, error } = await sb.rpc('admin_guardar_ajustes', { p_datos: datos }); if (error) throw falla(error); ls.set(K_AJ, JSON.stringify(data || datos)); return data; }
   async function misPagos() { const { data, error } = await sb.from('pagos').select('*').eq('user_id', usuario.id).order('creado', { ascending: false }).limit(20); if (error) throw falla(error); return data || []; }
 
   /* ---------- Administrador ---------- */
@@ -270,7 +277,7 @@ window.Nube = (function () {
 
   return {
     PRUEBA, disponible, iniciar, registrar, entrar, salir, recuperar, nuevaClave, usuario: () => usuario, compartido,
-    estado, estadoCache, reportarPago, misPagos, admPagos, admRevisar, admUsuarios, admExtender, borrarCuenta,
+    estado, estadoCache, reportarPago, misPagos, ajustes, ajustesCache, admAjustes, admPagos, admRevisar, admUsuarios, admExtender, borrarCuenta,
     marcar, sincronizar, programar, pendientes, marcarTodo, ultimaSync: () => ultimo || +(ls.get('morpheus-ultsync-' + (usuario && usuario.id)) || 0), ultimoError: () => ultimoError, traducir,
   };
 })();

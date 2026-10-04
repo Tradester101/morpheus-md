@@ -1870,7 +1870,7 @@
       card('Calculadora TIVA · TCI · BIC', `<p class="nota" style="margin:0 0 10px">Propofol (Roberts o modelos Marsh/Schnider), remifentanilo (Minto), dexmedetomidina y coadyuvantes: IMC, pesos para dosificar, concentración y velocidad en la unidad de tu bomba.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irCalc">🧮 Abrir la calculadora</button></div>`) +
       card('Guías de consulta', `<p class="nota" style="margin:0 0 10px">Tres pestañas: Consulta (fichas de la valoración preanestésica), Crisis (reanimación y crisis en quirófano) y Técnicas. Con fuente y año, sin internet.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irGuias">📖 Abrir las guías (${GG().fichas.length})</button></div>`) +
       card('Bloqueos regionales', `<p class="nota" style="margin:0 0 10px">${BQ().fichas.length} bloqueos: indicaciones, nervios, territorio sensitivo y motor, técnica ecoguiada, volúmenes, mezclas según tu farmacia, imágenes con licencia abierta y calculadora de dosis máxima.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irBloqueos">💉 Abrir bloqueos</button></div>`) +
-      card('Próximamente en la 2.0', '<ul class="nota" style="margin:0;padding-left:18px;line-height:1.7"><li>Guía de medicación preoperatoria para consultar por fármaco.</li><li>Constancia de reposo e informe médico.</li><li>Más formatos con tu membrete.</li></ul>');
+      card('Próximamente', '<ul class="nota" style="margin:0;padding-left:18px;line-height:1.7"><li>Guía de medicación preoperatoria para consultar por fármaco.</li><li>Constancia de reposo e informe médico.</li><li>Más formatos con tu membrete.</li></ul>');
   }
 
   /* ---- Guías de consulta (fichas en js/guias-datos.js) ---- */
@@ -2055,41 +2055,70 @@
   /* ---- Suscripción ---- */
   let suscDesde = 'inicio';
   function irSuscripcion() { if (pantalla !== 'suscripcion') suscDesde = pantalla; pantalla = 'suscripcion'; render(); window.scrollTo(0, 0); }
+  /* Precios y datos de cobro vigentes: los del administrador (Supabase) sobre los de respaldo (nube-config.js). */
+  function AJ() {
+    const C = window.NUBE_CONFIG || {}, r = (window.Nube && Nube.ajustesCache && Nube.ajustesCache()) || {};
+    const PR = {}; ['mensual', 'anual'].forEach((k) => { const b = (C.precios || {})[k] || {}, x = ((r.precios || {})[k]) || {}; PR[k] = { usd: +x.usd || b.usd || 0, bcv: +x.bcv || b.bcv || 0 }; });
+    const PG = {}; Object.entries(C.pagos || {}).forEach(([k, b]) => { const t = (r.pagos || {})[k]; PG[k] = Object.assign({}, b, typeof t === 'string' && t.trim() ? { datos: t.trim() } : {}); });
+    return { PR, PG, contacto: (r.contacto || '').trim() || C.contacto || '' };
+  }
+  /* Montos al estilo venezolano (6.203,22) sin depender del idioma del equipo */
+  const fmtM = (n, d = 2) => { const [e, f] = (Math.round(+n * 10 ** d) / 10 ** d).toFixed(d).split('.'); return e.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (d ? ',' + f : ''); };
+  const numM = (v) => { v = String(v || '').trim(); if (/,/.test(v)) v = v.replace(/\./g, '').replace(',', '.'); else if (/^\d{1,3}(\.\d{3})+$/.test(v)) v = v.replace(/\./g, ''); return v ? parseFloat(v) : NaN; };
+  const fmtUsd = (n) => (Number.isInteger(+n) ? String(+n) : fmtM(n));
   function renderSuscripcion(v) {
     $('#titulo').textContent = 'Mi suscripción';
-    const L = licencia() || {}, C = window.NUBE_CONFIG || {}, PR = C.precios || {}, PG = C.pagos || {};
+    const L = licencia() || {}, A = AJ(), C = { contacto: A.contacto }, PR = A.PR, PG = A.PG, ajVisto = JSON.stringify(A);
+    Nube.ajustes().then(() => { if (pantalla === 'suscripcion' && JSON.stringify(AJ()) !== ajVisto && !$('#spRef').value && !$('#spTasa').value) renderSuscripcion(v); }).catch(() => {});
     const fv = (ms) => (ms ? new Date(ms).toLocaleDateString('es-VE', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
     const est = L.requiereConexion ? 'Hay que verificar con internet' : !L.activa ? 'Vencida' : L.estado === 'prueba' ? `Prueba gratis · quedan ${L.dias} día${L.dias === 1 ? '' : 's'}` : `Activa · plan ${L.plan}`;
     v.innerHTML = (suscMsg ? `<section class="tarjeta guia-alerta"><p style="margin:0">${esc(suscMsg)}</p></section>` : '') +
       card('Tu cuenta', `<p style="margin:0"><b>${esc(est)}</b>${L.vence ? `<br><small class="nota">${L.activa ? 'Vence' : 'Venció'} el ${fv(L.vence)}</small>` : ''}</p>
         <p class="nota">Crisis (SOS) siempre funciona, con o sin suscripción.</p><div class="fila-btn" style="margin:0"><button class="secundario chico" data-acc="suscRefrescar">Actualizar estado</button></div>`) +
-      card('Planes', `<div class="planes">${['mensual', 'anual'].map((k) => PR[k] ? `<div class="plan"><b>${k === 'mensual' ? 'Mensual' : 'Anual'}</b><span>${esc(PR[k].txt)}</span></div>` : '').join('')}</div>
+      card('Planes', `<div class="planes">${['mensual', 'anual'].map((k) => { const p = PR[k], ah = k === 'anual' && PR.mensual.usd ? Math.floor((1 - p.usd / (PR.mensual.usd * 12)) * 100) : 0;
+          return `<div class="plan"><b>${k === 'mensual' ? 'Mensual' : 'Anual'}${ah > 0 ? ` <small class="nota">· ahorras ${ah} %</small>` : ''}</b><span>${fmtUsd(p.usd)} USD ${k === 'mensual' ? 'al mes' : 'al año'} <small class="nota">en Zelle o USDT</small></span>${p.bcv ? `<span><small class="nota">o ${fmtUsd(p.bcv)} USD a tasa BCV, en bolívares (Pago Móvil)</small></span>` : ''}</div>`; }).join('')}</div>
         <p class="nota">Incluye historias con PDF, valoración preanestésica, récipe, calculadoras, guías y bloqueos, en el teléfono y en la computadora con la misma cuenta. Para clínicas con varios anestesiólogos, escríbenos.</p>`) +
       card('Pagar', `<p class="nota" style="margin-top:0">1) Paga por uno de estos medios. 2) Reporta el pago abajo con la referencia. 3) Activamos tu cuenta (normalmente el mismo día).</p>
         <ul class="guia-items">${Object.values(PG).map((x) => `<li><b>${esc(x.t)}:</b> ${esc(x.datos)}</li>`).join('')}<li><b>Google Play:</b> próximamente en la app de Android.</li></ul>
         <h3>Reportar un pago</h3><div class="rejilla"><label class="campo"><span>Plan</span><select id="spPlan"><option value="mensual">Mensual</option><option value="anual">Anual</option></select></label>
         <label class="campo"><span>Medio</span><select id="spCanal">${Object.entries(PG).map(([k, x]) => `<option value="${k}">${esc(x.t)}</option>`).join('')}</select></label>
-        <label class="campo"><span>Monto</span><input id="spMonto" inputmode="decimal" placeholder="0,00"></label><label class="campo"><span>Referencia</span><input id="spRef" placeholder="N.º de referencia"></label>
+        <label class="campo" id="spTasaC"><span>Tasa BCV de hoy (Bs por USD)</span><input id="spTasa" inputmode="decimal" placeholder="Ej.: 652,97"></label>
+        <label class="campo"><span id="spMonL">Monto</span><input id="spMonto" inputmode="decimal" placeholder="0,00"></label><label class="campo"><span>Referencia</span><input id="spRef" placeholder="N.º de referencia"></label>
         <label class="campo completo"><span>Nota (opcional)</span><input id="spNota" placeholder="Banco de origen, titular…"></label></div>
+        <p class="nota" id="spHint" style="margin:6px 0 0"></p>
         <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="spOk">Enviar reporte</button></div>`) +
       card('Mis pagos', '<div id="spLista"><p class="nota" style="margin:0">Cargando…</p></div>') +
       (C.contacto ? `<p class="nota" style="padding:0 6px 20px">¿Dudas con tu pago? Escríbenos: ${esc(C.contacto)}</p>` : '');
+    const enBs = () => ((PG[$('#spCanal').value] || {}).moneda || 'USD') === 'Bs';
+    const spAyuda = () => {
+      const x = PG[$('#spCanal').value] || {}, mon = x.moneda || 'USD', plan = $('#spPlan').value, pr = PR[plan] || {}, bs = mon === 'Bs';
+      $('#spMonL').textContent = 'Monto (' + mon + ')'; $('#spTasaC').hidden = !bs;
+      const t = numM($('#spTasa').value);
+      if (bs) {
+        const tot = t > 0 && pr.bcv ? pr.bcv * t : 0; if (tot) $('#spMonto').value = fmtM(tot);
+        $('#spHint').innerHTML = `Plan ${plan}: <b>${fmtUsd(pr.bcv)} USD a tasa BCV</b>.` + (tot ? ` Debes pagar <b>${fmtM(tot)} Bs</b> (${fmtUsd(pr.bcv)} × ${fmtM(t)}).` : ' Escribe la tasa BCV de hoy (la muestra tu banco o bcv.org.ve) y calculamos el monto en bolívares.');
+      } else { $('#spMonto').value = pr.usd ? fmtUsd(pr.usd).replace('.', ',') : ''; $('#spHint').innerHTML = `Plan ${plan}: <b>${fmtUsd(pr.usd)} ${mon}</b>.`; }
+    };
+    $('#spCanal').onchange = spAyuda; $('#spPlan').onchange = spAyuda; $('#spTasa').oninput = spAyuda; spAyuda();
     $('#spOk').onclick = async () => {
       const ref = $('#spRef').value.trim(); if (!ref) return aviso('Escribe la referencia del pago');
-      const canal = $('#spCanal').value;
-      try { await Nube.reportarPago({ plan: $('#spPlan').value, canal, monto: num($('#spMonto').value) || null, moneda: (PG[canal] || {}).moneda || 'USD', referencia: ref, nota: $('#spNota').value }); aviso('Pago reportado: te avisaremos al activarlo', 3500); renderSuscripcion(v); }
+      const canal = $('#spCanal').value, t = numM($('#spTasa').value);
+      if (enBs() && !(t > 0)) return aviso('Escribe la tasa BCV con la que pagaste');
+      const nota = [enBs() ? 'Tasa BCV ' + fmtM(t) + ' · ' + fmtUsd(PR[$('#spPlan').value].bcv) + ' USD BCV' : '', $('#spNota').value.trim()].filter(Boolean).join(' · ');
+      try { await Nube.reportarPago({ plan: $('#spPlan').value, canal, monto: numM($('#spMonto').value) || null, moneda: (PG[canal] || {}).moneda || 'USD', referencia: ref, nota }); aviso('Pago reportado: te avisaremos al activarlo', 3500); renderSuscripcion(v); }
       catch (e) { aviso(e.message, 4500); }
     };
-    Nube.misPagos().then((l) => { const e = $('#spLista'); if (!e) return; e.innerHTML = l.length ? `<ul class="lista">${l.map((p) => `<li class="item"><div class="txt"><b>${esc(p.plan)} · ${esc((PG[p.canal] || {}).t || p.canal)}${p.monto ? ' · ' + esc(p.monto) + ' ' + esc(p.moneda || '') : ''}</b><small>Ref. ${esc(p.referencia)} · ${new Date(p.creado).toLocaleDateString('es-VE')}</small></div><span class="estado-pago ${p.estado}">${{ pendiente: 'Pendiente', aprobado: 'Aprobado', rechazado: 'Rechazado' }[p.estado] || p.estado}</span></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Aún no has reportado pagos.</p>'; })
+    Nube.misPagos().then((l) => { const e = $('#spLista'); if (!e) return; e.innerHTML = l.length ? `<ul class="lista">${l.map((p) => `<li class="item"><div class="txt"><b>${esc(p.plan)} · ${esc((PG[p.canal] || {}).t || p.canal)}${p.monto ? ' · ' + fmtM(p.monto) + ' ' + esc(p.moneda || '') : ''}</b><small>Ref. ${esc(p.referencia)} · ${new Date(p.creado).toLocaleDateString('es-VE')}</small></div><span class="estado-pago ${p.estado}">${{ pendiente: 'Pendiente', aprobado: 'Aprobado', rechazado: 'Rechazado' }[p.estado] || p.estado}</span></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Aún no has reportado pagos.</p>'; })
       .catch((er) => { const e = $('#spLista'); if (e) e.innerHTML = `<p class="nota" style="margin:0">${esc(er.message)}</p>`; });
   }
 
   /* ---- Administración (solo administradores) ---- */
   function renderAdmin(v) {
     $('#titulo').textContent = 'Administración';
-    v.innerHTML = `<section class="tarjeta"><div class="bq-tabs">${[['pagos', 'Pagos'], ['usuarios', 'Usuarios']].map(([k, t]) => `<button type="button" class="opcion${admTab === k ? ' sel' : ''}" data-admtab="${k}">${t}</button>`).join('')}</div>
+    v.innerHTML = `<section class="tarjeta"><div class="bq-tabs">${[['pagos', 'Pagos'], ['usuarios', 'Usuarios'], ['precios', 'Precios y cobro']].map(([k, t]) => `<button type="button" class="opcion${admTab === k ? ' sel' : ''}" data-admtab="${k}">${t}</button>`).join('')}</div>
       <label class="campo completo" style="margin:10px 0 0"><span>Buscar</span><input id="admQ" type="search" placeholder="Correo, nombre o referencia"></label></section><div id="admCont"><p class="nota" style="padding:0 6px">Cargando…</p></div>`;
     $$('#vista [data-admtab]').forEach((b) => (b.onclick = () => { admTab = b.dataset.admtab; renderAdmin(v); }));
+    if (admTab === 'precios') return admPrecios(v);
     const fv = (s) => (s ? new Date(s).toLocaleDateString('es-VE') : '');
     let usuarios = [], pagos = [];
     const pintar = () => {
@@ -2098,7 +2127,7 @@
       if (admTab === 'pagos') {
         const l = pagos.filter((p) => !q || sinTilde([p.referencia, uDe(p.user_id).correo, uDe(p.user_id).nombre].join(' ')).includes(q));
         const pend = l.filter((p) => p.estado === 'pendiente'), resto = l.filter((p) => p.estado !== 'pendiente');
-        const fila = (p) => { const u = uDe(p.user_id); return `<li class="item"><div class="txt"><b>${esc(u.correo || p.user_id)}</b><small>${esc(u.nombre || '')}</small><small>${esc(p.plan)} · ${esc(p.canal)} · ${p.monto ? esc(p.monto) + ' ' + esc(p.moneda || '') : 'sin monto'} · Ref. ${esc(p.referencia)} · ${fv(p.creado)}</small>${p.nota ? `<small>${esc(p.nota)}</small>` : ''}</div>
+        const fila = (p) => { const u = uDe(p.user_id); return `<li class="item"><div class="txt"><b>${esc(u.correo || p.user_id)}</b><small>${esc(u.nombre || '')}</small><small>${esc(p.plan)} · ${esc(p.canal)} · ${p.monto ? fmtM(p.monto) + ' ' + esc(p.moneda || '') : 'sin monto'} · Ref. ${esc(p.referencia)} · ${fv(p.creado)}</small>${p.nota ? `<small>${esc(p.nota)}</small>` : ''}</div>
           ${p.estado === 'pendiente' ? `<div class="adm-bot"><button class="primario chico" data-admok="${p.id}">Aprobar</button><button class="peligro chico" data-admno="${p.id}">Rechazar</button></div>` : `<span class="estado-pago ${p.estado}">${p.estado}</span>`}</li>`; };
         cont.innerHTML = card(`Pendientes (${pend.length})`, pend.length ? `<ul class="lista">${pend.map(fila).join('')}</ul>` : '<p class="nota" style="margin:0">No hay pagos por revisar.</p>') + (resto.length ? card('Revisados', `<ul class="lista">${resto.slice(0, 50).map(fila).join('')}</ul>`) : '');
       } else {
@@ -2117,6 +2146,30 @@
     };
     const cargar = async () => { try { [usuarios, pagos] = await Promise.all([Nube.admUsuarios(), Nube.admPagos()]); pintar(); } catch (e) { const c = $('#admCont'); if (c) c.innerHTML = card('Error', `<p class="nota" style="margin:0">${esc(e.message)}</p>`); } };
     $('#admQ').oninput = pintar; cargar();
+  }
+
+  function admPrecios(v) {
+    $('#admQ').closest('label').hidden = true;
+    const pintar = () => {
+      const A = AJ(), c = $('#admCont'); if (!c) return;
+      const n = (id, val, ph) => `<input id="${id}" inputmode="decimal" value="${val ? String(val).replace('.', ',') : ''}" placeholder="${ph}">`;
+      c.innerHTML = card('Precios', `<p class="nota" style="margin-top:0">En divisas: Zelle o USDT. En bolívares: Pago Móvil, en USD a la tasa BCV del día (el colega escribe la tasa y la app calcula los Bs).</p>
+        <div class="rejilla"><label class="campo"><span>Mensual · USD (divisas)</span>${n('apMu', A.PR.mensual.usd, '8')}</label><label class="campo"><span>Mensual · USD a tasa BCV</span>${n('apMb', A.PR.mensual.bcv, '9,5')}</label>
+        <label class="campo"><span>Anual · USD (divisas)</span>${n('apAu', A.PR.anual.usd, '60')}</label><label class="campo"><span>Anual · USD a tasa BCV</span>${n('apAb', A.PR.anual.bcv, '68')}</label></div>`) +
+        card('Datos para pagar', `<p class="nota" style="margin-top:0">Lo que verán los colegas en Mi suscripción.</p>
+        ${Object.entries(A.PG).map(([k, x]) => `<label class="campo completo"><span>${esc(x.t)}</span><input id="apP_${k}" value="${/por configurar/.test(x.datos || '') ? '' : esc(x.datos || '')}" placeholder="${esc({ pago_movil: 'Ej.: Banesco · 0414-0000000 · V-00.000.000', zelle: 'Ej.: correo@ejemplo.com · Nombre del titular', binance: 'Ej.: Pay ID 000000000' }[k] || '')}"></label>`).join('')}
+        <label class="campo completo"><span>Correo de contacto</span><input id="apCont" type="email" value="${esc(A.contacto)}"></label>
+        <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="apOk">Guardar</button></div>`);
+      $('#apOk').onclick = async () => {
+        const val = (id) => numM($('#' + id).value);
+        const pr = { mensual: { usd: val('apMu'), bcv: val('apMb') }, anual: { usd: val('apAu'), bcv: val('apAb') } };
+        if (Object.values(pr).some((x) => !(x.usd > 0) || !(x.bcv > 0))) return aviso('Revisa los precios: deben ser números mayores que cero');
+        const pagos = {}; Object.keys(A.PG).forEach((k) => (pagos[k] = $('#apP_' + k).value.trim()));
+        if (!confirm('¿Guardar? Los colegas verán estos precios y datos de pago.')) return;
+        try { await Nube.admAjustes({ precios: pr, pagos, contacto: $('#apCont').value.trim() }); aviso('Precios y datos de cobro guardados'); pintar(); } catch (e) { aviso(e.message, 5000); }
+      };
+    };
+    pintar(); Nube.ajustes().then(pintar).catch((e) => aviso(e.message, 4500));
   }
 
   /* ---- Ajustes › Cuenta (2.0) ---- */
