@@ -1324,7 +1324,7 @@
     const q = (renderInicio.q || '').toLowerCase();
     const f = idx.filter((x) => !q || [x.nombre, x.ci, x.interv, x.fecha].join(' ').toLowerCase().includes(q));
     const fechaTxt = (s) => (s ? s.split('-').reverse().join('/') : '');
-    v.innerHTML = bannerLicencia() + `<button class="ex-banner" data-acc="irExtras"><span><b>✦ Extras</b><small>Valoración preanestésica · Récipe</small></span><em>Vista previa 2.0 ›</em></button>` +
+    v.innerHTML = bannerLicencia() + `<button class="ex-banner" data-acc="irExtras"><span><b>✦ Extras</b><small>Valoración preanestésica · Récipe</small></span><em>Abrir ›</em></button>` +
       `<input class="buscar" id="buscar" type="search" placeholder="Buscar por nombre, CI, cirugía o fecha" value="${esc(renderInicio.q || '')}">` +
       (f.length ? `<ul class="lista">${f.map((x) => `<li class="item" data-abrir="${x.id}"><div class="txt"><b>${esc(x.nombre || 'Sin nombre')}</b>
         <small>${[x.ci && 'CI ' + x.ci, fechaTxt(x.fecha)].filter(Boolean).map(esc).join(' · ')}</small><small>${esc(x.interv || '')}</small>
@@ -1827,7 +1827,7 @@
   }
 
 
-  /* ================= Extras (vista previa 2.0): valoración preanestésica y récipe ================= */
+  /* ================= Extras: valoración preanestésica y récipe ================= */
   let docTimer = null;
   function guardarDocPronto() { const e = $('#estadoGuardado'); if (e) e.textContent = 'Guardando…'; clearTimeout(docTimer); docTimer = setTimeout(guardarDocYa, 500); }
   function guardarDocYa() {
@@ -1863,8 +1863,8 @@
     const lista = (tipo) => { const l = docs.filter((x) => x.tipo === tipo); return l.length ? `<ul class="lista">${l.map((x) => `<li class="item" data-acc="docAbrir" data-id="${x.id}"><div class="txt"><b>${esc(x.nombre || 'Sin nombre')}</b>
       <small>${[x.ci && 'CI ' + x.ci, Extras.fechaTxt(x.fecha)].filter(Boolean).map(esc).join(' · ')}</small><small>${esc(x.det || '')}</small></div>
       <button class="icono" style="color:var(--suave)" data-acc="docMas" data-id="${x.id}" aria-label="Opciones">&#8942;</button></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Aún no hay documentos.</p>'; };
-    v.innerHTML = `<section class="tarjeta ex-intro"><div class="ex-marca">Vista previa · versión 2.0</div><h2>Extras</h2>
-        <p class="nota" style="margin:0">Documentos con tu membrete (logo, nombre, registros y teléfono de "Mi perfil"), tu firma y tu sello. Se guardan en este teléfono.</p></section>` +
+    v.innerHTML = `<section class="tarjeta ex-intro"><div class="ex-marca">Documentos</div><h2>Extras</h2>
+        <p class="nota" style="margin:0">Documentos con tu membrete (logo, nombre, registros y teléfono de ⚙ Ajustes › Mis datos), tu firma y tu sello. Se guardan en tu cuenta y puedes verlos, compartirlos o descargarlos en PDF.</p></section>` +
       card('Valoración preanestésica', `<div class="fila-btn" style="margin:0 0 12px"><button class="primario" data-acc="docNuevo" data-t="val">+ Nueva valoración</button></div>` + lista('val')) +
       card('Récipe (media carta)', `<div class="fila-btn" style="margin:0 0 12px"><button class="primario" data-acc="docNuevo" data-t="rx">+ Nuevo récipe</button></div>` + lista('rx')) +
       card('Calculadora TIVA · TCI · BIC', `<p class="nota" style="margin:0 0 10px">Propofol (Roberts o modelos Marsh/Schnider), remifentanilo (Minto), dexmedetomidina y coadyuvantes: IMC, pesos para dosificar, concentración y velocidad en la unidad de tu bomba.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irCalc">🧮 Abrir la calculadora</button></div>`) +
@@ -2621,7 +2621,7 @@
         rej(TA('indic', 'Otras indicaciones', { alto: 64 }), true) + R('asa', 'ASA', ['I', 'II', 'III', 'IV', 'V', 'I E', 'II E', 'III E', 'IV E', 'V E']) + rej(T('plan', 'Plan anestésico', { full: true }), true) +
         `<div class="opciones">${['Anestesia general balanceada', 'TIVA', 'Anestesia raquídea', 'Anestesia epidural', 'Combinada raquídea-epidural', 'Bloqueo de nervio periférico', 'Sedación'].map((s) => `<button type="button" class="opcion" data-acc="dPlan" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>` +
         '<h3>Plan analgésico</h3>' + C('analg.ev', 'EV') + C('analg.peri', 'Peridural') + C('analg.reg', 'Regional')) +
-      '<p class="nota" style="margin:0 4px 12px">La firma y el sello salen de "Mi perfil". Las conductas de medicación son una referencia (Guía de Manejo de Medicación Preoperatoria 2026) y no sustituyen el juicio clínico.</p>';
+      '<p class="nota" style="margin:0 4px 12px">La firma y el sello salen de ⚙ Ajustes › Firma y sello. Las conductas de medicación son una referencia (Guía de Manejo de Medicación Preoperatoria 2026) y no sustituyen el juicio clínico.</p>';
     pintarCalcVal();
   }
   function pintarCalcVal() {
