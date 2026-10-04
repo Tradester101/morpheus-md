@@ -385,3 +385,9 @@ ol.guia-items{padding-left:22px}
 .tarjeta.tip p{margin:6px 0 10px;font-size:14px;line-height:1.45}
 .ay-tema>summary{font-weight:700;color:var(--pri);cursor:pointer;font-size:15.5px;padding:2px 0}
 .ay-tema[open]>summary{margin-bottom:8px}
+/* Menú por grupos y botón de ajustes */
+.menu-sec{font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--pri2);padding:14px 8px 4px}
+.menu-sec:first-child{padding-top:2px}
+#btnAjustes{font-size:21px}
+#btnAjustes.activo{background:rgba(255,255,255,.18);border-radius:8px}
+.aj-tabs{margin:0 0 12px}

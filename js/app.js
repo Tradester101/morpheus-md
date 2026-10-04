@@ -77,7 +77,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.12';
+  const VERSION = '1.9.13';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -206,7 +206,7 @@
   function secPaciente() {
     const sedes = cfg.sedes.map((s) => [s.id, s.nombre || '(sin nombre)']);
     return card('Lugar de trabajo', SEL('sedeId', 'Hospital / clínica (encabezado del PDF)', sedes, { full: true }) +
-      '<p class="nota">Puedes agregar o editar lugares desde el menú ⋮ → Lugares de trabajo.</p>') +
+      '<p class="nota">Puedes agregar o editar lugares en ⚙ Ajustes → Lugares de trabajo.</p>') +
       card('Identificación', rej(
         T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI', { num: true }) + T('p.nhist', 'N° de historia') +
         T('p.tel', 'Teléfono', { tipo: 'tel' }) + T('p.fecha', 'Fecha', { tipo: 'date' }) +
@@ -225,7 +225,7 @@
           Nm('p.volemia', 'Volemia (escribir para reemplazar)', 'ml') + Nm('p.pmp', 'PMP (escribir para reemplazar)', 'ml')) +
         R('p.formPmp', 'Fórmula de PMP', Object.entries(FORM_PMP).map(([k, x]) => [k, x.t])) +
         `<div class="formula"><div data-calc="p._volEq">${esc(H.p._volEq || '')}</div><div data-calc="p._pmpEq" style="margin-top:6px">${esc(H.p._pmpEq || '')}</div></div>` +
-        '<p class="nota">Elige la fórmula con la que trabajas; la ecuación de arriba muestra el cálculo con los datos del paciente. Tu fórmula preferida y tu Hto mínimo se configuran en ⋮ → Mi perfil y firma. Si escribes un valor propio de volemia o PMP, se usa el tuyo.</p>') +
+        '<p class="nota">Elige la fórmula con la que trabajas; la ecuación de arriba muestra el cálculo con los datos del paciente. Tu fórmula preferida y tu Hto mínimo se configuran en ⚙ Ajustes › Mis datos. Si escribes un valor propio de volemia o PMP, se usa el tuyo.</p>') +
       card('Equipo quirúrgico', rej(
         T('alergias', 'Alergias', { full: true, ph: 'Niega / …' }) + T('premed', 'Premedicación', { full: true }) +
         T('anest', 'Anestesiólogo(s)', { full: true }) + nombresRol('anest') + T('asist', 'Asistente de anestesia', { full: true }) + nombresRol('asist') +
@@ -1268,7 +1268,7 @@
   $('#capa').addEventListener('click', (e) => { if (e.target.id === 'capa') cerrarHoja(); });
 
   function menu(ops) {
-    abrirHoja(`<div class="menu">${ops.map((o, i) => `<button data-i="${i}" style="${o.peligro ? 'color:var(--peligro)' : ''}">${o.t}</button>`).join('')}</div>`);
+    abrirHoja(`<div class="menu">${ops.map((o, i) => (o.sec ? `<div class="menu-sec">${esc(o.sec)}</div>` : `<button data-i="${i}" style="${o.peligro ? 'color:var(--peligro)' : ''}">${o.t}</button>`)).join('')}</div>`);
     $$('.menu button').forEach((b) => (b.onclick = () => { cerrarHoja(); ops[+b.dataset.i].f(); }));
   }
 
@@ -1280,6 +1280,8 @@
     $('#secciones').hidden = pantalla !== 'editor';
     $('#pie').hidden = pantalla !== 'editor' && pantalla !== 'doc';
     $('#btnMenu').hidden = pantalla === 'login' || pantalla === 'config';
+    $('#btnAjustes').hidden = ['login', 'config', 'bienvenida', 'registro', 'importar'].includes(pantalla);
+    $('#btnAjustes').classList.toggle('activo', pantalla === 'perfil');
     $('#btnSOS').hidden = ['login', 'bienvenida', 'registro', 'importar', 'config'].includes(pantalla) || pantalla === 'crisis';
     $('#btnSOS').classList.toggle('activa', !!(window.Crisis && Crisis.activa()));
     $('#barra').hidden = pantalla === 'bienvenida';
@@ -1287,7 +1289,7 @@
     if (pantalla === 'bienvenida') return renderBienvenida(v);
     $('.fab') && $('.fab').remove();
     if (pantalla === 'inicio') return renderInicio(v);
-    if (pantalla === 'sedes') return renderSedes(v);
+    if (pantalla === 'sedes') { pantalla = 'perfil'; perfTab = 'lugares'; }
     if (pantalla === 'perfil') return renderPerfil(v);
     if (pantalla === 'registro') { $('#btnAtras').hidden = false; return renderRegistro(v); }
     if (pantalla === 'login') { $('#btnAtras').hidden = true; return renderLogin(v); }
@@ -1636,7 +1638,7 @@
     const nh = d ? (d.historias || []).length : 0;
     const otra = !!(d && cfg.cuenta && cfg.cuenta.usuario !== c.usuario);
     v.innerHTML = card('Cómo traer tu cuenta', `<ol class="pasos">
-        <li>En el dispositivo donde ya tienes tu cuenta (app o web) abre <b>⋮ → Mi perfil y firma → Mi cuenta → Exportar mi cuenta</b>.</li>
+        <li>En el dispositivo donde ya tienes tu cuenta (app o web) abre <b>⚙ Ajustes → Cuenta → Exportar mi cuenta</b>.</li>
         <li>Envíate el archivo (WhatsApp, correo o Drive) y descárgalo en este dispositivo.</li>
         <li>Elígelo aquí y confirma con tu contraseña.</li></ol>
         <p class="nota">También sirve un respaldo completo (⋮ → Respaldo → Exportar) hecho después de crear la cuenta.</p>`) +
@@ -1672,36 +1674,42 @@
     $('#imOk').onclick = ok; $('#imClave').onkeydown = (e) => { if (e.key === 'Enter') ok(); };
   }
 
+  let perfTab = 'datos', perfDesde = 'inicio';
+  const AJ_TABS = [['datos', 'Mis datos'], ['firma', 'Firma y sello'], ['imagenes', 'Imágenes'], ['lugares', 'Lugares de trabajo'], ['cuenta', 'Cuenta']];
+  function irAjustes(tab) { if (!['perfil', 'sedes'].includes(pantalla)) perfDesde = pantalla; if (pantalla === 'editor') guardarYa(); if (pantalla === 'doc') guardarDocYa(); if (tab) perfTab = tab; pantalla = 'perfil'; render(); window.scrollTo(0, 0); }
   function renderPerfil(v) {
-    $('#titulo').textContent = 'Mi perfil y firma';
+    $('#titulo').textContent = 'Ajustes';
+    const tabs = `<div class="bq-tabs aj-tabs">${AJ_TABS.map(([k, t]) => `<button type="button" class="opcion${perfTab === k ? ' sel' : ''}" data-ajtab="${k}">${t}</button>`).join('')}</div>`;
+    const enlTabs = () => $$('#vista [data-ajtab]').forEach((b) => (b.onclick = () => { perfTab = b.dataset.ajtab; render(); window.scrollTo(0, 0); }));
+    if (perfTab === 'lugares') { renderSedes(v); $('#titulo').textContent = 'Ajustes'; v.insertAdjacentHTML('afterbegin', tabs); enlTabs(); return; }
     const p = cfg.perfil;
     const c = cfg.cuenta;
-    v.innerHTML = card('Mis datos profesionales', camposMedico(p) +
+    const cDatos = () => card('Mis datos profesionales', camposMedico(p) +
         `<label class="campo completo" style="margin-top:10px"><span>Texto bajo la firma (vacío = se arma solo con tus datos)</span><textarea id="pfSello" placeholder="${esc(Cuenta.componerSello(p) || 'Dr. Nombre Apellido')}">${esc(p.sello)}</textarea></label>
         <div class="check"><input type="checkbox" id="pfBajo"${p.datosBajoFirma !== false ? ' checked' : ''}><label for="pfBajo" style="flex:1">Imprimir mis datos bajo la firma</label></div>
-        <p class="nota">Se copian en cada historia nueva (Anestesiólogo y texto del sello).</p>`) +
-      card('Firma y sello escaneados', cajaFirmaSello(p) +
-        `<div class="check"><input type="checkbox" id="pfUsarEsc"${p.usarEscaneo !== false ? ' checked' : ''}><label for="pfUsarEsc" style="flex:1">Colocarlos solos en las historias nuevas</label></div>`) +
-      card('Mi cuenta', c ? `<p style="margin:0 0 8px">Usuario: <b>${esc(c.usuario)}</b></p>
+        <p class="nota">Se copian en cada historia nueva (Anestesiólogo y texto del sello).</p>`);
+    const cEsc = () => card('Firma y sello escaneados', cajaFirmaSello(p) +
+        `<div class="check"><input type="checkbox" id="pfUsarEsc"${p.usarEscaneo !== false ? ' checked' : ''}><label for="pfUsarEsc" style="flex:1">Colocarlos solos en las historias nuevas</label></div>`);
+    const cCuenta = () => card('Mi cuenta', c ? `<p style="margin:0 0 8px">Usuario: <b>${esc(c.usuario)}</b></p>
           <label class="campo completo"><span>Pedir la contraseña</span><select id="ctRec">${RECORDAR.map(([k, t]) => `<option value="${k}"${recordarDe(c) === k ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
           <p class="nota">Mientras la sesión esté iniciada, la app abre sin pedir la contraseña. En un computador compartido elige “Cada vez que abro la app” o cierra sesión al terminar.</p>
           <div class="fila-btn"><button class="secundario" id="ctClave">Cambiar contraseña</button><button class="secundario" id="ctSalir">Cerrar sesión</button></div>
           <div class="fila-btn"><button class="primario" id="ctExportar">Exportar mi cuenta</button></div>
           <p class="nota">Para abrir tu cuenta en la web, en la app o en otro teléfono: exporta aquí y en el otro dispositivo toca “Importar cuenta”.</p>`
-        : `<p class="nota" style="margin-top:0">Aún no tienes cuenta en este dispositivo. Crea una para proteger la app con usuario y contraseña, o importa la que ya usas en la app o en la web.</p><div class="fila-btn"><button class="secundario" id="ctImportar">Importar mi cuenta</button><button class="primario" id="ctCrear">Crear mi cuenta</button></div>`) +
-      card('Mis preferencias de cálculo', `<div class="rejilla ancha">
+        : `<p class="nota" style="margin-top:0">Aún no tienes cuenta en este dispositivo. Crea una para proteger la app con usuario y contraseña, o importa la que ya usas en la app o en la web.</p><div class="fila-btn"><button class="secundario" id="ctImportar">Importar mi cuenta</button><button class="primario" id="ctCrear">Crear mi cuenta</button></div>`);
+    const cCalc = () => card('Mis preferencias de cálculo', `<div class="rejilla ancha">
         <label class="campo"><span>Fórmula de PMP por defecto</span><select id="pfForm">${Object.entries(FORM_PMP).map(([k, x]) => `<option value="${k}"${(p.formPmp || 'rapida') === k ? ' selected' : ''}>${x.t}</option>`).join('')}</select></label>
         <label class="campo"><span>Hto mínimo aceptable por defecto</span><div class="con-unidad"><input id="pfHto" inputmode="decimal" value="${esc(p.htoMin || '')}" placeholder="30"><em>%</em></div></label></div>
-        <p class="nota">Se aplican a las historias nuevas; en cada historia puedes cambiarlas.</p>`) +
-      card('Firma guardada', (p.firma ? `<img class="firma-img" src="${p.firma}" alt="Firma">` : '<p class="nota">Aún no has guardado tu firma.</p>') +
+        <p class="nota">Se aplican a las historias nuevas; en cada historia puedes cambiarlas.</p>`);
+    const cFirma = () => card('Firma guardada', (p.firma ? `<img class="firma-img" src="${p.firma}" alt="Firma">` : '<p class="nota">Aún no has guardado tu firma.</p>') +
         `<div class="fila-btn"><button class="primario" id="pfFirmar">${p.firma ? 'Cambiar firma' : 'Dibujar firma'}</button>${p.firma ? '<button class="peligro" id="pfQuitar">Quitar</button>' : ''}</div>
-        <p class="nota">La firma guardada se coloca sola en las historias nuevas. Puedes cambiarla en cada historia.</p>`) +
-      card('Imagen de portada', `<div style="display:flex;gap:12px;align-items:center">
+        <p class="nota">La firma guardada se coloca sola en las historias nuevas. Puedes cambiarla en cada historia.</p>`);
+    const cPortada = () => card('Imagen de portada', `<div style="display:flex;gap:12px;align-items:center">
         <img src="${p.portada || 'img/portada.jpg'}" alt="portada" style="width:64px;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--borde)">
         <div style="flex:1"><p class="nota" style="margin-top:0">La foto de la pantalla de inicio. Puedes usar una tuya (vertical se ve mejor).</p>
         <div class="fila-btn"><label class="secundario chico" style="display:inline-block">Cambiar foto<input type="file" accept="image/*" id="ptFile" hidden></label>
-        ${p.portada ? '<button class="secundario chico" id="ptReset">Volver a la original</button>' : ''}</div></div></div>`) +
-      card('Mi marca personal (marca de agua)', `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        ${p.portada ? '<button class="secundario chico" id="ptReset">Volver a la original</button>' : ''}</div></div></div>`);
+    const cMarca = () => card('Mi marca personal (marca de agua)', `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
         <div style="background:#000;border-radius:10px;padding:10px;width:96px;height:96px;display:flex;align-items:center;justify-content:center">
           <img src="${p.marcaBlanca || IMGS.marcaBlanca}" style="max-width:76px;max-height:76px;opacity:${p.marcaOpacidad || 0.55}" alt="marca"></div>
         <div style="flex:1;min-width:180px">${''}
@@ -1713,29 +1721,31 @@
         <div class="fila-btn"><label class="secundario chico" style="display:inline-block">Cambiar imagen<input type="file" accept="image/*" id="mcFile" hidden></label>
           ${p.marcaBlanca ? '<button class="secundario chico" id="mcReset">Volver a la original</button>' : ''}</div>
         <p class="nota">Sube tu logo sin fondo (PNG transparente) o sobre fondo liso; la app le quita el fondo sola. También es el logo del membrete de la valoración preanestésica y del récipe.</p>`);
-    $('#ptFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return;
+    v.innerHTML = tabs + ({ datos: () => cDatos() + cCalc(), firma: () => cEsc() + cFirma(), imagenes: () => cMarca() + cPortada(), cuenta: () => cCuenta() }[perfTab] || (() => cDatos() + cCalc()))();
+    enlTabs();
+    if ($('#ptFile')) $('#ptFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return;
       leerImagen(f, 1400, 'image/jpeg').then((d) => { p.portada = d; Store.guardarConfig(cfg); render(); aviso('Portada actualizada'); }).catch(() => aviso('No se pudo leer la imagen')); };
     if ($('#ptReset')) $('#ptReset').onclick = () => { delete p.portada; Store.guardarConfig(cfg); render(); };
-    $('#mcOn').onchange = (e) => { p.marcaOn = e.target.checked; Store.guardarConfig(cfg); };
-    $('#mcCentro').onchange = (e) => { p.marcaCentro = e.target.checked; Store.guardarConfig(cfg); };
+    if ($('#mcOn')) $('#mcOn').onchange = (e) => { p.marcaOn = e.target.checked; Store.guardarConfig(cfg); };
+    if ($('#mcCentro')) $('#mcCentro').onchange = (e) => { p.marcaCentro = e.target.checked; Store.guardarConfig(cfg); };
     $$('[data-mcop]').forEach((b) => (b.onclick = () => { p.marcaOpacidad = b.dataset.mcop; Store.guardarConfig(cfg); render(); }));
-    $('#mcFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return;
+    if ($('#mcFile')) $('#mcFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return;
       prepararMarca(f).then((m) => { p.marcaBlanca = m.blanca; p.marcaNegra = m.negra; Store.guardarConfig(cfg); render(); aviso('Marca actualizada'); })
         .catch(() => aviso('No se pudo leer la imagen')); };
     if ($('#mcReset')) $('#mcReset').onclick = () => { delete p.marcaBlanca; delete p.marcaNegra; Store.guardarConfig(cfg); render(); };
-    enlazarMedico(p); enlazarFirmaSello(p);
-    $('#pfSello').oninput = (e) => { p.sello = e.target.value; Store.guardarConfig(cfg); };
-    $('#pfBajo').onchange = (e) => { p.datosBajoFirma = e.target.checked; Store.guardarConfig(cfg); };
-    $('#pfUsarEsc').onchange = (e) => { p.usarEscaneo = e.target.checked; Store.guardarConfig(cfg); };
+    if (perfTab === 'datos') enlazarMedico(p); if ($('#fsFile')) enlazarFirmaSello(p);
+    if ($('#pfSello')) $('#pfSello').oninput = (e) => { p.sello = e.target.value; Store.guardarConfig(cfg); };
+    if ($('#pfBajo')) $('#pfBajo').onchange = (e) => { p.datosBajoFirma = e.target.checked; Store.guardarConfig(cfg); };
+    if ($('#pfUsarEsc')) $('#pfUsarEsc').onchange = (e) => { p.usarEscaneo = e.target.checked; Store.guardarConfig(cfg); };
     if ($('#ctRec')) $('#ctRec').onchange = (e) => { cfg.cuenta.recordar = e.target.value; cfg.cuenta.pedirClave = e.target.value !== 'nunca'; iniciarSesion(true); aviso('Guardado'); };
     if ($('#ctSalir')) $('#ctSalir').onclick = cerrarSesion;
     if ($('#ctCrear')) $('#ctCrear').onclick = () => { pantalla = 'registro'; render(); };
     if ($('#ctImportar')) $('#ctImportar').onclick = () => irImportar('perfil');
     if ($('#ctExportar')) $('#ctExportar').onclick = exportarCuenta;
     if ($('#ctClave')) $('#ctClave').onclick = () => cambiarClaveUI(false);
-    $('#pfForm').onchange = (e) => { p.formPmp = e.target.value; Store.guardarConfig(cfg); };
-    $('#pfHto').oninput = (e) => { p.htoMin = e.target.value; Store.guardarConfig(cfg); };
-    $('#pfFirmar').onclick = () => padFirma('Tu firma', (d) => { p.firma = d; Store.guardarConfig(cfg); render(); });
+    if ($('#pfForm')) $('#pfForm').onchange = (e) => { p.formPmp = e.target.value; Store.guardarConfig(cfg); };
+    if ($('#pfHto')) $('#pfHto').oninput = (e) => { p.htoMin = e.target.value; Store.guardarConfig(cfg); };
+    if ($('#pfFirmar')) $('#pfFirmar').onclick = () => padFirma('Tu firma', (d) => { p.firma = d; Store.guardarConfig(cfg); render(); });
     if ($('#pfQuitar')) $('#pfQuitar').onclick = () => { p.firma = ''; Store.guardarConfig(cfg); render(); };
   }
 
@@ -1947,7 +1957,7 @@
     const pie = (sig) => `<div class="fila-btn" style="justify-content:space-between"><button class="secundario" id="cfOmitir">Omitir</button><button class="primario" id="cfSig">${sig}</button></div>`;
     if (cfgPaso === 0) {
       if (!cfg.sedes.length) cfg.sedes.push({ id: uid(), nombre: '', sub: '', logo: '' });
-      v.innerHTML = cab + card('¿Dónde trabajas?', `<p class="nota" style="margin-top:0">Agrega los hospitales o clínicas donde trabajas. El lugar que elijas en cada historia sale en el encabezado del PDF. El logo y los demás datos se editan después en Menú › Lugares de trabajo.</p>
+      v.innerHTML = cab + card('¿Dónde trabajas?', `<p class="nota" style="margin-top:0">Agrega los hospitales o clínicas donde trabajas. El lugar que elijas en cada historia sale en el encabezado del PDF. El logo y los demás datos se editan después en ⚙ Ajustes › Lugares de trabajo.</p>
         ${cfg.sedes.map((s, i) => `<div class="med"><div class="rejilla ancha"><label class="campo completo"><span>Hospital o clínica ${i + 1}</span><input data-cfsede="${i}" data-c="nombre" value="${esc(s.nombre)}" placeholder="Nombre del hospital o clínica"></label>
           <label class="campo completo"><span>Ciudad (opcional)</span><input data-cfsede="${i}" data-c="sub" value="${esc(s.sub)}" placeholder="Ciudad, estado o país"></label></div>
           ${cfg.sedes.length > 1 ? `<div class="fila-btn" style="justify-content:flex-end;margin-top:6px"><button class="peligro chico" data-cfquitar="${i}">Quitar</button></div>` : ''}</div>`).join('')}
@@ -1963,9 +1973,9 @@
       $('#cfSig').onclick = () => { cfgPaso = 2; render(); window.scrollTo(0, 0); };
     } else {
       v.innerHTML = cab + card('¡Listo!', `<p style="margin-top:0">Tu configuración quedó guardada en este dispositivo.</p>
-        <ul class="guia-items"><li>Tus datos, firma y sello se editan en Menú › Mi perfil y firma.</li><li>Lugares de trabajo y Mi farmacia también están en el Menú.</li>
+        <ul class="guia-items"><li>Tus datos, firma, sello, imágenes y lugares de trabajo se editan en ⚙ Ajustes (arriba a la derecha).</li><li>Mi farmacia y el Respaldo están en el Menú ⋮.</li>
         <li>La Guía de uso (Menú › ❓ Guía de uso) explica cada función y te lleva a ella.</li></ul>
-        <p class="nota">Te recomendamos el recorrido rápido: 7 pasos para ver dónde está cada cosa.</p>`) +
+        <p class="nota">Te recomendamos el recorrido rápido: 8 pasos para ver dónde está cada cosa.</p>`) +
         `<div class="fila-btn" style="justify-content:space-between"><button class="secundario" id="cfSinTour">Ir a la app</button><button class="primario" id="cfTour">Ver el recorrido</button></div>`;
       $('#cfTour').onclick = () => terminarConfiguracion(true);
       $('#cfSinTour').onclick = () => terminarConfiguracion(false);
@@ -1976,12 +1986,13 @@
 
   /* ---- Recorrido guiado (A) ---- */
   const TOUR = [
-    { t: 'Bienvenido a Morpheus MD', x: 'Registro anestésico digital y herramientas de consulta para anestesiólogos. Todo lo que escribes se guarda solo en este dispositivo: no se envía a ningún servidor. En 7 pasos te mostramos dónde está cada cosa.' },
+    { t: 'Bienvenido a Morpheus MD', x: 'Registro anestésico digital y herramientas de consulta para anestesiólogos. Todo lo que escribes se guarda solo en este dispositivo: no se envía a ningún servidor. En 8 pasos te mostramos dónde está cada cosa.' },
     { sel: '.fab', t: 'Nueva historia', x: 'Crea la historia de anestesia de un paciente. Se guarda sola mientras escribes. Si trabajas en varios lugares, te pregunta en cuál.' },
     { sel: '#buscar', t: 'Tus historias', x: 'Debajo aparece la lista de historias. Búscalas por nombre, cédula, cirugía o fecha. El botón ⋮ de cada una permite verla en PDF, duplicarla como plantilla o eliminarla.' },
     { sel: '.ex-banner', t: 'Extras', x: 'Valoración preanestésica y récipe con tu membrete, tu firma y tu sello.' },
     { sel: '#btnSOS', t: 'SOS: crisis', x: 'Algoritmos de emergencia paso a paso: paro, arritmias, anafilaxia, toxicidad por anestésicos locales, hipertermia maligna y vía aérea difícil, con reloj y dosis por peso. Siempre está arriba.' },
-    { sel: '#btnMenu', t: 'Menú', x: 'Aquí están las Guías de consulta, los Bloqueos regionales, la Calculadora TIVA · TCI · BIC, Mi farmacia, Mi perfil y firma, Lugares de trabajo, el Respaldo y la Guía de uso.' },
+    { sel: '#btnAjustes', t: 'Ajustes', x: 'El engranaje abre tus ajustes: datos profesionales, firma y sello, imágenes (marca de agua y portada), lugares de trabajo y tu cuenta.' },
+    { sel: '#btnMenu', t: 'Menú', x: 'Organizado por grupos: Documentos (valoración y récipe), Herramientas clínicas (Crisis, Calculadora, Bloqueos, Guías), Configuración (Mi farmacia, Respaldo) y Ayuda.' },
     { t: 'Dentro de una historia', x: 'Las secciones (Paciente, Valoración, … Notas y firma) están en la barra de arriba: tócalas o usa los botones de abajo. Al final, “Vista previa / PDF” para imprimir o compartir. ¿Dudas? Menú › ❓ Guía de uso.' },
   ];
   let tourPaso = -1;
@@ -2014,7 +2025,7 @@
     calc: 'Escribe peso, talla, edad y sexo del paciente. Pestañas: TIVA (esquemas por peso), TCI (Marsh, Schnider, Minto…) y BIC (bombas). Ajusta la unidad de tu bomba abajo.',
     bloqueos: 'Elige la región arriba o busca por palabra. En Generales está la calculadora de dosis máxima de anestésicos locales. Las mezclas con fármacos que no marcaste en Mi farmacia se ven atenuadas.',
     guias: 'Tres pestañas: Consulta (valoración preanestésica), Crisis y Técnicas. Cada ficha dice su fuente y año. El buscador revisa todas las guías.',
-    extras: 'Aquí creas valoraciones preanestésicas y récipes con tu membrete. El membrete, la firma y el sello salen de Menú › Mi perfil y firma.',
+    extras: 'Aquí creas valoraciones preanestésicas y récipes con tu membrete. El membrete, la firma y el sello salen de ⚙ Ajustes.',
   };
   function tipId() {
     if (pantalla === 'editor') return SECCIONES[seccion] && SECCIONES[seccion].id === 'to' ? 'grilla' : 'editor';
@@ -2028,6 +2039,7 @@
 
   /* ---- Novedades de cada versión ---- */
   const NOVEDADES = [
+    ['1.9.13', ['Menú reorganizado por grupos: Documentos, Herramientas clínicas, Configuración y Ayuda.', 'Nuevo botón ⚙ Ajustes arriba: Mis datos, Firma y sello, Imágenes, Lugares de trabajo y Cuenta, en pestañas.', 'Valoración y récipe: en el menú ⋮ del documento, Compartir PDF y Guardar PDF directo, sin pasar por la vista previa.']],
     ['1.9.12', ['Guía de uso (Menú › ❓ Guía de uso) y recorrido guiado para quien entra por primera vez.', 'Mi farmacia: marca los fármacos de tu hospital; las mezclas de bloqueos y la calculadora se adaptan.',
       'Al crear la cuenta, un asistente pregunta tus lugares de trabajo y tu farmacia.', 'Bloqueos: dosis de ropivacaína y levobupivacaína, lidocaína 4 % y 10 % en vía aérea, raquídea con dosis habituales y límites de volumen, PENG con sus acotaciones.',
       'Calculadora de dosis máxima con ropivacaína, levobupivacaína y lidocaína 4 %.']],
@@ -2053,7 +2065,7 @@
   function irAyuda() { if (pantalla !== 'ayuda') ayudaDesde = pantalla; pantalla = 'ayuda'; render(); window.scrollTo(0, 0); }
   const AYUDA = [
     { t: 'Primeros pasos', ir: 'tour', b: 'Ver el recorrido', p: ['Morpheus MD funciona sin internet. Todo lo que escribes se guarda solo en este dispositivo (teléfono o navegador): no se envía a ningún servidor.',
-      'Tu cuenta (usuario y contraseña) también vive en este dispositivo. Para usarla en otro teléfono o en la web: Menú › Mi perfil y firma › Exportar mi cuenta, y en el otro dispositivo “Importar cuenta”.',
+      'Tu cuenta (usuario y contraseña) también vive en este dispositivo. Para usarla en otro teléfono o en la web: ⚙ Ajustes › Cuenta › Exportar mi cuenta, y en el otro dispositivo “Importar cuenta”.',
       'Haz un respaldo de tus historias de vez en cuando (Menú › Respaldo), sobre todo antes de cambiar de teléfono.'] },
     { t: 'Instalar la versión web como app', web: true, p: ['Android (Chrome): menú ⋮ del navegador › “Instalar app” o “Agregar a la pantalla de inicio”.', 'iPhone (Safari): botón Compartir › “Agregar a inicio”.', 'Tus datos quedan en ese navegador: si borras los datos del navegador, se borran. Respáldalos.'] },
     { t: 'Crear una historia de anestesia', ir: 'nueva', b: 'Crear una historia', p: ['En la pantalla de inicio toca “+ Nueva historia”. Si tienes varios lugares de trabajo, elige dónde.',
@@ -2062,7 +2074,7 @@
     { t: 'La grilla transoperatoria', p: ['En la sección Transoperatorio anotas signos vitales (PA, FC, SpO₂…) en la grilla por hora.', 'En las pistas registras O₂ y aire/N₂O, el inhalatorio, el opioide, el relajante y otras drogas: bolos, inicio o cambio de infusión y suspensión, con su hora.',
       'Las infusiones tienen calculadora (dosis ↔ mL/h según tu bomba). El balance y los gases van en la sección siguiente.'] },
     { t: 'Vista previa, PDF y compartir', p: ['En la última sección toca “Vista previa / PDF”, o en la lista de historias botón ⋮ › “Ver / PDF”.', 'Desde la vista previa puedes guardar, imprimir o compartir el PDF.',
-      'El encabezado sale del lugar de trabajo de la historia; la firma, el sello y el membrete, de Mi perfil y firma.'] },
+      'El encabezado sale del lugar de trabajo de la historia; la firma, el sello y el membrete, de ⚙ Ajustes.'] },
     { t: 'Crisis (botón SOS)', ir: 'crisis', b: 'Abrir Crisis', p: ['El botón rojo SOS abre los algoritmos de emergencia: paro en adulto, embarazada, pediátrico y neonatal, bradicardia, taquicardia, anafilaxia, LAST, hipertermia maligna y vía aérea difícil no prevista.',
       'Cada algoritmo va paso a paso, con reloj de ciclos, contador de adrenalina y dosis calculadas con el peso y las presentaciones de tu hospital.', 'Al terminar obtienes un resumen con horas para copiar o compartir; no se escribe nada en la historia.'] },
     { t: 'Calculadora TIVA · TCI · BIC', ir: 'calc', b: 'Abrir la calculadora', p: ['TIVA: esquemas por peso (propofol, remifentanilo, dexmedetomidina, ketamina, lidocaína, magnesio).', 'TCI: modelos Marsh, Schnider, Minto y otros, con bolo y velocidades por tramo.',
@@ -2071,8 +2083,8 @@
     { t: 'Bloqueos regionales', ir: 'bloqueos', b: 'Abrir bloqueos', p: ['39 bloqueos por región (miembro superior e inferior, tórax, abdomen, cabeza y cuello, neuroeje) con indicaciones, nervios, territorio, técnica ecoguiada, volúmenes, mezclas e imágenes.',
       'En la pestaña Generales: calculadora de dosis máxima y mezclas de anestésicos locales, coadyuvantes, antitrombóticos y seguridad.', 'Las mezclas con fármacos que no están en tu farmacia se ven atenuadas.'] },
     { t: 'Extras: valoración y récipe', ir: 'extras', b: 'Abrir Extras', p: ['Valoración preanestésica completa (riesgos, vía aérea, laboratorios, medicación con la conducta preoperatoria sugerida) y récipe en media carta.', 'Salen con tu membrete, firma y sello.'] },
-    { t: 'Mi perfil, firma y sello', ir: 'perfil', b: 'Abrir Mi perfil', p: ['Tus datos profesionales, firma (dibujada o escaneada), sello y marca de agua del PDF.', 'Aquí también exportas o importas tu cuenta y cambias la contraseña.'] },
-    { t: 'Lugares de trabajo', ir: 'sedes', b: 'Abrir Lugares de trabajo', p: ['Cada lugar tiene nombre, ciudad y logo; es el encabezado del PDF de la historia.', 'Al crear una historia eliges el lugar; puedes cambiarlo en la sección Paciente.'] },
+    { t: 'Ajustes: perfil, firma y sello', ir: 'perfil', b: 'Abrir Ajustes', p: ['El engranaje ⚙ de arriba abre tus ajustes en pestañas: Mis datos, Firma y sello (dibujada o escaneada), Imágenes (marca de agua y portada), Lugares de trabajo y Cuenta.', 'Aquí también exportas o importas tu cuenta y cambias la contraseña.'] },
+    { t: 'Lugares de trabajo', ir: 'sedes', b: 'Abrir Lugares de trabajo', p: ['Están en ⚙ Ajustes › Lugares de trabajo. Cada lugar tiene nombre, ciudad y logo; es el encabezado del PDF de la historia.', 'Al crear una historia eliges el lugar; puedes cambiarlo en la sección Paciente.'] },
     { t: 'Mi farmacia', ir: 'farmacia', b: 'Abrir Mi farmacia', p: ['Marca los anestésicos locales, coadyuvantes y fármacos de rescate que tienes. La app usa esa lista en Bloqueos (mezclas y calculadora) y en Crisis (presentaciones y avisos, p. ej., si no hay emulsión lipídica).'] },
     { t: 'Respaldo y cambio de teléfono', ir: 'respaldo', b: 'Hacer un respaldo', p: ['Menú › Respaldo exporta todas tus historias y documentos en un archivo; guárdalo fuera del teléfono (correo, nube).', 'Para pasar a otro teléfono: respalda aquí, instala la app allá e importa el archivo.'] },
   ];
@@ -2098,6 +2110,8 @@
     else if (d === 'bloqueos') return irBloqueos();
     else if (d === 'farmacia') { farmDesde = 'ayuda'; pantalla = 'farmacia'; }
     else if (d === 'respaldo') return respaldo();
+    else if (d === 'perfil') return irAjustes('datos');
+    else if (d === 'sedes') return irAjustes('lugares');
     else pantalla = d;
     render(); window.scrollTo(0, 0);
   }
@@ -2421,6 +2435,18 @@
     if (x.ef && x.ef.mallampati) H.mallampati = x.ef.mallampati;
     Store.guardar(H); D = null; pantalla = 'editor'; seccion = 0; render(); window.scrollTo(0, 0); aviso('Historia creada con los datos de la valoración');
   }
+  function pdfDocDirecto(acc) { // genera y comparte o guarda sin pasar por la vista previa
+    guardarDocYa(); aviso('Preparando PDF…', 1200);
+    setTimeout(() => {
+      try {
+        const pf = cfg.perfil || {}; const copia = JSON.parse(JSON.stringify(D));
+        const doc = D.tipo === 'val' ? Extras.pdfValoracion(copia, pf) : Extras.pdfRecipe(copia, pf);
+        const n = (D.p.nombre || 'paciente').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        const nombre = (D.tipo === 'val' ? 'Valoracion_' : 'Recipe_') + n + '_' + (D.fecha || hoyISO()) + '.pdf';
+        accionPdf(acc, doc.output('datauristring').split(',')[1], doc.output('blob'), nombre);
+      } catch (e) { console.error(e); alert('Error al generar el PDF: ' + (e && e.message) + (e && e.stack ? '\n' + String(e.stack).split('\n').slice(0, 3).join('\n') : '')); }
+    }, 30);
+  }
   function pdfDoc() {
     guardarDocYa(); aviso('Preparando vista previa…', 1200);
     setTimeout(() => {
@@ -2431,7 +2457,7 @@
         const nombre = (D.tipo === 'val' ? 'Valoracion_' : 'Recipe_') + n + '_' + (D.fecha || hoyISO()) + '.pdf';
         const b64 = doc.output('datauristring').split(',')[1], blob = doc.output('blob');
         Visor.abrir({ bytes: b64aBytes(b64), titulo: (D.p.nombre || (D.tipo === 'val' ? 'Valoración' : 'Récipe')) + ' — vista previa', acciones: botonesPdf(b64, blob, nombre) });
-      } catch (e) { console.error(e); alert('Error al generar el PDF: ' + e.message); }
+      } catch (e) { console.error(e); alert('Error al generar el PDF: ' + (e && e.message) + (e && e.stack ? '\n' + String(e.stack).split('\n').slice(0, 3).join('\n') : '')); }
     }, 30);
   }
 
@@ -2558,45 +2584,53 @@
   $('#btnPdf').onclick = accionesPdf;
   $('#btnAtras').onclick = () => atras();
   $('#btnSOS').onclick = () => { if (pantalla === 'editor') guardarYa(); irCrisis(); };
+  $('#btnAjustes').onclick = () => { if (pantalla === 'perfil') return atras(); irAjustes(); };
   $('#btnMenu').onclick = () => {
     if (pantalla === 'doc') {
       menu([
         { t: 'Ver / PDF', f: pdfDoc },
         ...(D.tipo === 'val' ? [{ t: 'Crear historia de anestesia con estos datos', f: historiaDeValoracion }] : []),
         { t: 'Duplicar', f: () => { guardarDocYa(); const c = JSON.parse(JSON.stringify(D)); c.id = uid(); c.creado = Date.now(); c.fecha = hoyISO(); Store.guardarDoc(c); abrirDoc(c); aviso('Copia creada'); } },
-        { t: 'Mi perfil y membrete', f: () => { guardarDocYa(); D = null; pantalla = 'perfil'; render(); } },
+        { t: '📤 Compartir PDF', f: () => pdfDocDirecto('compartir') },
+        { t: '💾 Guardar PDF', f: () => pdfDocDirecto('descargas') },
+        { t: '⚙ Membrete, firma y sello', f: () => irAjustes('firma') },
         { t: 'Eliminar', peligro: true, f: () => { if (confirm('¿Eliminar este documento?')) { Store.borrarDoc(D.id); D = null; pantalla = 'extras'; render(); } } },
       ]);
       return;
     }
     if (pantalla === 'editor') {
       menu([
-        { t: 'Ver / PDF', f: accionesPdf },
+        { sec: 'Esta historia' },
+        { t: '📄 Ver / PDF', f: accionesPdf },
+        { t: '📋 Nueva historia usando esta como plantilla', f: () => { guardarYa(); duplicar(H.id, false); } },
+        { sec: 'Herramientas clínicas' },
         { t: '🆘 Crisis: algoritmos de emergencia', f: () => { guardarYa(); irCrisis(); } },
         { t: '🧮 Calculadora TIVA · TCI · BIC', f: () => { guardarYa(); CT = null; calcDesde = 'editor'; pantalla = 'calc'; render(); window.scrollTo(0, 0); } },
-        { t: 'Nueva historia usando esta como plantilla', f: () => { guardarYa(); duplicar(H.id, false); } },
-        { t: 'Mi perfil y firma', f: () => { guardarYa(); pantalla = 'perfil'; render(); } },
+        { t: '💉 Bloqueos regionales', f: () => { guardarYa(); irBloqueos(); } },
+        { t: '📖 Guías de consulta', f: () => { guardarYa(); guiaDesde = 'inicio'; pantalla = 'guias'; render(); window.scrollTo(0, 0); } },
+        { sec: 'Ayuda' },
         { t: '❓ Guía de uso', f: () => { guardarYa(); irAyuda(); } },
-        { t: 'Lugares de trabajo', f: () => { guardarYa(); pantalla = 'sedes'; render(); } },
-        { t: 'Eliminar esta historia', peligro: true, f: () => { if (confirm('¿Eliminar esta historia? No se puede deshacer.')) { Store.borrar(H.id); H = null; pantalla = 'inicio'; render(); } } },
+        { t: '🗑 Eliminar esta historia', peligro: true, f: () => { if (confirm('¿Eliminar esta historia? No se puede deshacer.')) { Store.borrar(H.id); H = null; pantalla = 'inicio'; render(); } } },
       ]);
     } else {
       menu([
-        { t: '✦ Extras: valoración y récipe', f: () => { pantalla = 'extras'; render(); } },
+        { sec: 'Documentos' },
+        { t: '📝 Valoración preanestésica y récipe', f: () => { pantalla = 'extras'; render(); window.scrollTo(0, 0); } },
+        { sec: 'Herramientas clínicas' },
         { t: '🆘 Crisis: algoritmos de emergencia', f: irCrisis },
         { t: '🧮 Calculadora TIVA · TCI · BIC', f: () => { if (calcDesde === 'editor') CT = null; calcDesde = pantalla === 'calc' ? calcDesde : pantalla; pantalla = 'calc'; render(); window.scrollTo(0, 0); } },
-        { t: '📖 Guías de consulta', f: () => { guiaDesde = pantalla; pantalla = 'guias'; render(); window.scrollTo(0, 0); } },
         { t: '💉 Bloqueos regionales', f: () => irBloqueos() },
+        { t: '📖 Guías de consulta', f: () => { guiaDesde = pantalla; pantalla = 'guias'; render(); window.scrollTo(0, 0); } },
+        { sec: 'Configuración' },
         { t: '💊 Mi farmacia', f: () => { farmDesde = pantalla; pantalla = 'farmacia'; render(); window.scrollTo(0, 0); } },
-        { t: '❓ Guía de uso', f: irAyuda },
-        { t: '🏥 Lugares de trabajo', f: () => { pantalla = 'sedes'; render(); } },
-        { t: '✍ Mi perfil y firma', f: () => { pantalla = 'perfil'; render(); } },
         { t: '🗂 Respaldo (exportar / importar)', f: respaldo },
-        ...(cfg.cuenta ? [{ t: '🔒 Cerrar sesión', f: cerrarSesion }] : []),
+        { sec: 'Ayuda' },
+        { t: '❓ Guía de uso', f: irAyuda },
         { t: 'ℹ Acerca de', f: () => { abrirHoja(`<h2>Morpheus MD</h2><p>Versión ${VERSION} · Registro anestésico digital</p><p class="nota">${window.Nativo ? 'Todo se guarda solo en este teléfono; la app no tiene acceso a Internet.' : 'Todo se guarda solo en este navegador, en este equipo; tus historias no se envían a ningún servidor.'} Usa “Respaldo” de vez en cuando para no perder tus historias si cambias o pierdes el teléfono.</p>
           <div class="fila-btn">${Object.entries(LEGAL.TEXTOS).map(([k, x]) => `<button class="secundario chico" data-legal="${k}">${x.t}</button>`).join('')}</div>
           <div class="acciones"><button class="primario" id="acCerrar">Cerrar</button></div>`);
           $('#acCerrar').onclick = cerrarHoja; $$('#capa [data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal))); } },
+        ...(cfg.cuenta ? [{ t: '🔒 Cerrar sesión', f: cerrarSesion }] : []),
       ]);
     }
   };
@@ -2622,7 +2656,11 @@
     if (pantalla === 'importar') { impDatos = null; pantalla = impDesde === 'perfil' && cfg.cuenta ? 'perfil' : impDesde === 'login' ? 'login' : 'bienvenida'; render(); return true; }
     if (pantalla === 'registro') { pantalla = !cfg.cuenta && !cfg.omitirRegistro ? 'bienvenida' : cfg.cuenta || sesion ? 'perfil' : 'bienvenida'; render(); return true; }
     if (pantalla === 'sedes' || pantalla === 'perfil') {
-      pantalla = H ? 'editor' : 'inicio'; if (H) H = migrar(Store.cargar(H.id) || H); render(); return true;
+      if (perfDesde === 'editor' && H) { pantalla = 'editor'; H = migrar(Store.cargar(H.id) || H); }
+      else if (perfDesde === 'doc' && D) pantalla = 'doc';
+      else if (['extras', 'guias', 'guia', 'bloqueos', 'bloqueo', 'calc', 'ayuda', 'farmacia', 'crisis'].includes(perfDesde)) pantalla = perfDesde;
+      else { pantalla = 'inicio'; H = null; }
+      perfDesde = 'inicio'; render(); window.scrollTo(0, 0); return true;
     }
     return false;
   }
