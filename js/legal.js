@@ -63,22 +63,21 @@ window.LEGAL = (function () {
   const TEXTOS = {
     privacidad: {
       t: 'Política de privacidad',
-      h: (window.Nativo ? `<p><b>Tus datos se quedan en tu teléfono.</b> Las historias, tu perfil, tu firma y tu contraseña se guardan solo en el almacenamiento interno de este dispositivo.</p>
-        <p>La aplicación <b>no tiene permiso de acceso a Internet</b>: no envía información a servidores, no usa analítica, publicidad ni rastreadores, y no crea cuentas en la nube.</p>`
-        : `<p><b>Tus datos se quedan en este equipo.</b> Las historias, tu perfil, tu firma y tu contraseña se guardan solo en el almacenamiento de este navegador, en este dispositivo.</p>
-        <p>La página se descarga una sola vez desde morpheus-md.vercel.app y luego funciona sin internet. <b>No envía tus historias ni tus datos</b> a ningún servidor, no usa analítica, publicidad ni rastreadores, y no crea cuentas en la nube.</p>
-        <p>Si usas un equipo compartido (por ejemplo, el de una clínica), protege tu sesión con contraseña y cierra sesión al terminar. Borrar los datos de navegación de este sitio borra tus historias: haz respaldos periódicos.</p>`) + `
-        <p>La contraseña no se guarda tal cual: se guarda un resumen criptográfico (SHA-256 con sal) que no permite recuperarla. El código de recuperación se muestra una sola vez.</p>
-        <p>Un PDF o un respaldo solo sale del teléfono cuando tú decides compartirlo, guardarlo o imprimirlo. A partir de ese momento, su resguardo depende de la aplicación o persona que lo reciba.</p>
-        <p>Los datos clínicos están protegidos por el secreto médico. Es responsabilidad del profesional usarlos y compartirlos conforme a la normativa de su país y de su institución.</p>
-        <p>${window.Nativo ? 'Al desinstalar la aplicación se borran sus datos.' : 'Al borrar los datos del sitio en el navegador se borran tus historias.'} Haz respaldos periódicos desde el menú.</p>`,
+      h: `<p><b>Qué guardamos.</b> Para usar Morpheus MD necesitas una cuenta con tu correo. Guardamos tu correo, tu nombre, el estado de tu suscripción y los pagos que reportes.</p>
+        <p><b>Tus historias y documentos.</b> Se guardan en tu dispositivo y, para que puedas usarlos en el teléfono y en la computadora con la misma cuenta, también en nuestra base de datos en la nube (Supabase), con conexión cifrada (HTTPS) y cifrado en reposo. Cada cuenta solo puede leer sus propios datos: ni otros usuarios ni los administradores de la app ven tus historias.</p>
+        <p><b>Lo que no hacemos.</b> No vendemos ni compartimos tus datos, no usamos analítica, publicidad ni rastreadores.</p>
+        <p><b>Equipos compartidos.</b> En una computadora de clínica marca "Equipo compartido" al iniciar sesión: al cerrar sesión se borran tus datos de ese equipo, y la sesión se cierra sola tras 30 minutos sin uso.</p>
+        <p><b>Contraseña.</b> La gestiona el servicio de autenticación con resumen criptográfico; nadie puede verla. Si la olvidas, te enviamos un enlace a tu correo para crear una nueva.</p>
+        <p><b>Borrar tu cuenta.</b> En ⚙ Ajustes › Cuenta puedes borrar tu cuenta y todos tus datos de la nube cuando quieras.</p>
+        <p>Un PDF o un respaldo solo sale de la app cuando tú decides compartirlo, guardarlo o imprimirlo. Los datos clínicos están protegidos por el secreto médico: es responsabilidad del profesional usarlos y compartirlos conforme a la normativa de su país y de su institución.</p>`,
     },
     terminos: {
       t: 'Términos de uso',
-      h: `<p>Morpheus MD es una herramienta de apoyo para <b>documentar</b> el acto anestésico. Está dirigida a profesionales de la salud.</p>
+      h: `<p>Morpheus MD es una herramienta de apoyo para <b>documentar</b> el acto anestésico y consultar información de referencia. Está dirigida a profesionales de la salud.</p>
         <p>No sustituye el juicio clínico, los protocolos de la institución ni la vigilancia del paciente. El profesional que la usa es responsable de la exactitud de lo registrado y de las decisiones clínicas.</p>
-        <p>La aplicación se ofrece "tal cual", sin garantías de ningún tipo. Sus autores no se hacen responsables por daños derivados de su uso, de errores de registro o de la pérdida de datos.</p>
-        <p>El usuario debe mantener protegido su teléfono y su contraseña, y respaldar su información.</p>`,
+        <p><b>Cuenta y suscripción.</b> Al crear tu cuenta tienes 7 días de prueba gratis con todas las funciones. Después, para crear historias y documentos nuevos necesitas una suscripción vigente (mensual o anual). Sin suscripción puedes seguir viendo tus historias, generar sus PDF y usar Crisis (SOS), que siempre es gratis.</p>
+        <p><b>Pagos.</b> Los pagos reportados (Pago Móvil, Zelle, Binance u otros) se activan al verificarlos. La suscripción no se renueva sola: al vencer, eliges si renuevas.</p>
+        <p>La aplicación se ofrece "tal cual". Sus autores no se hacen responsables por daños derivados de su uso, de errores de registro o de la pérdida de datos. El usuario debe proteger su contraseña y sus dispositivos.</p>`,
     },
     aviso: {
       t: 'Aviso médico',
@@ -89,6 +88,7 @@ window.LEGAL = (function () {
       t: 'Licencias y créditos',
       h: `<p><b>jsPDF</b> 2.5.2 · Licencia MIT · © James Hall, yWorks GmbH y colaboradores.</p>
         <p><b>PDF.js</b> 3.11 · Licencia Apache 2.0 · © Mozilla Foundation.</p>
+        <p><b>supabase-js</b> 2 · Licencia MIT · © Supabase, Inc.</p>
         <p><b>Cormorant Garamond</b> y <b>Montserrat</b> · SIL Open Font License 1.1 · © The Cormorant Project Authors · © The Montserrat Project Authors.</p>
         <p><b>Fotografía de portada</b>: "Changing the fluids", Oliver Cole, U.S. Navy (DVIDS 356869) · Dominio público, vía Wikimedia Commons.</p>
         <p>Íconos: propios de la aplicación.</p>`,

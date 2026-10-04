@@ -1,5 +1,5 @@
 /* Morpheus MD: funciona sin internet. Guarda la app en caché la primera vez que se abre. */
-const VERSION = 'morpheus-1.9.13';
+const VERSION = 'morpheus-2.0.0';
 const ARCHIVOS = [
   './',
   'css/app.css',
@@ -74,6 +74,8 @@ const ARCHIVOS = [
   'js/guias-datos.js',
   'js/imgs.js',
   'js/legal.js',
+  'js/nube-config.js',
+  'js/nube.js',
   'js/obs.js',
   'js/pdf.js',
   'js/pistas.js',
@@ -82,6 +84,7 @@ const ARCHIVOS = [
   'lib/jspdf.umd.min.js',
   'lib/pdfjs/pdf.min.js',
   'lib/pdfjs/pdf.worker.min.js',
+  'lib/supabase.js',
   'manifest.webmanifest'
 ];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ARCHIVOS)).then(() => self.skipWaiting())); });

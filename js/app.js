@@ -31,13 +31,7 @@
     ['85', 'Recién nacido a término (85 ml/kg)'], ['95', 'Prematuro (95 ml/kg)'],
   ];
   let cfg = Store.config();
-  if (!cfg) {
-    cfg = {
-      sedes: [], sedeActual: '', sedesV2: true, onbPend: true,
-      perfil: { nombre: '', sello: '', firma: '', marcaOn: false },
-    };
-    Store.guardarConfig(cfg);
-  }
+  if (!cfg) cfg = cfgNuevo();
   // Lugares de trabajo precargados solo para instalaciones anteriores a 1.9.12 (las nuevas empiezan vacías y el asistente los pregunta)
   const SEDES_PRE = [
     ['llanosalud', 'LLANOSALUD A.P.S. C.A.', 'CABUDARE, EDO. LARA'],
@@ -77,7 +71,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.13';
+  const VERSION = '2.0.0';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -1280,9 +1274,9 @@
     $('#secciones').hidden = pantalla !== 'editor';
     $('#pie').hidden = pantalla !== 'editor' && pantalla !== 'doc';
     $('#btnMenu').hidden = pantalla === 'login' || pantalla === 'config';
-    $('#btnAjustes').hidden = ['login', 'config', 'bienvenida', 'registro', 'importar'].includes(pantalla);
+    $('#btnAjustes').hidden = ['login', 'config', 'bienvenida', 'registro', 'importar', 'confirmar', 'nuevaclave'].includes(pantalla);
     $('#btnAjustes').classList.toggle('activo', pantalla === 'perfil');
-    $('#btnSOS').hidden = ['login', 'bienvenida', 'registro', 'importar', 'config'].includes(pantalla) || pantalla === 'crisis';
+    $('#btnSOS').hidden = ['login', 'bienvenida', 'registro', 'importar', 'config', 'confirmar', 'nuevaclave'].includes(pantalla) || pantalla === 'crisis';
     $('#btnSOS').classList.toggle('activa', !!(window.Crisis && Crisis.activa()));
     $('#barra').hidden = pantalla === 'bienvenida';
     bordeABorde(pantalla === 'bienvenida');
@@ -1291,6 +1285,12 @@
     if (pantalla === 'inicio') return renderInicio(v);
     if (pantalla === 'sedes') { pantalla = 'perfil'; perfTab = 'lugares'; }
     if (pantalla === 'perfil') return renderPerfil(v);
+    if (NUBE() && pantalla === 'registro') return renderRegistroNube(v);
+    if (NUBE() && pantalla === 'login') return renderLoginNube(v);
+    if (pantalla === 'confirmar') return renderConfirmar(v);
+    if (pantalla === 'nuevaclave') return renderNuevaClave(v);
+    if (pantalla === 'suscripcion') return renderSuscripcion(v);
+    if (pantalla === 'admin') return renderAdmin(v);
     if (pantalla === 'registro') { $('#btnAtras').hidden = false; return renderRegistro(v); }
     if (pantalla === 'login') { $('#btnAtras').hidden = true; return renderLogin(v); }
     if (pantalla === 'importar') { $('#btnAtras').hidden = false; return renderImportar(v); }
@@ -1324,7 +1324,7 @@
     const q = (renderInicio.q || '').toLowerCase();
     const f = idx.filter((x) => !q || [x.nombre, x.ci, x.interv, x.fecha].join(' ').toLowerCase().includes(q));
     const fechaTxt = (s) => (s ? s.split('-').reverse().join('/') : '');
-    v.innerHTML = `<button class="ex-banner" data-acc="irExtras"><span><b>✦ Extras</b><small>Valoración preanestésica · Récipe</small></span><em>Vista previa 2.0 ›</em></button>` +
+    v.innerHTML = bannerLicencia() + `<button class="ex-banner" data-acc="irExtras"><span><b>✦ Extras</b><small>Valoración preanestésica · Récipe</small></span><em>Vista previa 2.0 ›</em></button>` +
       `<input class="buscar" id="buscar" type="search" placeholder="Buscar por nombre, CI, cirugía o fecha" value="${esc(renderInicio.q || '')}">` +
       (f.length ? `<ul class="lista">${f.map((x) => `<li class="item" data-abrir="${x.id}"><div class="txt"><b>${esc(x.nombre || 'Sin nombre')}</b>
         <small>${[x.ci && 'CI ' + x.ci, fechaTxt(x.fecha)].filter(Boolean).map(esc).join(' · ')}</small><small>${esc(x.interv || '')}</small>
@@ -1337,6 +1337,7 @@
   function abrev(n) { n = n || ''; return n.length > 42 ? n.slice(0, 40) + '…' : n; }
 
   function crear() {
+    if (!puedeCrear()) return;
     const go = (sid) => { H = nuevaHistoria(); if (sid) H.sedeId = sid; Store.guardar(H); pantalla = 'editor'; seccion = 0; render(); window.scrollTo(0, 0); };
     if (cfg.sedes.length > 1) menu(cfg.sedes.map((s) => ({ t: '🏥 ' + esc(s.nombre), f: () => { cfg.sedeActual = s.id; Store.guardarConfig(cfg); go(s.id); } })));
     else go();
@@ -1349,6 +1350,7 @@
     const r = fusion(h, base); Pistas.asegurar(r); return r;
   }
   function duplicar(id, conPaciente) {
+    if (!puedeCrear()) return;
     const h = migrar(Store.cargar(id)); const n = nuevaHistoria();
     const copia = JSON.parse(JSON.stringify(h));
     copia.id = n.id; copia.creado = Date.now();
@@ -1502,6 +1504,7 @@
     fijar(); if (on) setTimeout(() => { if (bab) fijar(); }, 600); // al arrancar, las barras pueden medirse un poco después
   }
   function destinoInicial() {
+    if (NUBE()) return nubeU ? 'inicio' : 'login';
     if (cfg.cuenta && !sesion && !sesionValida()) return 'login';
     if (!cfg.cuenta && !cfg.omitirRegistro) return 'registro';
     return 'inicio';
@@ -1522,6 +1525,10 @@
       : sinCuenta ? `<div class="bv-links2"><button id="bvLogin">Iniciar sesión</button><button id="bvCrear">Crear cuenta</button><button id="bvImportar">Importar cuenta</button></div>`
       : dest === 'login' ? `<div class="bv-links2"><button id="bvOlvido">Olvidé mi contraseña</button><button id="bvImportar">Importar otra cuenta</button><button id="bvOtra">Crear otra cuenta</button></div>`
       : `<p class="bv-ayuda">Sesión iniciada como <b>${esc(cfg.cuenta.usuario)}</b></p><div class="bv-links2"><button id="bvSalir">Cerrar sesión</button><button id="bvImportar">Importar otra cuenta</button><button id="bvOtra">Crear otra cuenta</button></div>`;
+    const nb = NUBE();
+    const etqV = nb ? (nubeU ? 'Entrar' : 'Iniciar sesión') : etq;
+    const botonesV = !nb ? botones : nubeU ? `<p class="bv-ayuda">Sesión iniciada como <b>${esc(nubeU.correo)}</b></p><div class="bv-links2"><button id="bvSalirN">Cerrar sesión</button></div>`
+      : `<div class="bv-fila"><button class="bv-borde" id="bvCrear">Crear cuenta · 7 días gratis</button></div>`;
     const titular = p.nombre ? esc(p.nombre) : 'Morpheus MD';
     v.innerHTML = `<div id="bienvenida">
       <div class="bv-foto"><img src="${p.portada || 'img/portada.jpg'}" alt="" onerror="this.remove()"></div>
@@ -1531,7 +1538,7 @@
         <h1 class="bv-titulo">Morpheus<br><i>MD</i></h1>
         <p class="bv-lema">Cada paciente, cada minuto, documentado con precisión.</p>
         <div class="bv-rasgos"><div><b>5 min</b>Grilla transoperatoria</div><div><b>TCI · BIC</b>Calculadora</div><div><b>PDF</b>Listo para imprimir</div></div>
-        <div><button class="bv-entrar" id="bvEntrar">${etq}<span>→</span></button>${botones}</div>
+        <div><button class="bv-entrar" id="bvEntrar">${etqV}<span>→</span></button>${botonesV}</div>
       </div>
       <footer class="bv-pie">
         <nav class="bv-links"><button data-legal="privacidad">Privacidad</button><button data-legal="terminos">Términos de uso</button><button data-legal="aviso">Aviso médico</button><button data-legal="licencias">Licencias</button></nav>
@@ -1539,6 +1546,8 @@
       </footer></div>`;
     $('#bvEntrar').onclick = () => { if (nuevo) { pantalla = 'login'; render(); window.scrollTo(0, 0); return; }
       if (dest === 'inicio' && cfg.cuenta && !sesion && cfg.sesion) iniciarSesion(true); if (dest === 'registro' || dest === 'inicio') return trasEntrar(); pantalla = dest; render(); window.scrollTo(0, 0); };
+    if (nb) $('#bvEntrar').onclick = () => { if (nubeU) entrarApp(); else { pantalla = 'login'; render(); window.scrollTo(0, 0); } };
+    if ($('#bvSalirN')) $('#bvSalirN').onclick = cerrarSesionNube;
     if ($('#bvLogin')) $('#bvLogin').onclick = () => { pantalla = 'login'; render(); window.scrollTo(0, 0); };
     if ($('#bvCrear')) $('#bvCrear').onclick = () => { pantalla = 'registro'; render(); window.scrollTo(0, 0); };
     if ($('#bvImportar')) $('#bvImportar').onclick = () => irImportar('bienvenida');
@@ -1721,7 +1730,7 @@
         <div class="fila-btn"><label class="secundario chico" style="display:inline-block">Cambiar imagen<input type="file" accept="image/*" id="mcFile" hidden></label>
           ${p.marcaBlanca ? '<button class="secundario chico" id="mcReset">Volver a la original</button>' : ''}</div>
         <p class="nota">Sube tu logo sin fondo (PNG transparente) o sobre fondo liso; la app le quita el fondo sola. También es el logo del membrete de la valoración preanestésica y del récipe.</p>`);
-    v.innerHTML = tabs + ({ datos: () => cDatos() + cCalc(), firma: () => cEsc() + cFirma(), imagenes: () => cMarca() + cPortada(), cuenta: () => cCuenta() }[perfTab] || (() => cDatos() + cCalc()))();
+    v.innerHTML = tabs + ({ datos: () => cDatos() + cCalc(), firma: () => cEsc() + cFirma(), imagenes: () => cMarca() + cPortada(), cuenta: () => (NUBE() && nubeU ? cuentaNubeHtml() : cCuenta()) }[perfTab] || (() => cDatos() + cCalc()))();
     enlTabs();
     if ($('#ptFile')) $('#ptFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return;
       leerImagen(f, 1400, 'image/jpeg').then((d) => { p.portada = d; Store.guardarConfig(cfg); render(); aviso('Portada actualizada'); }).catch(() => aviso('No se pudo leer la imagen')); };
@@ -1903,6 +1912,237 @@
         <p class="nota">Revisado: ${esc(f.revisado || '')}. Resumen de consulta: no sustituye el juicio clínico ni los protocolos de tu institución.</p>`);
   }
 
+  /* =================== 2.0: cuenta en línea, suscripción y administración =================== */
+  const NUBE = () => !!(window.Nube && Nube.disponible());
+  let nubeU = null, admTab = 'pagos', suscMsg = '', compPend = null;
+  const espacioDe = (u) => (u ? 'u_' + u.id.replace(/[^a-z0-9]/gi, '').slice(0, 16) + '_' : '');
+  function aplicarCuenta(u) {
+    nubeU = u;
+    Store.usarEspacio(espacioDe(u));
+    cfg = Store.config() || cfgNuevo();
+    if (u) {
+      Store.alCambiar = (t, id, b) => Nube.marcar(t, id, b);
+      const pend = (() => { try { return JSON.parse(localStorage.getItem('morpheus-registro-pend') || 'null'); } catch (e) { return null; } })();
+      if (pend && pend.correo === u.correo) { cfg.perfil = cfg.perfil || {}; if (!cfg.perfil.nombre) cfg.perfil.nombre = pend.nombre; if (!cfg.perfil.correo) cfg.perfil.correo = pend.correo; Store.sinAviso(() => Store.guardarConfig(cfg)); try { localStorage.removeItem('morpheus-registro-pend'); } catch (e) {} }
+    } else Store.alCambiar = null;
+  }
+  function cfgNuevo() {
+    const c = { sedes: [], sedeActual: '', sedesV2: true, onbPend: true, perfil: { nombre: '', sello: '', firma: '', marcaOn: false } };
+    Store.sinAviso(() => Store.guardarConfig(c)); return c;
+  }
+  function configDeLaNube(d) { // llega la configuración guardada en la cuenta (otro dispositivo)
+    if (!d) return; const local = cfg;
+    const n = Object.assign({}, d); delete n._mod;
+    ['cuenta', 'sesion'].forEach((k) => { if (local[k] !== undefined) n[k] = local[k]; });
+    if (local.onbPend && !d.onbPend) delete n.onbPend;
+    cfg = Object.assign({}, local, n); delete cfg.onbPend; Store.guardarConfig(cfg);
+    if (['inicio', 'extras', 'perfil'].includes(pantalla) && $('#capa').hidden) render();
+  }
+  async function entrarApp() {
+    aplicarCuenta(Nube.usuario());
+    aviso('Cargando tu cuenta…', 1500);
+    try { await Nube.estado(true); } catch (e) {}
+    try { await Promise.race([Nube.sincronizar(), new Promise((r) => setTimeout(r, 8000))]); } catch (e) { console.warn(e); }
+    cfg = Store.config() || cfg;
+    if (cfg.onbPend) return irConfiguracion();
+    pantalla = 'inicio'; render(); window.scrollTo(0, 0);
+    ofrecerLegado();
+  }
+  function ofrecerLegado() { // historias guardadas en este dispositivo antes de las cuentas en línea
+    if (!nubeU || cfg.legadoRevisado) return;
+    let L = null; try { L = Store.legado(); } catch (e) { return; }
+    const nh = (L.historias || []).length, nd = (L.docs || []).length;
+    if (!nh && !nd) { cfg.legadoRevisado = true; Store.guardarConfig(cfg); return; }
+    abrirHoja(`<h2>Historias de este dispositivo</h2><p>Encontramos <b>${nh} historia${nh === 1 ? '' : 's'}</b>${nd ? ` y <b>${nd} documento${nd === 1 ? '' : 's'}</b>` : ''} guardados aquí antes de la versión 2.0.</p>
+      <p class="nota">Si las pasas a tu cuenta quedarán respaldadas en la nube y las verás en tus otros dispositivos. Solo hazlo si son tuyas.</p>
+      <div class="acciones"><button class="secundario" id="lgNo">Ahora no</button><button class="primario" id="lgSi">Pasar a mi cuenta</button></div>`);
+    $('#lgNo').onclick = () => { cfg.legadoRevisado = true; Store.guardarConfig(cfg); cerrarHoja(); };
+    $('#lgSi').onclick = () => {
+      const perfilAntes = L.config && L.config.perfil;
+      Store.restaurar({ app: L.app, historias: L.historias, docs: L.docs }, false);
+      if (perfilAntes) { ['firma', 'firmaSello', 'sello', 'marcaBlanca', 'marcaNegra', 'portada', 'mpps', 'colegio', 'colegioSigla', 'rif', 'telefono', 'direccion', 'ci', 'especialidad'].forEach((k) => { if (perfilAntes[k] && !cfg.perfil[k]) cfg.perfil[k] = perfilAntes[k]; }); }
+      if (L.config && (L.config.sedes || []).length && !cfg.sedes.some((s) => s.nombre)) { cfg.sedes = L.config.sedes; cfg.sedeActual = L.config.sedeActual || cfg.sedes[0].id; }
+      cfg.legadoRevisado = true; Store.guardarConfig(cfg); Nube.marcarTodo(); cerrarHoja(); render(); aviso(`${nh} historias pasadas a tu cuenta`);
+    };
+  }
+  function licencia() { return NUBE() && nubeU ? Nube.estadoCache() : null; }
+  function puedeCrear() {
+    if (!NUBE() || !nubeU) return true; const L = licencia();
+    if (L && L.activa) return true;
+    suscMsg = L && L.requiereConexion ? 'Conéctate a internet para verificar tu suscripción (hace más de 14 días que no se verifica).' : 'Tu prueba gratis o tu suscripción terminó. Puedes ver tus historias, generar sus PDF y usar Crisis; para crear nuevas, suscríbete.';
+    irSuscripcion(); return false;
+  }
+  function bannerLicencia() {
+    const L = licencia(); if (!L) return '';
+    if (L.requiereConexion) return `<button class="lic-banner lic-mal" data-acc="irSusc"><b>Conéctate a internet</b><small>Hace más de 14 días que no se verifica tu suscripción.</small></button>`;
+    if (!L.activa) return `<button class="lic-banner lic-mal" data-acc="irSusc"><b>Tu ${L.plan === 'prueba' ? 'prueba gratis' : 'suscripción'} terminó</b><small>Puedes ver tus historias y usar Crisis. Toca para suscribirte.</small></button>`;
+    if (L.estado === 'prueba') return `<button class="lic-banner" data-acc="irSusc"><b>Prueba gratis: te queda${L.dias === 1 ? '' : 'n'} ${L.dias} día${L.dias === 1 ? '' : 's'}</b><small>Suscríbete para seguir usando Morpheus MD sin interrupciones.</small></button>`;
+    if (L.dias <= 5) return `<button class="lic-banner" data-acc="irSusc"><b>Tu suscripción vence en ${L.dias} día${L.dias === 1 ? '' : 's'}</b><small>Renueva para no perder el acceso.</small></button>`;
+    return '';
+  }
+  async function refrescarLicencia() { if (!NUBE() || !nubeU) return; try { const antes = JSON.stringify(licencia()); await Nube.estado(); if (JSON.stringify(licencia()) !== antes && pantalla === 'inicio') render(); } catch (e) {} }
+
+  /* ---- Pantallas de acceso (2.0) ---- */
+  function renderLoginNube(v) {
+    $('#titulo').textContent = 'Morpheus MD'; $('#btnMenu').hidden = true; $('#btnAtras').hidden = false;
+    const comp = compPend != null ? compPend : Nube.compartido();
+    v.innerHTML = `<section class="tarjeta" style="margin-top:24px"><h2>Iniciar sesión</h2>
+      <div class="rejilla ancha"><label class="campo completo"><span>Correo</span><input id="nbCorreo" type="email" autocomplete="username" autocapitalize="none" value="${esc(localStorage.getItem('morpheus-ultimo-correo') || '')}"></label>
+      <label class="campo completo"><span>Contraseña</span><input id="nbClave" type="password" autocomplete="current-password"></label></div>
+      <div class="check"><input type="checkbox" id="nbComp"${comp ? ' checked' : ''}><label for="nbComp" style="flex:1">Equipo compartido (clínica): al cerrar sesión, borrar mis datos de este equipo. Se cierra sola tras 30 min sin uso.</label></div>
+      <div class="fila-btn" style="justify-content:space-between"><button class="secundario chico" id="nbOlvido">Olvidé mi contraseña</button><button class="primario" id="nbEntrar">Entrar</button></div>
+      <p class="nota" style="margin-top:14px">¿No tienes cuenta? <button class="enlace" id="nbCrear">Crea una gratis</button> (7 días de prueba).</p>
+      ${Store.legado && (Store.legado().historias || []).length ? '<p class="nota">Desde la versión 2.0 las cuentas son en línea, con tu correo. Si ya usabas la app en este dispositivo, crea tu cuenta: te ofreceremos pasar tus historias a ella.</p>' : ''}</section>`;
+    const entrar = async () => {
+      const c = $('#nbCorreo').value.trim(), k = $('#nbClave').value; if (!c || !k) { aviso('Escribe tu correo y tu contraseña'); return; }
+      const b = $('#nbEntrar'); b.disabled = true; b.textContent = 'Entrando…';
+      try { await Nube.entrar(c, k, $('#nbComp').checked); try { localStorage.setItem('morpheus-ultimo-correo', c); } catch (e) {} compPend = null; await entrarApp(); }
+      catch (e) { aviso(e.message, 4500); b.disabled = false; b.textContent = 'Entrar'; }
+    };
+    $('#nbEntrar').onclick = entrar; $('#nbClave').onkeydown = (e) => { if (e.key === 'Enter') entrar(); };
+    $('#nbComp').onchange = (e) => { compPend = e.target.checked; };
+    $('#nbCrear').onclick = () => { pantalla = 'registro'; render(); window.scrollTo(0, 0); };
+    $('#nbOlvido').onclick = () => {
+      abrirHoja(`<h2>Recuperar contraseña</h2><label class="campo completo"><span>Tu correo</span><input id="rcCorreo" type="email" autocapitalize="none" value="${esc($('#nbCorreo').value)}"></label>
+        <p class="nota">Te enviaremos un enlace para crear una contraseña nueva (revisa también spam).</p><div class="acciones"><button class="secundario" id="rcNo">Cancelar</button><button class="primario" id="rcOk">Enviar enlace</button></div>`);
+      $('#rcNo').onclick = cerrarHoja;
+      $('#rcOk').onclick = async () => { try { await Nube.recuperar($('#rcCorreo').value); cerrarHoja(); aviso('Listo: revisa tu correo', 4000); } catch (e) { aviso(e.message, 4000); } };
+    };
+  }
+  function renderRegistroNube(v) {
+    $('#titulo').textContent = 'Crear cuenta'; $('#btnMenu').hidden = true; $('#btnAtras').hidden = false;
+    v.innerHTML = `<section class="tarjeta"><h2>Crea tu cuenta</h2><p class="nota" style="margin-top:0">7 días gratis con todas las funciones. Después eliges un plan. Crisis (SOS) siempre es gratis.</p>
+      <div class="rejilla ancha"><label class="campo completo"><span>Nombre y apellido</span><input id="rnNombre" autocomplete="name" placeholder="Dr. Nombre Apellido"></label>
+      <label class="campo completo"><span>Correo</span><input id="rnCorreo" type="email" autocomplete="email" autocapitalize="none"></label>
+      <label class="campo"><span>Contraseña (mínimo 8)</span><input id="rnC1" type="password" autocomplete="new-password"></label><label class="campo"><span>Repetir contraseña</span><input id="rnC2" type="password" autocomplete="new-password"></label></div>
+      <div class="check"><input type="checkbox" id="rnAcepto"><label for="rnAcepto" style="flex:1">Acepto los <button class="enlace" data-legal="terminos">Términos de uso</button>, la <button class="enlace" data-legal="privacidad">Política de privacidad</button> y el <button class="enlace" data-legal="aviso">Aviso médico</button>.</label></div>
+      <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="rnOk">Crear mi cuenta</button></div>
+      <p class="nota">¿Ya tienes cuenta? <button class="enlace" id="rnLogin">Inicia sesión</button></p></section>`;
+    $$('#vista [data-legal]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); verLegal(b.dataset.legal); }));
+    $('#rnLogin').onclick = () => { pantalla = 'login'; render(); };
+    $('#rnOk').onclick = async () => {
+      const n = $('#rnNombre').value.trim(), c = $('#rnCorreo').value.trim(), k1 = $('#rnC1').value;
+      if (!n) return aviso('Escribe tu nombre'); if (!/^\S+@\S+\.\S+$/.test(c)) return aviso('Revisa tu correo');
+      if (k1.length < 8) return aviso('La contraseña debe tener al menos 8 caracteres'); if (k1 !== $('#rnC2').value) return aviso('Las contraseñas no coinciden');
+      if (!$('#rnAcepto').checked) return aviso('Debes aceptar los términos para crear la cuenta');
+      const b = $('#rnOk'); b.disabled = true; b.textContent = 'Creando…';
+      try {
+        try { localStorage.setItem('morpheus-registro-pend', JSON.stringify({ nombre: n, correo: c })); localStorage.setItem('morpheus-ultimo-correo', c); } catch (e) {}
+        const r = await Nube.registrar(c, k1, n);
+        if (r.confirmar) { pantalla = 'confirmar'; render(); return; }
+        await Nube.entrar(c, k1, false); await entrarApp();
+      } catch (e) { aviso(e.message, 4500); b.disabled = false; b.textContent = 'Crear mi cuenta'; }
+    };
+  }
+  function renderConfirmar(v) {
+    $('#titulo').textContent = 'Confirma tu correo'; $('#btnMenu').hidden = true;
+    const c = localStorage.getItem('morpheus-ultimo-correo') || '';
+    v.innerHTML = `<section class="tarjeta" style="margin-top:24px"><h2>Revisa tu correo</h2><p>Te enviamos un enlace de confirmación a <b>${esc(c)}</b>. Ábrelo (revisa también spam o promociones) y luego inicia sesión aquí.</p>
+      <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="cfLogin">Ya confirmé: iniciar sesión</button></div></section>`;
+    $('#cfLogin').onclick = () => { pantalla = 'login'; render(); };
+  }
+  function renderNuevaClave(v) {
+    $('#titulo').textContent = 'Nueva contraseña'; $('#btnMenu').hidden = true;
+    v.innerHTML = `<section class="tarjeta" style="margin-top:24px"><h2>Crea tu contraseña nueva</h2><div class="rejilla ancha">
+      <label class="campo"><span>Contraseña nueva (mínimo 8)</span><input id="ncC1" type="password" autocomplete="new-password"></label><label class="campo"><span>Repetir</span><input id="ncC2" type="password" autocomplete="new-password"></label></div>
+      <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="ncOk">Guardar y entrar</button></div></section>`;
+    $('#ncOk').onclick = async () => {
+      const k = $('#ncC1').value; if (k.length < 8) return aviso('Mínimo 8 caracteres'); if (k !== $('#ncC2').value) return aviso('No coinciden');
+      try { await Nube.nuevaClave(k); aviso('Contraseña actualizada'); await entrarApp(); } catch (e) { aviso(e.message, 4500); }
+    };
+  }
+
+  /* ---- Suscripción ---- */
+  let suscDesde = 'inicio';
+  function irSuscripcion() { if (pantalla !== 'suscripcion') suscDesde = pantalla; pantalla = 'suscripcion'; render(); window.scrollTo(0, 0); }
+  function renderSuscripcion(v) {
+    $('#titulo').textContent = 'Mi suscripción';
+    const L = licencia() || {}, C = window.NUBE_CONFIG || {}, PR = C.precios || {}, PG = C.pagos || {};
+    const fv = (ms) => (ms ? new Date(ms).toLocaleDateString('es-VE', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+    const est = L.requiereConexion ? 'Hay que verificar con internet' : !L.activa ? 'Vencida' : L.estado === 'prueba' ? `Prueba gratis · quedan ${L.dias} día${L.dias === 1 ? '' : 's'}` : `Activa · plan ${L.plan}`;
+    v.innerHTML = (suscMsg ? `<section class="tarjeta guia-alerta"><p style="margin:0">${esc(suscMsg)}</p></section>` : '') +
+      card('Tu cuenta', `<p style="margin:0"><b>${esc(est)}</b>${L.vence ? `<br><small class="nota">${L.activa ? 'Vence' : 'Venció'} el ${fv(L.vence)}</small>` : ''}</p>
+        <p class="nota">Crisis (SOS) siempre funciona, con o sin suscripción.</p><div class="fila-btn" style="margin:0"><button class="secundario chico" data-acc="suscRefrescar">Actualizar estado</button></div>`) +
+      card('Planes', `<div class="planes">${['mensual', 'anual'].map((k) => PR[k] ? `<div class="plan"><b>${k === 'mensual' ? 'Mensual' : 'Anual'}</b><span>${esc(PR[k].txt)}</span></div>` : '').join('')}</div>
+        <p class="nota">Incluye historias con PDF, valoración preanestésica, récipe, calculadoras, guías y bloqueos, en el teléfono y en la computadora con la misma cuenta. Para clínicas con varios anestesiólogos, escríbenos.</p>`) +
+      card('Pagar', `<p class="nota" style="margin-top:0">1) Paga por uno de estos medios. 2) Reporta el pago abajo con la referencia. 3) Activamos tu cuenta (normalmente el mismo día).</p>
+        <ul class="guia-items">${Object.values(PG).map((x) => `<li><b>${esc(x.t)}:</b> ${esc(x.datos)}</li>`).join('')}<li><b>Google Play:</b> próximamente en la app de Android.</li></ul>
+        <h3>Reportar un pago</h3><div class="rejilla"><label class="campo"><span>Plan</span><select id="spPlan"><option value="mensual">Mensual</option><option value="anual">Anual</option></select></label>
+        <label class="campo"><span>Medio</span><select id="spCanal">${Object.entries(PG).map(([k, x]) => `<option value="${k}">${esc(x.t)}</option>`).join('')}</select></label>
+        <label class="campo"><span>Monto</span><input id="spMonto" inputmode="decimal" placeholder="0,00"></label><label class="campo"><span>Referencia</span><input id="spRef" placeholder="N.º de referencia"></label>
+        <label class="campo completo"><span>Nota (opcional)</span><input id="spNota" placeholder="Banco de origen, titular…"></label></div>
+        <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="spOk">Enviar reporte</button></div>`) +
+      card('Mis pagos', '<div id="spLista"><p class="nota" style="margin:0">Cargando…</p></div>') +
+      (C.contacto ? `<p class="nota" style="padding:0 6px 20px">¿Dudas con tu pago? Escríbenos: ${esc(C.contacto)}</p>` : '');
+    $('#spOk').onclick = async () => {
+      const ref = $('#spRef').value.trim(); if (!ref) return aviso('Escribe la referencia del pago');
+      const canal = $('#spCanal').value;
+      try { await Nube.reportarPago({ plan: $('#spPlan').value, canal, monto: num($('#spMonto').value) || null, moneda: (PG[canal] || {}).moneda || 'USD', referencia: ref, nota: $('#spNota').value }); aviso('Pago reportado: te avisaremos al activarlo', 3500); renderSuscripcion(v); }
+      catch (e) { aviso(e.message, 4500); }
+    };
+    Nube.misPagos().then((l) => { const e = $('#spLista'); if (!e) return; e.innerHTML = l.length ? `<ul class="lista">${l.map((p) => `<li class="item"><div class="txt"><b>${esc(p.plan)} · ${esc((PG[p.canal] || {}).t || p.canal)}${p.monto ? ' · ' + esc(p.monto) + ' ' + esc(p.moneda || '') : ''}</b><small>Ref. ${esc(p.referencia)} · ${new Date(p.creado).toLocaleDateString('es-VE')}</small></div><span class="estado-pago ${p.estado}">${{ pendiente: 'Pendiente', aprobado: 'Aprobado', rechazado: 'Rechazado' }[p.estado] || p.estado}</span></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Aún no has reportado pagos.</p>'; })
+      .catch((er) => { const e = $('#spLista'); if (e) e.innerHTML = `<p class="nota" style="margin:0">${esc(er.message)}</p>`; });
+  }
+
+  /* ---- Administración (solo administradores) ---- */
+  function renderAdmin(v) {
+    $('#titulo').textContent = 'Administración';
+    v.innerHTML = `<section class="tarjeta"><div class="bq-tabs">${[['pagos', 'Pagos'], ['usuarios', 'Usuarios']].map(([k, t]) => `<button type="button" class="opcion${admTab === k ? ' sel' : ''}" data-admtab="${k}">${t}</button>`).join('')}</div>
+      <label class="campo completo" style="margin:10px 0 0"><span>Buscar</span><input id="admQ" type="search" placeholder="Correo, nombre o referencia"></label></section><div id="admCont"><p class="nota" style="padding:0 6px">Cargando…</p></div>`;
+    $$('#vista [data-admtab]').forEach((b) => (b.onclick = () => { admTab = b.dataset.admtab; renderAdmin(v); }));
+    const fv = (s) => (s ? new Date(s).toLocaleDateString('es-VE') : '');
+    let usuarios = [], pagos = [];
+    const pintar = () => {
+      const q = sinTilde($('#admQ').value), uDe = (id) => usuarios.find((u) => u.user_id === id) || {};
+      const cont = $('#admCont'); if (!cont) return;
+      if (admTab === 'pagos') {
+        const l = pagos.filter((p) => !q || sinTilde([p.referencia, uDe(p.user_id).correo, uDe(p.user_id).nombre].join(' ')).includes(q));
+        const pend = l.filter((p) => p.estado === 'pendiente'), resto = l.filter((p) => p.estado !== 'pendiente');
+        const fila = (p) => { const u = uDe(p.user_id); return `<li class="item"><div class="txt"><b>${esc(u.correo || p.user_id)}</b><small>${esc(u.nombre || '')}</small><small>${esc(p.plan)} · ${esc(p.canal)} · ${p.monto ? esc(p.monto) + ' ' + esc(p.moneda || '') : 'sin monto'} · Ref. ${esc(p.referencia)} · ${fv(p.creado)}</small>${p.nota ? `<small>${esc(p.nota)}</small>` : ''}</div>
+          ${p.estado === 'pendiente' ? `<div class="adm-bot"><button class="primario chico" data-admok="${p.id}">Aprobar</button><button class="peligro chico" data-admno="${p.id}">Rechazar</button></div>` : `<span class="estado-pago ${p.estado}">${p.estado}</span>`}</li>`; };
+        cont.innerHTML = card(`Pendientes (${pend.length})`, pend.length ? `<ul class="lista">${pend.map(fila).join('')}</ul>` : '<p class="nota" style="margin:0">No hay pagos por revisar.</p>') + (resto.length ? card('Revisados', `<ul class="lista">${resto.slice(0, 50).map(fila).join('')}</ul>`) : '');
+      } else {
+        const l = usuarios.filter((u) => !q || sinTilde([u.correo, u.nombre].join(' ')).includes(q));
+        cont.innerHTML = card(`Usuarios (${l.length})`, `<ul class="lista">${l.map((u) => `<li class="item"><div class="txt"><b>${esc(u.correo)}</b><small>${esc(u.nombre || '')} · desde ${fv(u.creado)}</small><small>${esc(u.estado)} · ${esc(u.plan)} · vence ${fv(u.vence)}</small></div>
+          <div class="adm-bot"><button class="secundario chico" data-admext="${u.user_id}" data-d="30">+30 d</button><button class="secundario chico" data-admext="${u.user_id}" data-d="365">+1 año</button></div></li>`).join('')}</ul>`);
+      }
+      $$('#admCont [data-admok],#admCont [data-admno]').forEach((b) => (b.onclick = async () => {
+        const ok = !!b.dataset.admok; if (!confirm(ok ? '¿Aprobar este pago y activar la cuenta?' : '¿Rechazar este pago?')) return;
+        try { await Nube.admRevisar(+(b.dataset.admok || b.dataset.admno), ok); aviso(ok ? 'Pago aprobado: cuenta activada' : 'Pago rechazado'); cargar(); } catch (e) { aviso(e.message, 4500); }
+      }));
+      $$('#admCont [data-admext]').forEach((b) => (b.onclick = async () => {
+        if (!confirm(`¿Extender ${b.dataset.d} días a esta cuenta?`)) return;
+        try { await Nube.admExtender(b.dataset.admext, +b.dataset.d, +b.dataset.d >= 365 ? 'anual' : 'mensual'); aviso('Cuenta extendida'); cargar(); } catch (e) { aviso(e.message, 4500); }
+      }));
+    };
+    const cargar = async () => { try { [usuarios, pagos] = await Promise.all([Nube.admUsuarios(), Nube.admPagos()]); pintar(); } catch (e) { const c = $('#admCont'); if (c) c.innerHTML = card('Error', `<p class="nota" style="margin:0">${esc(e.message)}</p>`); } };
+    $('#admQ').oninput = pintar; cargar();
+  }
+
+  /* ---- Ajustes › Cuenta (2.0) ---- */
+  function cuentaNubeHtml() {
+    const L = licencia() || {}, pend = Nube.pendientes(), ult = Nube.ultimaSync(), err = Nube.ultimoError();
+    return card('Mi cuenta', `<p style="margin:0 0 8px">Correo: <b>${esc(nubeU.correo)}</b></p>
+        <p class="nota" style="margin:0 0 8px">Suscripción: <b>${L.activa ? (L.estado === 'prueba' ? `prueba gratis, quedan ${L.dias} días` : `activa (${esc(L.plan)}), quedan ${L.dias} días`) : 'vencida'}</b></p>
+        <div class="fila-btn"><button class="primario" data-acc="irSusc">Mi suscripción</button>${L.admin ? '<button class="secundario" data-acc="irAdmin">Administración</button>' : ''}</div>`) +
+      card('Sincronización', `<p class="nota" style="margin-top:0">Tus historias, documentos y ajustes se guardan en este dispositivo y en tu cuenta. Con la misma cuenta los ves en el teléfono y en la computadora.</p>
+        <p style="margin:0">${pend ? `<b>${pend} cambio${pend === 1 ? '' : 's'} por subir</b>` : 'Todo subido'}${ult ? ` · última vez: ${new Date(ult).toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' })}` : ''}</p>
+        ${err ? `<p class="nota" style="color:var(--peligro)">${esc(err)}</p>` : ''}
+        <div class="fila-btn"><button class="secundario" data-acc="syncYa">Sincronizar ahora</button></div>
+        ${Nube.compartido() ? '<p class="nota">Equipo compartido: al cerrar sesión se borran tus datos de este equipo (quedan en tu cuenta).</p>' : ''}`) +
+      card('Seguridad', `<div class="fila-btn" style="margin-top:0"><button class="secundario" data-acc="nubeClave">Cambiar contraseña</button><button class="secundario" data-acc="nubeSalir">Cerrar sesión</button></div>
+        <div class="fila-btn"><button class="peligro chico" data-acc="nubeBorrar">Borrar mi cuenta y mis datos</button></div>`);
+  }
+  async function cerrarSesionNube() {
+    aviso('Cerrando sesión…', 1500);
+    await Nube.salir(); aplicarCuenta(null); pantalla = 'bienvenida'; render();
+  }
+  // Equipos compartidos: cierre automático tras 30 min sin uso
+  let ultimoUso = Date.now();
+  ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => (ultimoUso = Date.now()), { passive: true }));
+  setInterval(() => { if (NUBE() && nubeU && Nube.compartido() && Date.now() - ultimoUso > 30 * 60e3) { ultimoUso = Date.now(); guardarYa(); cerrarSesionNube().then(() => aviso('Sesión cerrada por inactividad', 4000)); } }, 60e3);
+  setInterval(() => refrescarLicencia(), 30 * 60e3);
+
   /* ---- Mi farmacia: qué presentaciones tiene el usuario en su hospital o clínica ---- */
   const FARMACIA = [
     ['Anestésicos locales', [['lido1', 'Lidocaína 1 %'], ['lido2', 'Lidocaína 2 %'], ['lidoEpi', 'Lidocaína con epinefrina'], ['lido4', 'Lidocaína 4 % (tópica)'], ['lido10', 'Lidocaína 10 % spray'],
@@ -1947,15 +2187,20 @@
 
   /* ---- Asistente de configuración (al crear la cuenta o al entrar sin cuenta por primera vez) ---- */
   let cfgPaso = 0;
-  function irConfiguracion() { cfgPaso = 0; pantalla = 'config'; render(); window.scrollTo(0, 0); }
-  function terminarConfiguracion(conTour) { delete cfg.onbPend; cfg.novVista = VERSION; cfg.tourPend = !!conTour; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); window.scrollTo(0, 0); }
+  function irConfiguracion() { cfgPaso = NUBE() ? -1 : 0; pantalla = 'config'; render(); window.scrollTo(0, 0); }
+  function terminarConfiguracion(conTour) { delete cfg.onbPend; cfg.novVista = VERSION; cfg.tourPend = !!conTour; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); window.scrollTo(0, 0); if (!conTour && NUBE() && nubeU) setTimeout(ofrecerLegado, 300); }
   function renderConfig(v) {
     $('#titulo').textContent = 'Configurar Morpheus MD';
-    $('#btnAtras').hidden = cfgPaso === 0; $('#btnSOS').hidden = true;
-    const pasos = ['Lugares de trabajo', 'Mi farmacia', 'Listo'];
-    const cab = `<div class="cf-pasos">${pasos.map((p, i) => `<span class="${i === cfgPaso ? 'act' : i < cfgPaso ? 'hecho' : ''}">${i + 1}. ${p}</span>`).join('')}</div>`;
+    const k0 = NUBE() ? 1 : 0;
+    $('#btnAtras').hidden = cfgPaso === -k0; $('#btnSOS').hidden = true;
+    const pasos = (k0 ? ['Tus datos'] : []).concat(['Lugares de trabajo', 'Mi farmacia', 'Listo']);
+    const cab = `<div class="cf-pasos">${pasos.map((p, i) => `<span class="${i === cfgPaso + k0 ? 'act' : i < cfgPaso + k0 ? 'hecho' : ''}">${i + 1}. ${p}</span>`).join('')}</div>`;
     const pie = (sig) => `<div class="fila-btn" style="justify-content:space-between"><button class="secundario" id="cfOmitir">Omitir</button><button class="primario" id="cfSig">${sig}</button></div>`;
-    if (cfgPaso === 0) {
+    if (cfgPaso === -1) {
+      v.innerHTML = cab + card('Tus datos profesionales', '<p class="nota" style="margin-top:0">Salen en el membrete y bajo la firma de tus historias, valoraciones y récipes. Puedes completarlos después en ⚙ Ajustes.</p>' + camposMedico(cfg.perfil)) + pie('Siguiente');
+      enlazarMedico(cfg.perfil);
+      $('#cfSig').onclick = () => { Store.guardarConfig(cfg); cfgPaso = 0; render(); window.scrollTo(0, 0); };
+    } else if (cfgPaso === 0) {
       if (!cfg.sedes.length) cfg.sedes.push({ id: uid(), nombre: '', sub: '', logo: '' });
       v.innerHTML = cab + card('¿Dónde trabajas?', `<p class="nota" style="margin-top:0">Agrega los hospitales o clínicas donde trabajas. El lugar que elijas en cada historia sale en el encabezado del PDF. El logo y los demás datos se editan después en ⚙ Ajustes › Lugares de trabajo.</p>
         ${cfg.sedes.map((s, i) => `<div class="med"><div class="rejilla ancha"><label class="campo completo"><span>Hospital o clínica ${i + 1}</span><input data-cfsede="${i}" data-c="nombre" value="${esc(s.nombre)}" placeholder="Nombre del hospital o clínica"></label>
@@ -1986,7 +2231,7 @@
 
   /* ---- Recorrido guiado (A) ---- */
   const TOUR = [
-    { t: 'Bienvenido a Morpheus MD', x: 'Registro anestésico digital y herramientas de consulta para anestesiólogos. Todo lo que escribes se guarda solo en este dispositivo: no se envía a ningún servidor. En 8 pasos te mostramos dónde está cada cosa.' },
+    { t: 'Bienvenido a Morpheus MD', x: 'Registro anestésico digital y herramientas de consulta para anestesiólogos. Lo que escribes se guarda en este dispositivo y en tu cuenta: lo ves en el teléfono y en la computadora, y funciona sin internet. En 8 pasos te mostramos dónde está cada cosa.' },
     { sel: '.fab', t: 'Nueva historia', x: 'Crea la historia de anestesia de un paciente. Se guarda sola mientras escribes. Si trabajas en varios lugares, te pregunta en cuál.' },
     { sel: '#buscar', t: 'Tus historias', x: 'Debajo aparece la lista de historias. Búscalas por nombre, cédula, cirugía o fecha. El botón ⋮ de cada una permite verla en PDF, duplicarla como plantilla o eliminarla.' },
     { sel: '.ex-banner', t: 'Extras', x: 'Valoración preanestésica y récipe con tu membrete, tu firma y tu sello.' },
@@ -1998,7 +2243,7 @@
   let tourPaso = -1;
   function tour(i) {
     let ov = $('#tour');
-    if (i < 0 || i >= TOUR.length) { if (ov) ov.remove(); tourPaso = -1; cfg.tourPend = false; cfg.tourVisto = true; Store.guardarConfig(cfg); return; }
+    if (i < 0 || i >= TOUR.length) { if (ov) ov.remove(); tourPaso = -1; cfg.tourPend = false; cfg.tourVisto = true; Store.guardarConfig(cfg); if (NUBE() && nubeU) setTimeout(ofrecerLegado, 300); return; }
     tourPaso = i; if (!ov) { ov = document.createElement('div'); ov.id = 'tour'; document.body.appendChild(ov); }
     const p = TOUR[i], el = p.sel && $(p.sel), ult = i === TOUR.length - 1;
     let hueco = '', clase = 'centro', estilo = '';
@@ -2039,6 +2284,7 @@
 
   /* ---- Novedades de cada versión ---- */
   const NOVEDADES = [
+    ['2.0.0', ['Cuenta con tu correo: tus historias, documentos y ajustes se guardan en tu cuenta y los ves en el teléfono y en la computadora.', 'Equipo compartido para clínicas: al cerrar sesión se borran tus datos de ese equipo y la sesión se cierra sola tras 30 min sin uso.', '7 días de prueba gratis; luego suscripción mensual o anual (Menú › Mi suscripción). Crisis (SOS) siempre es gratis.', 'Si ya usabas la app en este dispositivo, te ofrecemos pasar tus historias a tu cuenta.']],
     ['1.9.13', ['Menú reorganizado por grupos: Documentos, Herramientas clínicas, Configuración y Ayuda.', 'Nuevo botón ⚙ Ajustes arriba: Mis datos, Firma y sello, Imágenes, Lugares de trabajo y Cuenta, en pestañas.', 'Valoración y récipe: en el menú ⋮ del documento, Compartir PDF y Guardar PDF directo, sin pasar por la vista previa.']],
     ['1.9.12', ['Guía de uso (Menú › ❓ Guía de uso) y recorrido guiado para quien entra por primera vez.', 'Mi farmacia: marca los fármacos de tu hospital; las mezclas de bloqueos y la calculadora se adaptan.',
       'Al crear la cuenta, un asistente pregunta tus lugares de trabajo y tu farmacia.', 'Bloqueos: dosis de ropivacaína y levobupivacaína, lidocaína 4 % y 10 % en vía aérea, raquídea con dosis habituales y límites de volumen, PENG con sus acotaciones.',
@@ -2064,9 +2310,9 @@
   let ayudaDesde = 'inicio', ayudaBusca = '';
   function irAyuda() { if (pantalla !== 'ayuda') ayudaDesde = pantalla; pantalla = 'ayuda'; render(); window.scrollTo(0, 0); }
   const AYUDA = [
-    { t: 'Primeros pasos', ir: 'tour', b: 'Ver el recorrido', p: ['Morpheus MD funciona sin internet. Todo lo que escribes se guarda solo en este dispositivo (teléfono o navegador): no se envía a ningún servidor.',
-      'Tu cuenta (usuario y contraseña) también vive en este dispositivo. Para usarla en otro teléfono o en la web: ⚙ Ajustes › Cuenta › Exportar mi cuenta, y en el otro dispositivo “Importar cuenta”.',
-      'Haz un respaldo de tus historias de vez en cuando (Menú › Respaldo), sobre todo antes de cambiar de teléfono.'] },
+    { t: 'Primeros pasos', ir: 'tour', b: 'Ver el recorrido', p: ['Morpheus MD funciona sin internet: lo que escribes se guarda en este dispositivo y, cuando hay conexión, se sincroniza con tu cuenta. Así ves tus historias en el teléfono y en la computadora con el mismo correo.',
+      'Tu cuenta incluye 7 días de prueba gratis; luego eliges un plan en Menú › Mi suscripción. Crisis (SOS) siempre es gratis.',
+      'En una computadora de clínica marca “Equipo compartido” al iniciar sesión: al salir se borran tus datos de ese equipo (quedan en tu cuenta) y la sesión se cierra sola tras 30 minutos sin uso.'] },
     { t: 'Instalar la versión web como app', web: true, p: ['Android (Chrome): menú ⋮ del navegador › “Instalar app” o “Agregar a la pantalla de inicio”.', 'iPhone (Safari): botón Compartir › “Agregar a inicio”.', 'Tus datos quedan en ese navegador: si borras los datos del navegador, se borran. Respáldalos.'] },
     { t: 'Crear una historia de anestesia', ir: 'nueva', b: 'Crear una historia', p: ['En la pantalla de inicio toca “+ Nueva historia”. Si tienes varios lugares de trabajo, elige dónde.',
       'La historia tiene 10 secciones: Paciente, Valoración, Preparación, Inducción y técnica, Vía aérea, Regional, Transoperatorio, Balance y gases, Salida, Notas y firma. Pásalas con la barra de arriba o los botones de abajo.',
@@ -2086,7 +2332,7 @@
     { t: 'Ajustes: perfil, firma y sello', ir: 'perfil', b: 'Abrir Ajustes', p: ['El engranaje ⚙ de arriba abre tus ajustes en pestañas: Mis datos, Firma y sello (dibujada o escaneada), Imágenes (marca de agua y portada), Lugares de trabajo y Cuenta.', 'Aquí también exportas o importas tu cuenta y cambias la contraseña.'] },
     { t: 'Lugares de trabajo', ir: 'sedes', b: 'Abrir Lugares de trabajo', p: ['Están en ⚙ Ajustes › Lugares de trabajo. Cada lugar tiene nombre, ciudad y logo; es el encabezado del PDF de la historia.', 'Al crear una historia eliges el lugar; puedes cambiarlo en la sección Paciente.'] },
     { t: 'Mi farmacia', ir: 'farmacia', b: 'Abrir Mi farmacia', p: ['Marca los anestésicos locales, coadyuvantes y fármacos de rescate que tienes. La app usa esa lista en Bloqueos (mezclas y calculadora) y en Crisis (presentaciones y avisos, p. ej., si no hay emulsión lipídica).'] },
-    { t: 'Respaldo y cambio de teléfono', ir: 'respaldo', b: 'Hacer un respaldo', p: ['Menú › Respaldo exporta todas tus historias y documentos en un archivo; guárdalo fuera del teléfono (correo, nube).', 'Para pasar a otro teléfono: respalda aquí, instala la app allá e importa el archivo.'] },
+    { t: 'Cambio de teléfono y respaldo', ir: 'respaldo', b: 'Hacer un respaldo', p: ['Con tu cuenta no hace falta pasar archivos: en el teléfono o la computadora nuevos inicia sesión con tu correo y tus historias se descargan solas.', 'Si quieres una copia propia, Menú › Respaldo exporta todas tus historias y documentos en un archivo.'] },
   ];
   function renderAyuda(v) {
     $('#titulo').textContent = 'Guía de uso';
@@ -2539,9 +2785,17 @@
     else if (acc === 'bqZoom') bqZoom(a.dataset.src);
     else if (acc === 'bqMas') { bqC.filas.push({ p: (bqPresDisp().find((x) => x[0] === 'lido2') || bqPresDisp()[0])[0], epi: false, ml: '' }); render(); const r = $('#bqRes'); if (r) r.scrollIntoView({ block: 'end' }); }
     else if (acc === 'ayIr') ayudaIr(a.dataset.ir);
+    else if (acc === 'irSusc') { suscMsg = ''; irSuscripcion(); }
+    else if (acc === 'suscRefrescar') { Nube.estado(true).then(() => { render(); aviso('Estado actualizado'); }).catch((e) => aviso(e.message, 4000)); }
+    else if (acc === 'irAdmin') { pantalla = 'admin'; render(); window.scrollTo(0, 0); }
+    else if (acc === 'syncYa') { aviso('Sincronizando…', 1500); Nube.sincronizar().then((r) => { render(); aviso(r ? `Listo · ${r.subidos} subidos, ${r.bajados} recibidos` : 'Listo'); }).catch((e) => { render(); aviso(e.message, 4500); }); }
+    else if (acc === 'nubeSalir') { if (confirm(Nube.pendientes() ? 'Hay cambios sin subir: se intentará subirlos antes de salir. ¿Cerrar sesión?' : '¿Cerrar sesión?')) cerrarSesionNube(); }
+    else if (acc === 'nubeClave') { pantalla = 'nuevaclave'; render(); }
+    else if (acc === 'nubeBorrar') { if (confirm('¿Borrar tu cuenta? Se eliminan tu suscripción y TODAS tus historias y documentos de la nube y de este equipo. No se puede deshacer.') && prompt('Escribe BORRAR para confirmar') === 'BORRAR') Nube.borrarCuenta().then(() => { aplicarCuenta(null); pantalla = 'bienvenida'; render(); aviso('Cuenta borrada'); }).catch((e) => aviso(e.message, 4500)); }
     else if (acc === 'bqFarm') { farmDesde = pantalla; pantalla = 'farmacia'; render(); window.scrollTo(0, 0); }
     else if (acc === 'bqQuitar') { bqC.filas.splice(+a.dataset.i, 1); render(); }
     else if (acc === 'guiaAbrir') { guiaId = a.dataset.id; pantalla = 'guia'; render(); window.scrollTo(0, 0); }
+    else if (acc === 'docNuevo' && !puedeCrear()) return;
     else if (acc === 'docNuevo') { const x = nuevoDoc(a.dataset.t); Store.guardarDoc(x); abrirDoc(x); }
     else if (acc === 'docAbrir') { const x = Store.cargarDoc(a.dataset.id); if (x) abrirDoc(migrarDoc(x)); else aviso('No se pudo abrir'); }
     else if (acc === 'docMas') { const id = a.dataset.id; menu([
@@ -2623,23 +2877,29 @@
         { t: '📖 Guías de consulta', f: () => { guiaDesde = pantalla; pantalla = 'guias'; render(); window.scrollTo(0, 0); } },
         { sec: 'Configuración' },
         { t: '💊 Mi farmacia', f: () => { farmDesde = pantalla; pantalla = 'farmacia'; render(); window.scrollTo(0, 0); } },
+        ...(NUBE() && nubeU ? [{ t: '⭐ Mi suscripción', f: () => { suscMsg = ''; irSuscripcion(); } }] : []),
+        ...(NUBE() && nubeU && (licencia() || {}).admin ? [{ t: '🛠 Administración', f: () => { pantalla = 'admin'; render(); window.scrollTo(0, 0); } }] : []),
         { t: '🗂 Respaldo (exportar / importar)', f: respaldo },
         { sec: 'Ayuda' },
         { t: '❓ Guía de uso', f: irAyuda },
-        { t: 'ℹ Acerca de', f: () => { abrirHoja(`<h2>Morpheus MD</h2><p>Versión ${VERSION} · Registro anestésico digital</p><p class="nota">${window.Nativo ? 'Todo se guarda solo en este teléfono; la app no tiene acceso a Internet.' : 'Todo se guarda solo en este navegador, en este equipo; tus historias no se envían a ningún servidor.'} Usa “Respaldo” de vez en cuando para no perder tus historias si cambias o pierdes el teléfono.</p>
+        { t: 'ℹ Acerca de', f: () => { abrirHoja(`<h2>Morpheus MD</h2><p>Versión ${VERSION} · Registro anestésico digital</p><p class="nota">${NUBE() && nubeU ? 'Tus datos se guardan en este dispositivo y se sincronizan con tu cuenta (' + esc(nubeU.correo) + ').' : 'Tus datos se guardan en este dispositivo.'} Ver la Política de privacidad para más detalles.</p>
           <div class="fila-btn">${Object.entries(LEGAL.TEXTOS).map(([k, x]) => `<button class="secundario chico" data-legal="${k}">${x.t}</button>`).join('')}</div>
           <div class="acciones"><button class="primario" id="acCerrar">Cerrar</button></div>`);
           $('#acCerrar').onclick = cerrarHoja; $$('#capa [data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal))); } },
-        ...(cfg.cuenta ? [{ t: '🔒 Cerrar sesión', f: cerrarSesion }] : []),
+        ...(NUBE() && nubeU ? [{ t: '🔒 Cerrar sesión', f: () => { if (confirm('¿Cerrar sesión?')) cerrarSesionNube(); } }] : cfg.cuenta ? [{ t: '🔒 Cerrar sesión', f: cerrarSesion }] : []),
       ]);
     }
   };
 
   function atras() {
+    if (pantalla === 'suscripcion') { pantalla = ['extras', 'perfil', 'editor', 'doc'].includes(suscDesde) && (suscDesde !== 'editor' || H) && (suscDesde !== 'doc' || D) ? suscDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'admin') { pantalla = 'inicio'; render(); return true; }
+    if (pantalla === 'confirmar' || pantalla === 'nuevaclave') { pantalla = nubeU ? 'perfil' : 'login'; render(); return true; }
+    if (NUBE() && (pantalla === 'login' || pantalla === 'registro')) { pantalla = 'bienvenida'; render(); return true; }
     if ($('#tour')) { tour(-1); return true; }
     if (pantalla === 'ayuda') { pantalla = ['editor', 'extras', 'guias', 'bloqueos', 'calc'].includes(ayudaDesde) && (ayudaDesde !== 'editor' || H) ? ayudaDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'farmacia') { pantalla = ['ayuda', 'bloqueos', 'bloqueo', 'extras', 'editor'].includes(farmDesde) && (farmDesde !== 'editor' || H) ? farmDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
-    if (pantalla === 'config') { if (cfgPaso > 0) { cfgPaso--; render(); window.scrollTo(0, 0); } return true; }
+    if (pantalla === 'config') { if (cfgPaso > (NUBE() ? -1 : 0)) { cfgPaso--; render(); window.scrollTo(0, 0); } return true; }
     if (window.Visor && Visor.abierto()) { Visor.cerrar(); return true; }
     if (!$('#capa').hidden) { cerrarHoja(); return true; }
     if (pantalla === 'editor') { guardarYa(); H = null; pantalla = 'inicio'; render(); return true; }
@@ -2667,5 +2927,7 @@
   window.app = { version: VERSION, atras: () => atras(), pausa: () => guardarYa(), _estado: () => ({ H, cfg }) };
   document.addEventListener('visibilitychange', () => { if (document.hidden) guardarYa(); });
   pantalla = 'bienvenida';
+  if (window.Nube) Nube.iniciar({ recuperar: () => { pantalla = 'nuevaclave'; render(); }, config: configDeLaNube,
+    usuario: (u) => { if (!u && nubeU) { aplicarCuenta(null); pantalla = 'bienvenida'; render(); } } }).then((u) => { if (u) { aplicarCuenta(u); refrescarLicencia(); } if (pantalla === 'bienvenida') render(); });
   render();
 })();
