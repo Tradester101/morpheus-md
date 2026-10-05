@@ -53,7 +53,21 @@ window.Nube = (function () {
       };
       return q;
     }
+    const storage = {
+      from: () => ({
+        async upload(path, blob) {
+          const u = yo(); if (!u || path.split('/')[0] !== u.id) return err('new row violates row-level security policy');
+          const url = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(blob); });
+          const d = db(); d.archivos = d.archivos || {}; if (d.archivos[path]) return err('The resource already exists'); d.archivos[path] = url; save(d); return { data: { path }, error: null };
+        },
+        async createSignedUrl(path) {
+          const d = db(), u = yo(); if (!u || !(d.archivos || {})[path] || (path.split('/')[0] !== u.id && !esAdmin(d))) return err('Object not found');
+          return { data: { signedUrl: d.archivos[path] }, error: null };
+        },
+      }),
+    };
     return {
+      storage,
       auth: {
         async signUp({ email, password, options }) {
           const d = db(); if (d.users[email]) return err('User already registered');
@@ -102,6 +116,10 @@ window.Nube = (function () {
   }
   const disponible = () => !!sb;
   const MSJ = [
+    [/pagos_registro_completo/i, 'Faltan datos del pago: referencia, datos del remitente y captura.'],
+    [/Bucket not found/i, 'Falta activar el almacenamiento de comprobantes en el servidor. Avísale al administrador.'],
+    [/exceeded the maximum allowed size|Payload too large/i, 'La captura es demasiado grande. Prueba con otra imagen.'],
+    [/mime type .* is not supported|invalid_mime_type/i, 'Ese archivo no es una imagen válida. Sube una captura (JPG o PNG).'],
     [/Invalid login credentials/i, 'Correo o contraseña incorrectos.'],
     [/Email not confirmed/i, 'Todavía no confirmas tu correo: abre el enlace que te enviamos (revisa también spam).'],
     [/already registered|already been registered/i, 'Ese correo ya tiene una cuenta. Inicia sesión o recupera tu contraseña.'],
@@ -180,10 +198,16 @@ window.Nube = (function () {
     return efectivo(c);
   }
   const estadoCache = () => { try { return efectivo(JSON.parse(ls.get(kLic()) || 'null')); } catch (e) { return null; } };
+  /* Reporte de pago: primero se sube el comprobante (carpeta del usuario, privada), luego el registro. */
   async function reportarPago(p) {
-    const { error } = await sb.from('pagos').insert({ user_id: usuario.id, plan: p.plan, canal: p.canal, monto: p.monto || null, moneda: p.moneda || 'USD', referencia: p.referencia, nota: p.nota || '' });
+    if (!p.archivo) throw new Error('Falta la captura del pago');
+    const ruta = usuario.id + '/' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + Math.random().toString(36).slice(2, 7) + '.jpg';
+    const sub = await sb.storage.from('comprobantes').upload(ruta, p.archivo, { contentType: p.archivo.type || 'image/jpeg', upsert: false });
+    if (sub.error) throw falla(sub.error);
+    const { error } = await sb.from('pagos').insert({ user_id: usuario.id, plan: p.plan, canal: p.canal, monto: p.monto || null, moneda: p.moneda || 'USD', referencia: p.referencia, nota: p.nota || '', remitente: p.remitente || {}, comprobante: ruta });
     if (error) throw falla(error);
   }
+  async function verComprobante(ruta) { const { data, error } = await sb.storage.from('comprobantes').createSignedUrl(ruta, 600); if (error) throw falla(error); return data.signedUrl; }
   /* Precios y datos de cobro: los define el administrador en Supabase (tabla ajustes); sin conexión se usa la última copia. */
   const K_AJ = 'morpheus-ajustes';
   const ajustesCache = () => { try { return JSON.parse(ls.get(K_AJ) || 'null'); } catch (e) { return null; } };
@@ -277,7 +301,7 @@ window.Nube = (function () {
 
   return {
     PRUEBA, disponible, iniciar, registrar, entrar, salir, recuperar, nuevaClave, usuario: () => usuario, compartido,
-    estado, estadoCache, reportarPago, misPagos, ajustes, ajustesCache, admAjustes, admPagos, admRevisar, admUsuarios, admExtender, borrarCuenta,
+    estado, estadoCache, reportarPago, verComprobante, misPagos, ajustes, ajustesCache, admAjustes, admPagos, admRevisar, admUsuarios, admExtender, borrarCuenta,
     marcar, sincronizar, programar, pendientes, marcarTodo, ultimaSync: () => ultimo || +(ls.get('morpheus-ultsync-' + (usuario && usuario.id)) || 0), ultimoError: () => ultimoError, traducir,
   };
 })();

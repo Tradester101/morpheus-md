@@ -63,9 +63,10 @@ window.LEGAL = (function () {
   const TEXTOS = {
     privacidad: {
       t: 'Política de privacidad',
-      h: `<p><b>Qué guardamos.</b> Para usar Morpheus MD necesitas una cuenta con tu correo. Guardamos tu correo, tu nombre, el estado de tu suscripción y los pagos que reportes.</p>
+      h: `<p><b>Qué guardamos.</b> Para usar Morpheus MD necesitas una cuenta con tu correo. Guardamos tu correo, tu nombre, el estado de tu suscripción y los pagos que reportes, con los datos del remitente y la captura del comprobante (guardada en privado: solo la ves tú y el administrador que verifica el pago).</p>
         <p><b>Tus historias y documentos.</b> Se guardan en tu dispositivo y, para que puedas usarlos en el teléfono y en la computadora con la misma cuenta, también en nuestra base de datos en la nube (Supabase), con conexión cifrada (HTTPS) y cifrado en reposo. Cada cuenta solo puede leer sus propios datos: ni otros usuarios ni los administradores de la app ven tus historias.</p>
         <p><b>Lo que no hacemos.</b> No vendemos ni compartimos tus datos, no usamos analítica, publicidad ni rastreadores.</p>
+        <p><b>Tasa BCV.</b> En Mi suscripción la app consulta la tasa oficial del BCV en un servicio público (ve.dolarapi.com) para mostrarte el monto en bolívares. Esa consulta no lleva tus datos ni los de tus pacientes.</p>
         <p><b>Equipos compartidos.</b> En una computadora de clínica marca "Equipo compartido" al iniciar sesión: al cerrar sesión se borran tus datos de ese equipo, y la sesión se cierra sola tras 30 minutos sin uso.</p>
         <p><b>Contraseña.</b> La gestiona el servicio de autenticación con resumen criptográfico; nadie puede verla. Si la olvidas, te enviamos un enlace a tu correo para crear una nueva.</p>
         <p><b>Borrar tu cuenta.</b> En ⚙ Ajustes › Cuenta puedes borrar tu cuenta y todos tus datos de la nube cuando quieras.</p>

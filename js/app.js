@@ -2060,53 +2060,124 @@
     const C = window.NUBE_CONFIG || {}, r = (window.Nube && Nube.ajustesCache && Nube.ajustesCache()) || {};
     const PR = {}; ['mensual', 'anual'].forEach((k) => { const b = (C.precios || {})[k] || {}, x = ((r.precios || {})[k]) || {}; PR[k] = { usd: +x.usd || b.usd || 0, bcv: +x.bcv || b.bcv || 0 }; });
     const PG = {}; Object.entries(C.pagos || {}).forEach(([k, b]) => { const t = (r.pagos || {})[k]; PG[k] = Object.assign({}, b, typeof t === 'string' && t.trim() ? { datos: t.trim() } : {}); });
-    return { PR, PG, contacto: (r.contacto || '').trim() || C.contacto || '' };
+    const tm = r.tasa || {};
+    return { PR, PG, contacto: (r.contacto || '').trim() || C.contacto || '', tasa: { v: +tm.v || 0, fecha: tm.fecha || '', usar: !!tm.usar } };
   }
   /* Montos al estilo venezolano (6.203,22) sin depender del idioma del equipo */
   const fmtM = (n, d = 2) => { const [e, f] = (Math.round(+n * 10 ** d) / 10 ** d).toFixed(d).split('.'); return e.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (d ? ',' + f : ''); };
   const numM = (v) => { v = String(v || '').trim(); if (/,/.test(v)) v = v.replace(/\./g, '').replace(',', '.'); else if (/^\d{1,3}(\.\d{3})+$/.test(v)) v = v.replace(/\./g, ''); return v ? parseFloat(v) : NaN; };
   const fmtUsd = (n) => (Number.isInteger(+n) ? String(+n) : fmtM(n));
+  /* Tasa BCV oficial: se consulta sola (ve.dolarapi.com, fuente BCV); respaldo: la última guardada o la que fije el administrador. */
+  const TASA_K = 'morpheus-tasa-bcv';
+  function tasaBcv() {
+    const m = (AJ().tasa || {});
+    if (m.usar && m.v > 0) return { v: m.v, fecha: m.fecha || '', fuente: 'manual' };
+    try { const c = JSON.parse(localStorage.getItem(TASA_K) || 'null'); if (c && c.v > 0) return c; } catch (e) {}
+    return m.v > 0 ? { v: m.v, fecha: m.fecha || '', fuente: 'manual' } : null;
+  }
+  let tasaPide = null;
+  function refrescarTasa() {
+    if (tasaPide) return tasaPide;
+    const ctl = window.AbortController ? new AbortController() : null; const to = setTimeout(() => ctl && ctl.abort(), 8000);
+    tasaPide = fetch('https://ve.dolarapi.com/v1/dolares/oficial', { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      .then((r) => r.json()).then((j) => {
+        const v = +j.promedio; if (!(v > 0)) throw new Error('sin tasa');
+        const t = { v, fecha: String(j.fechaActualizacion || '').slice(0, 10), fuente: 'BCV', leida: Date.now() };
+        try { localStorage.setItem(TASA_K, JSON.stringify(t)); } catch (e) {} return t;
+      }).finally(() => { clearTimeout(to); setTimeout(() => (tasaPide = null), 60000); });
+    return tasaPide;
+  }
+  const fFecha = (f) => (/^\d{4}-\d{2}-\d{2}$/.test(f || '') ? f.split('-').reverse().join('/') : '');
+  let spSel = { plan: 'mensual', canal: 'pago_movil' };
+
   function renderSuscripcion(v) {
     $('#titulo').textContent = 'Mi suscripción';
     const L = licencia() || {}, A = AJ(), C = { contacto: A.contacto }, PR = A.PR, PG = A.PG, ajVisto = JSON.stringify(A);
-    Nube.ajustes().then(() => { if (pantalla === 'suscripcion' && JSON.stringify(AJ()) !== ajVisto && !$('#spRef').value && !$('#spTasa').value) renderSuscripcion(v); }).catch(() => {});
+    Nube.ajustes().then(() => { if (pantalla === 'suscripcion' && JSON.stringify(AJ()) !== ajVisto && !$('#spRef').value) renderSuscripcion(v); }).catch(() => {});
+    if (!PG[spSel.canal]) spSel.canal = Object.keys(PG)[0];
     const fv = (ms) => (ms ? new Date(ms).toLocaleDateString('es-VE', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
     const est = L.requiereConexion ? 'Hay que verificar con internet' : !L.activa ? 'Vencida' : L.estado === 'prueba' ? `Prueba gratis · quedan ${L.dias} día${L.dias === 1 ? '' : 's'}` : `Activa · plan ${L.plan}`;
+    const ah = PR.mensual.usd ? Math.floor((1 - PR.anual.usd / (PR.mensual.usd * 12)) * 100) : 0;
     v.innerHTML = (suscMsg ? `<section class="tarjeta guia-alerta"><p style="margin:0">${esc(suscMsg)}</p></section>` : '') +
       card('Tu cuenta', `<p style="margin:0"><b>${esc(est)}</b>${L.vence ? `<br><small class="nota">${L.activa ? 'Vence' : 'Venció'} el ${fv(L.vence)}</small>` : ''}</p>
         <p class="nota">Crisis (SOS) siempre funciona, con o sin suscripción.</p><div class="fila-btn" style="margin:0"><button class="secundario chico" data-acc="suscRefrescar">Actualizar estado</button></div>`) +
-      card('Planes', `<div class="planes">${['mensual', 'anual'].map((k) => { const p = PR[k], ah = k === 'anual' && PR.mensual.usd ? Math.floor((1 - p.usd / (PR.mensual.usd * 12)) * 100) : 0;
-          return `<div class="plan"><b>${k === 'mensual' ? 'Mensual' : 'Anual'}${ah > 0 ? ` <small class="nota">· ahorras ${ah} %</small>` : ''}</b><span>${fmtUsd(p.usd)} USD ${k === 'mensual' ? 'al mes' : 'al año'} <small class="nota">en Zelle o USDT</small></span>${p.bcv ? `<span><small class="nota">o ${fmtUsd(p.bcv)} USD a tasa BCV, en bolívares (Pago Móvil)</small></span>` : ''}</div>`; }).join('')}</div>
-        <p class="nota">Incluye historias con PDF, valoración preanestésica, récipe, calculadoras, guías y bloqueos, en el teléfono y en la computadora con la misma cuenta. Para clínicas con varios anestesiólogos, escríbenos.</p>`) +
-      card('Pagar', `<p class="nota" style="margin-top:0">1) Paga por uno de estos medios. 2) Reporta el pago abajo con la referencia. 3) Activamos tu cuenta (normalmente el mismo día).</p>
-        <ul class="guia-items">${Object.values(PG).map((x) => `<li><b>${esc(x.t)}:</b> ${esc(x.datos)}</li>`).join('')}<li><b>Google Play:</b> próximamente en la app de Android.</li></ul>
-        <h3>Reportar un pago</h3><div class="rejilla"><label class="campo"><span>Plan</span><select id="spPlan"><option value="mensual">Mensual</option><option value="anual">Anual</option></select></label>
-        <label class="campo"><span>Medio</span><select id="spCanal">${Object.entries(PG).map(([k, x]) => `<option value="${k}">${esc(x.t)}</option>`).join('')}</select></label>
-        <label class="campo" id="spTasaC"><span>Tasa BCV de hoy (Bs por USD)</span><input id="spTasa" inputmode="decimal" placeholder="Ej.: 652,97"></label>
-        <label class="campo"><span id="spMonL">Monto</span><input id="spMonto" inputmode="decimal" placeholder="0,00"></label><label class="campo"><span>Referencia</span><input id="spRef" placeholder="N.º de referencia"></label>
-        <label class="campo completo"><span>Nota (opcional)</span><input id="spNota" placeholder="Banco de origen, titular…"></label></div>
-        <p class="nota" id="spHint" style="margin:6px 0 0"></p>
-        <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="spOk">Enviar reporte</button></div>`) +
+      card('Pagar tu suscripción', `<p class="nota" style="margin-top:0">Incluye historias con PDF, valoración preanestésica, récipe, calculadoras, guías y bloqueos, en el teléfono y en la computadora con la misma cuenta. Para clínicas con varios anestesiólogos, escríbenos.</p>
+        <h3>1. Elige el plan</h3><div class="opciones" id="spPlanes">${['mensual', 'anual'].map((k) => `<button type="button" class="opcion" data-spplan="${k}">${k === 'mensual' ? 'Mensual' : 'Anual'}${k === 'anual' && ah > 0 ? ` · ahorras ${ah} %` : ''}</button>`).join('')}</div>
+        <h3>2. Elige cómo pagar</h3><div class="planes" id="spMedios"></div>
+        <p class="nota" id="spTasaInfo" style="margin:8px 0 0"></p>
+        <div id="spTasaManC" hidden><label class="campo completo"><span>No pudimos leer la tasa BCV. Escríbela (la muestra tu banco o bcv.org.ve)</span><input id="spTasa" inputmode="decimal" placeholder="Ej.: 866,56"></label></div>
+        <h3>3. Paga</h3><div class="sp-total" id="spTotal"></div>
+        <h3>4. Reporta el pago</h3><p class="nota" style="margin-top:0">Todos los datos son obligatorios: quedan como registro de tu pago.</p>
+        <div class="rejilla"><label class="campo"><span id="spRefL">Referencia</span><input id="spRef" placeholder="N.º de referencia"></label>
+        <label class="campo" data-spg="bs"><span>Teléfono del remitente</span><input id="spTel" inputmode="tel" placeholder="0414-1234567"></label>
+        <label class="campo" data-spg="bs"><span>Cédula del remitente</span><input id="spCed" placeholder="V-12345678"></label>
+        <label class="campo" data-spg="bs"><span>Banco de origen</span><input id="spBanco" placeholder="Ej.: Banesco"></label>
+        <label class="campo" data-spg="div"><span id="spCuentaL">Correo o ID del remitente</span><input id="spCuenta"></label>
+        <label class="campo" data-spg="div"><span>Nombre del titular</span><input id="spTitular" placeholder="Como aparece en la cuenta"></label>
+        <label class="campo completo"><span>Nota (opcional)</span><input id="spNota" placeholder="Algo que debamos saber"></label></div>
+        <div class="sp-foto"><label class="secundario chico" style="display:inline-block">📷 Adjuntar captura del pago<input type="file" accept="image/*" id="spFoto" hidden></label><span class="nota" id="spFotoN">Obligatoria</span><img id="spFotoV" alt="" hidden></div>
+        <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="spOk">Enviar reporte</button></div>
+        <p class="nota" style="margin:0">Activamos tu cuenta al confirmar el pago (normalmente el mismo día). Google Play: próximamente en la app de Android.</p>`) +
+      card('Calculadora USD ⇄ Bs (tasa BCV)', `<div class="rejilla"><label class="campo"><span>Dólares (USD)</span><input id="spCalcU" inputmode="decimal" placeholder="0,00"></label><label class="campo"><span>Bolívares (Bs)</span><input id="spCalcB" inputmode="decimal" placeholder="0,00"></label></div><p class="nota" id="spCalcT" style="margin:6px 0 0"></p>`) +
       card('Mis pagos', '<div id="spLista"><p class="nota" style="margin:0">Cargando…</p></div>') +
       (C.contacto ? `<p class="nota" style="padding:0 6px 20px">¿Dudas con tu pago? Escríbenos: ${esc(C.contacto)}</p>` : '');
-    const enBs = () => ((PG[$('#spCanal').value] || {}).moneda || 'USD') === 'Bs';
-    const spAyuda = () => {
-      const x = PG[$('#spCanal').value] || {}, mon = x.moneda || 'USD', plan = $('#spPlan').value, pr = PR[plan] || {}, bs = mon === 'Bs';
-      $('#spMonL').textContent = 'Monto (' + mon + ')'; $('#spTasaC').hidden = !bs;
-      const t = numM($('#spTasa').value);
-      if (bs) {
-        const tot = t > 0 && pr.bcv ? pr.bcv * t : 0; if (tot) $('#spMonto').value = fmtM(tot);
-        $('#spHint').innerHTML = `Plan ${plan}: <b>${fmtUsd(pr.bcv)} USD a tasa BCV</b>.` + (tot ? ` Debes pagar <b>${fmtM(tot)} Bs</b> (${fmtUsd(pr.bcv)} × ${fmtM(t)}).` : ' Escribe la tasa BCV de hoy (la muestra tu banco o bcv.org.ve) y calculamos el monto en bolívares.');
-      } else { $('#spMonto').value = pr.usd ? fmtUsd(pr.usd).replace('.', ',') : ''; $('#spHint').innerHTML = `Plan ${plan}: <b>${fmtUsd(pr.usd)} ${mon}</b>.`; }
+    const tasa = () => { const t = tasaBcv(); if (t) return t; const m = numM(($('#spTasa') || {}).value); return m > 0 ? { v: m, fecha: '', fuente: 'escrita' } : null; };
+    const monto = (plan, canal) => { const p = PR[plan], x = PG[canal] || {}, t = tasa(); if (x.moneda === 'Bs') return t ? { n: p.bcv * t.v, mon: 'Bs', det: `${fmtUsd(p.bcv)} USD × ${fmtM(t.v)}` } : { n: 0, mon: 'Bs', det: `${fmtUsd(p.bcv)} USD a tasa BCV` }; return { n: p.usd, mon: x.moneda || 'USD', det: '' }; };
+    let tasaFallo = false;
+    const pintar = () => {
+      const t = tasa();
+      $$('#spPlanes [data-spplan]').forEach((b) => b.classList.toggle('sel', b.dataset.spplan === spSel.plan));
+      $('#spMedios').innerHTML = Object.entries(PG).map(([k, x]) => { const m = monto(spSel.plan, k);
+        return `<button type="button" class="plan sp-medio${k === spSel.canal ? ' sel' : ''}" data-spcanal="${k}"><b>${esc(x.t)}</b><span class="sp-monto">${m.n ? (m.mon === 'Bs' ? fmtM(m.n) : fmtUsd(m.n)) + ' ' + m.mon : '—'}</span>${m.det ? `<small class="nota">${esc(m.det)}</small>` : ''}</button>`; }).join('');
+      $$('#spMedios [data-spcanal]').forEach((b) => (b.onclick = () => { spSel.canal = b.dataset.spcanal; pintar(); }));
+      const bs = (PG[spSel.canal] || {}).moneda === 'Bs';
+      $('#spTasaInfo').textContent = t ? `Tasa BCV: ${fmtM(t.v)} Bs por USD${t.fecha ? ' · ' + fFecha(t.fecha) : ''}${t.fuente === 'manual' ? ' (fijada por Morpheus MD)' : t.fuente === 'escrita' ? ' (escrita por ti)' : ''}.` : tasaFallo ? 'No pudimos leer la tasa BCV automática.' : 'Buscando la tasa BCV…';
+      $('#spTasaManC').hidden = !!tasaBcv() || !bs;
+      const m = monto(spSel.plan, spSel.canal), x = PG[spSel.canal] || {};
+      $('#spTotal').innerHTML = `<div class="sp-grande">${m.n ? (m.mon === 'Bs' ? fmtM(m.n) : fmtUsd(m.n)) + ' ' + m.mon : 'Falta la tasa BCV'}</div><small class="nota">Plan ${spSel.plan}${m.det ? ' · ' + esc(m.det) : ''} · por ${esc(x.t || '')}</small>
+        <p style="margin:8px 0 0"><b>Datos:</b> ${esc(x.datos || '')}</p>`;
+      const div = !bs;
+      $$('#vista [data-spg="bs"]').forEach((e) => (e.hidden = !bs)); $$('#vista [data-spg="div"]').forEach((e) => (e.hidden = !div));
+      $('#spRefL').textContent = { pago_movil: 'Referencia del pago', zelle: 'Código de confirmación Zelle', binance: 'ID de la orden (Order ID)' }[spSel.canal] || 'Referencia';
+      $('#spCuentaL').textContent = spSel.canal === 'binance' ? 'Binance ID o correo del remitente' : 'Correo o teléfono Zelle del remitente';
+      const ct = $('#spCalcT'); if (ct) ct.textContent = t ? `Tasa BCV ${fmtM(t.v)}${t.fecha ? ' del ' + fFecha(t.fecha) : ''}.` : 'Sin tasa BCV todavía.';
     };
-    $('#spCanal').onchange = spAyuda; $('#spPlan').onchange = spAyuda; $('#spTasa').oninput = spAyuda; spAyuda();
+    $$('#spPlanes [data-spplan]').forEach((b) => (b.onclick = () => { spSel.plan = b.dataset.spplan; pintar(); }));
+    if ($('#spTasa')) $('#spTasa').oninput = pintar;
+    let foto = null;
+    $('#spFoto').onchange = async (ev) => {
+      const f = ev.target.files && ev.target.files[0]; if (!f) return;
+      try {
+        const url = await leerImagen(f, 1600, 'image/jpeg'); const bin = atob(url.split(',')[1]), arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        foto = new Blob([arr], { type: 'image/jpeg' }); $('#spFotoV').src = url; $('#spFotoV').hidden = false; $('#spFotoN').textContent = 'Captura lista (' + Math.round(foto.size / 1024) + ' KB)';
+      } catch (e) { foto = null; aviso('No se pudo leer esa imagen. Prueba con otra captura.', 4000); }
+    };
+    $('#spCalcU').oninput = () => { const t = tasa(), u = numM($('#spCalcU').value); $('#spCalcB').value = t && u >= 0 ? fmtM(u * t.v) : ''; };
+    $('#spCalcB').oninput = () => { const t = tasa(), b = numM($('#spCalcB').value); $('#spCalcU').value = t && b >= 0 ? fmtM(b / t.v) : ''; };
+    pintar();
+    if ((AJ().tasa || {}).usar !== true) refrescarTasa().then(() => { if (pantalla === 'suscripcion') pintar(); }).catch(() => { tasaFallo = true; if (pantalla === 'suscripcion') pintar(); });
     $('#spOk').onclick = async () => {
-      const ref = $('#spRef').value.trim(); if (!ref) return aviso('Escribe la referencia del pago');
-      const canal = $('#spCanal').value, t = numM($('#spTasa').value);
-      if (enBs() && !(t > 0)) return aviso('Escribe la tasa BCV con la que pagaste');
-      const nota = [enBs() ? 'Tasa BCV ' + fmtM(t) + ' · ' + fmtUsd(PR[$('#spPlan').value].bcv) + ' USD BCV' : '', $('#spNota').value.trim()].filter(Boolean).join(' · ');
-      try { await Nube.reportarPago({ plan: $('#spPlan').value, canal, monto: numM($('#spMonto').value) || null, moneda: (PG[canal] || {}).moneda || 'USD', referencia: ref, nota }); aviso('Pago reportado: te avisaremos al activarlo', 3500); renderSuscripcion(v); }
-      catch (e) { aviso(e.message, 4500); }
+      const canal = spSel.canal, plan = spSel.plan, x = PG[canal] || {}, t = tasa(), m = monto(plan, canal), bs = x.moneda === 'Bs', val = (id) => $('#' + id).value.trim();
+      const ref = val('spRef'); if (!ref) return aviso('Falta: ' + $('#spRefL').textContent);
+      if (bs && !t) return aviso('Falta la tasa BCV: escríbela para calcular el monto');
+      let remitente;
+      if (bs) {
+        if (val('spTel').replace(/\D/g, '').length < 10) return aviso('Escribe el teléfono del remitente (11 dígitos, p. ej. 0414-1234567)');
+        if (!/^[VEJPG]?-?\d{5,10}$/i.test(val('spCed').replace(/[\s.]/g, ''))) return aviso('Escribe la cédula del remitente (p. ej. V-12345678)');
+        if (!val('spBanco')) return aviso('Escribe el banco de origen');
+        remitente = { telefono: val('spTel'), cedula: val('spCed').replace(/[\s.]/g, '').toUpperCase(), banco: val('spBanco') };
+      } else {
+        if (!val('spCuenta')) return aviso('Falta: ' + $('#spCuentaL').textContent);
+        if (!val('spTitular')) return aviso('Escribe el nombre del titular');
+        remitente = { cuenta: val('spCuenta'), titular: val('spTitular') };
+      }
+      if (!foto) return aviso('Adjunta la captura del pago');
+      const nota = [x.moneda === 'Bs' ? `Tasa BCV ${fmtM(t.v)}${t.fecha ? ' (' + fFecha(t.fecha) + ')' : ''} · ${fmtUsd(PR[plan].bcv)} USD BCV` : '', $('#spNota').value.trim()].filter(Boolean).join(' · ');
+      if (!confirm(`¿Reportar el pago de ${m.mon === 'Bs' ? fmtM(m.n) : fmtUsd(m.n)} ${m.mon} (plan ${plan}) por ${x.t}, referencia ${ref}?`)) return;
+      const bOk = $('#spOk'); bOk.disabled = true; bOk.textContent = 'Enviando…';
+      try { await Nube.reportarPago({ plan, canal, monto: Math.round(m.n * 100) / 100 || null, moneda: m.mon, referencia: ref, nota, remitente, archivo: foto }); aviso('Pago reportado: te avisaremos al activarlo', 3500); renderSuscripcion(v); }
+      catch (e) { aviso(e.message, 5000); bOk.disabled = false; bOk.textContent = 'Enviar reporte'; }
     };
     Nube.misPagos().then((l) => { const e = $('#spLista'); if (!e) return; e.innerHTML = l.length ? `<ul class="lista">${l.map((p) => `<li class="item"><div class="txt"><b>${esc(p.plan)} · ${esc((PG[p.canal] || {}).t || p.canal)}${p.monto ? ' · ' + fmtM(p.monto) + ' ' + esc(p.moneda || '') : ''}</b><small>Ref. ${esc(p.referencia)} · ${new Date(p.creado).toLocaleDateString('es-VE')}</small></div><span class="estado-pago ${p.estado}">${{ pendiente: 'Pendiente', aprobado: 'Aprobado', rechazado: 'Rechazado' }[p.estado] || p.estado}</span></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Aún no has reportado pagos.</p>'; })
       .catch((er) => { const e = $('#spLista'); if (e) e.innerHTML = `<p class="nota" style="margin:0">${esc(er.message)}</p>`; });
@@ -2125,9 +2196,9 @@
       const q = sinTilde($('#admQ').value), uDe = (id) => usuarios.find((u) => u.user_id === id) || {};
       const cont = $('#admCont'); if (!cont) return;
       if (admTab === 'pagos') {
-        const l = pagos.filter((p) => !q || sinTilde([p.referencia, uDe(p.user_id).correo, uDe(p.user_id).nombre].join(' ')).includes(q));
+        const l = pagos.filter((p) => !q || sinTilde([p.referencia, uDe(p.user_id).correo, uDe(p.user_id).nombre, remTxt(p.remitente)].join(' ')).includes(q));
         const pend = l.filter((p) => p.estado === 'pendiente'), resto = l.filter((p) => p.estado !== 'pendiente');
-        const fila = (p) => { const u = uDe(p.user_id); return `<li class="item"><div class="txt"><b>${esc(u.correo || p.user_id)}</b><small>${esc(u.nombre || '')}</small><small>${esc(p.plan)} · ${esc(p.canal)} · ${p.monto ? fmtM(p.monto) + ' ' + esc(p.moneda || '') : 'sin monto'} · Ref. ${esc(p.referencia)} · ${fv(p.creado)}</small>${p.nota ? `<small>${esc(p.nota)}</small>` : ''}</div>
+        const fila = (p) => { const u = uDe(p.user_id); return `<li class="item"><div class="txt"><b>${esc(u.correo || p.user_id)}</b><small>${esc(u.nombre || '')}</small><small>${esc(p.plan)} · ${esc(p.canal)} · ${p.monto ? fmtM(p.monto) + ' ' + esc(p.moneda || '') : 'sin monto'} · Ref. ${esc(p.referencia)} · ${fv(p.creado)}</small>${remTxt(p.remitente) ? `<small>Remitente: ${esc(remTxt(p.remitente))}</small>` : ''}${p.nota ? `<small>${esc(p.nota)}</small>` : ''}${p.comprobante ? `<button class="secundario chico" style="margin-top:6px;align-self:flex-start" data-admcomp="${esc(p.comprobante)}">📷 Ver captura</button>` : '<small style="color:#b3261e">Sin captura</small>'}</div>
           ${p.estado === 'pendiente' ? `<div class="adm-bot"><button class="primario chico" data-admok="${p.id}">Aprobar</button><button class="peligro chico" data-admno="${p.id}">Rechazar</button></div>` : `<span class="estado-pago ${p.estado}">${p.estado}</span>`}</li>`; };
         cont.innerHTML = card(`Pendientes (${pend.length})`, pend.length ? `<ul class="lista">${pend.map(fila).join('')}</ul>` : '<p class="nota" style="margin:0">No hay pagos por revisar.</p>') + (resto.length ? card('Revisados', `<ul class="lista">${resto.slice(0, 50).map(fila).join('')}</ul>`) : '');
       } else {
@@ -2139,6 +2210,10 @@
         const ok = !!b.dataset.admok; if (!confirm(ok ? '¿Aprobar este pago y activar la cuenta?' : '¿Rechazar este pago?')) return;
         try { await Nube.admRevisar(+(b.dataset.admok || b.dataset.admno), ok); aviso(ok ? 'Pago aprobado: cuenta activada' : 'Pago rechazado'); cargar(); } catch (e) { aviso(e.message, 4500); }
       }));
+      $$('#admCont [data-admcomp]').forEach((b) => (b.onclick = async () => {
+        try { const url = await Nube.verComprobante(b.dataset.admcomp); abrirHoja(`<h2>Captura del pago</h2><img src="${esc(url)}" alt="Captura del pago" style="width:100%;border-radius:8px;border:1px solid var(--borde)"><div class="fila-btn"><button class="primario" id="compCerrar">Cerrar</button></div>`); $('#compCerrar').onclick = cerrarHoja; }
+        catch (e) { aviso(e.message, 4500); }
+      }));
       $$('#admCont [data-admext]').forEach((b) => (b.onclick = async () => {
         if (!confirm(`¿Extender ${b.dataset.d} días a esta cuenta?`)) return;
         try { await Nube.admExtender(b.dataset.admext, +b.dataset.d, +b.dataset.d >= 365 ? 'anual' : 'mensual'); aviso('Cuenta extendida'); cargar(); } catch (e) { aviso(e.message, 4500); }
@@ -2148,14 +2223,21 @@
     $('#admQ').oninput = pintar; cargar();
   }
 
+  const remTxt = (r) => { r = r || {}; return [r.telefono, r.cedula, r.banco, r.cuenta, r.titular].filter(Boolean).join(' · '); };
   function admPrecios(v) {
     $('#admQ').closest('label').hidden = true;
     const pintar = () => {
       const A = AJ(), c = $('#admCont'); if (!c) return;
       const n = (id, val, ph) => `<input id="${id}" inputmode="decimal" value="${val ? String(val).replace('.', ',') : ''}" placeholder="${ph}">`;
-      c.innerHTML = card('Precios', `<p class="nota" style="margin-top:0">En divisas: Zelle o USDT. En bolívares: Pago Móvil, en USD a la tasa BCV del día (el colega escribe la tasa y la app calcula los Bs).</p>
+      c.innerHTML = card('Precios', `<p class="nota" style="margin-top:0">En divisas: Zelle o USDT. En bolívares: Pago Móvil, en USD a la tasa BCV del día (la app la consulta sola y muestra el monto en Bs).</p>
         <div class="rejilla"><label class="campo"><span>Mensual · USD (divisas)</span>${n('apMu', A.PR.mensual.usd, '8')}</label><label class="campo"><span>Mensual · USD a tasa BCV</span>${n('apMb', A.PR.mensual.bcv, '9,5')}</label>
         <label class="campo"><span>Anual · USD (divisas)</span>${n('apAu', A.PR.anual.usd, '60')}</label><label class="campo"><span>Anual · USD a tasa BCV</span>${n('apAb', A.PR.anual.bcv, '68')}</label></div>`) +
+        card('Tasa BCV', `<p class="nota" style="margin-top:0" id="apTasaAuto">Consultando la tasa BCV automática…</p>
+        <div class="rejilla"><label class="campo"><span>Tasa BCV manual (Bs por USD)</span>${n('apTasa', A.tasa.v, 'Ej.: 866,56')}</label>
+</div><label class="opcion" style="display:inline-flex;gap:8px;align-items:center;margin:4px 0 8px"><input type="checkbox" id="apTasaUsar"${A.tasa.usar ? ' checked' : ''}> Usar la tasa manual</label>
+        <p class="nota" style="margin:0">La app usa la tasa BCV oficial que se actualiza sola. Marca «Usar la manual» solo si la automática falla o está atrasada.</p>
+        <h3>Comprobar margen frente al USDT</h3><p class="nota" style="margin-top:0">Escribe la tasa USDT de hoy: solo se usa para este cálculo, no se guarda ni la ven los colegas.</p>
+        <label class="campo"><span>Tasa USDT (Bs por USDT)</span><input id="apUsdt" inputmode="decimal" placeholder="Ej.: 975,43"></label><div id="apMargen"></div>`) +
         card('Datos para pagar', `<p class="nota" style="margin-top:0">Lo que verán los colegas en Mi suscripción.</p>
         ${Object.entries(A.PG).map(([k, x]) => `<label class="campo completo"><span>${esc(x.t)}</span><input id="apP_${k}" value="${/por configurar/.test(x.datos || '') ? '' : esc(x.datos || '')}" placeholder="${esc({ pago_movil: 'Ej.: Banesco · 0414-0000000 · V-00.000.000', zelle: 'Ej.: correo@ejemplo.com · Nombre del titular', binance: 'Ej.: Pay ID 000000000' }[k] || '')}"></label>`).join('')}
         <label class="campo completo"><span>Correo de contacto</span><input id="apCont" type="email" value="${esc(A.contacto)}"></label>
@@ -2166,8 +2248,21 @@
         if (Object.values(pr).some((x) => !(x.usd > 0) || !(x.bcv > 0))) return aviso('Revisa los precios: deben ser números mayores que cero');
         const pagos = {}; Object.keys(A.PG).forEach((k) => (pagos[k] = $('#apP_' + k).value.trim()));
         if (!confirm('¿Guardar? Los colegas verán estos precios y datos de pago.')) return;
-        try { await Nube.admAjustes({ precios: pr, pagos, contacto: $('#apCont').value.trim() }); aviso('Precios y datos de cobro guardados'); pintar(); } catch (e) { aviso(e.message, 5000); }
+        const tv = val('apTasa'), usar = $('#apTasaUsar').checked;
+        if (usar && !(tv > 0)) return aviso('Escribe la tasa BCV manual o desmarca «Usar la manual»');
+        const tasa = { v: tv > 0 ? tv : 0, fecha: tv > 0 ? new Date().toISOString().slice(0, 10) : '', usar };
+        try { await Nube.admAjustes({ precios: pr, pagos, contacto: $('#apCont').value.trim(), tasa }); aviso('Precios y datos de cobro guardados'); pintar(); } catch (e) { aviso(e.message, 5000); }
       };
+      const margen = () => {
+        const u = numM($('#apUsdt').value), t = tasaBcv(), out = $('#apMargen'); if (!out) return;
+        if (!(u > 0) || !t) { out.innerHTML = ''; return; }
+        out.innerHTML = `<table class="sp-margen"><tr><th>Plan</th><th>Pago Móvil (Bs)</th><th>Equivale a USDT</th><th>Precio USDT</th><th>Margen</th></tr>${['mensual', 'anual'].map((k) => { const bcv = val(k === 'mensual' ? 'apMb' : 'apAb') || A.PR[k].bcv, usd = val(k === 'mensual' ? 'apMu' : 'apAu') || A.PR[k].usd, bs = bcv * t.v, eq = bs / u, mg = (eq / usd - 1) * 100;
+          return `<tr><td>${k === 'mensual' ? 'Mensual' : 'Anual'}</td><td>${fmtM(bs)}</td><td>${fmtM(eq)}</td><td>${fmtUsd(usd)}</td><td style="color:${mg < 0 ? '#b3261e' : '#1b6e3a'}"><b>${mg >= 0 ? '+' : ''}${fmtM(mg, 1)} %</b></td></tr>`; }).join('')}</table>
+          <p class="nota" style="margin:6px 0 0">Con tasa BCV ${fmtM(t.v)}${t.fecha ? ' (' + fFecha(t.fecha) + ')' : ''}. Margen negativo: el pago en bolívares vale menos que el precio en USDT; sube el precio a tasa BCV.</p>`;
+      };
+      ['apUsdt', 'apMb', 'apAb', 'apMu', 'apAu'].forEach((id) => ($('#' + id).oninput = margen));
+      const auto = (x) => { const e = $('#apTasaAuto'); if (e) e.innerHTML = x ? `Tasa BCV automática: <b>${fmtM(x.v)} Bs por USD</b>${x.fecha ? ' · ' + fFecha(x.fecha) : ''}.` : 'No se pudo leer la tasa BCV automática ahora. Si persiste, usa la manual.'; margen(); };
+      refrescarTasa().then(auto).catch(() => { let c = null; try { c = JSON.parse(localStorage.getItem(TASA_K) || 'null'); } catch (e) {} auto(c); });
     };
     pintar(); Nube.ajustes().then(pintar).catch((e) => aviso(e.message, 4500));
   }

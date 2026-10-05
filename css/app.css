@@ -406,3 +406,15 @@ ol.guia-items{padding-left:22px}
 .estado-pago.rechazado{background:#fdecea;color:var(--peligro)}
 .estado-pago.pendiente{background:#fff4e0;color:#8a5300}
 .adm-bot{display:flex;flex-direction:column;gap:6px}
+/* 2.0 · pago con montos para elegir */
+.sp-medio{text-align:left;cursor:pointer;font:inherit;color:var(--texto)}
+.sp-medio.sel{border-color:var(--pri);box-shadow:0 0 0 2px var(--pri) inset;background:#eef7f8}
+.sp-medio .sp-monto{font-size:19px;font-weight:700;margin-top:6px}
+.sp-medio small{display:block;margin-top:2px}
+.sp-total{border:1px dashed var(--pri);border-radius:12px;padding:12px;background:#f7fbfb}
+.sp-total .sp-grande{font-size:26px;font-weight:800;color:var(--pri)}
+.sp-margen{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+.sp-margen td,.sp-margen th{border-bottom:1px solid var(--borde);padding:5px 4px;text-align:right}
+.sp-margen td:first-child,.sp-margen th:first-child{text-align:left}
+.sp-foto{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:10px 0 4px}
+.sp-foto img{display:block;width:100%;max-height:320px;object-fit:contain;border:1px solid var(--borde);border-radius:8px;background:#fff}
