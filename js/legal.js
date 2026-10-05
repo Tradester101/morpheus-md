@@ -70,6 +70,7 @@ window.LEGAL = (function () {
         <p><b>Equipos compartidos.</b> En una computadora de clínica marca "Equipo compartido" al iniciar sesión: al cerrar sesión se borran tus datos de ese equipo, y la sesión se cierra sola tras 30 minutos sin uso.</p>
         <p><b>Contraseña.</b> La gestiona el servicio de autenticación con resumen criptográfico; nadie puede verla. Si la olvidas, te enviamos un enlace a tu correo para crear una nueva.</p>
         <p><b>Borrar tu cuenta.</b> En ⚙ Ajustes › Cuenta puedes borrar tu cuenta y todos tus datos de la nube cuando quieras.</p>
+        <p><b>Contacto.</b> Dudas sobre tus datos o esta política: contacto@morpheus-md.com. Ayuda con la app: soporte@morpheus-md.com.</p>
         <p>Un PDF o un respaldo solo sale de la app cuando tú decides compartirlo, guardarlo o imprimirlo. Los datos clínicos están protegidos por el secreto médico: es responsabilidad del profesional usarlos y compartirlos conforme a la normativa de su país y de su institución.</p>`,
     },
     terminos: {
@@ -78,6 +79,7 @@ window.LEGAL = (function () {
         <p>No sustituye el juicio clínico, los protocolos de la institución ni la vigilancia del paciente. El profesional que la usa es responsable de la exactitud de lo registrado y de las decisiones clínicas.</p>
         <p><b>Cuenta y suscripción.</b> Al crear tu cuenta tienes 7 días de prueba gratis con todas las funciones. Después, para crear historias y documentos nuevos necesitas una suscripción vigente (mensual o anual). Sin suscripción puedes seguir viendo tus historias, generar sus PDF y usar Crisis (SOS), que siempre es gratis.</p>
         <p><b>Pagos.</b> Los pagos reportados (Pago Móvil, Zelle, Binance u otros) se activan al verificarlos. La suscripción no se renueva sola: al vencer, eliges si renuevas.</p>
+        <p>Pagos y suscripciones: pagos@morpheus-md.com. Soporte: soporte@morpheus-md.com. Web oficial: morpheus-md.com.</p>
         <p>La aplicación se ofrece "tal cual". Sus autores no se hacen responsables por daños derivados de su uso, de errores de registro o de la pérdida de datos. El usuario debe proteger su contraseña y sus dispositivos.</p>`,
     },
     aviso: {

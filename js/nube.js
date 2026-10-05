@@ -153,7 +153,7 @@ window.Nube = (function () {
     } catch (e) { console.error(e); }
   }
   async function registrar(correo, clave, nombre) {
-    const { data, error } = await sb.auth.signUp({ email: correo.trim(), password: clave, options: { data: { nombre }, emailRedirectTo: location.origin.startsWith('http') && !/appassets/.test(location.host) ? location.origin + location.pathname : 'https://morpheus-md.vercel.app/' } });
+    const { data, error } = await sb.auth.signUp({ email: correo.trim(), password: clave, options: { data: { nombre }, emailRedirectTo: destinoWeb() } });
     if (error) throw falla(error);
     if (data && data.user && Array.isArray(data.user.identities) && !data.user.identities.length) throw falla('already registered');
     return { confirmar: !(data && data.session) };
@@ -172,7 +172,7 @@ window.Nube = (function () {
     usuario = null;
   }
   async function recuperar(correo) {
-    const { error } = await sb.auth.resetPasswordForEmail(correo.trim(), { redirectTo: 'https://morpheus-md.vercel.app/' });
+    const { error } = await sb.auth.resetPasswordForEmail(correo.trim(), { redirectTo: destinoWeb() });
     if (error) throw falla(error);
   }
   async function nuevaClave(clave) { const { error } = await sb.auth.updateUser({ password: clave }); if (error) throw falla(error); }
@@ -213,6 +213,8 @@ window.Nube = (function () {
   const ajustesCache = () => { try { return JSON.parse(ls.get(K_AJ) || 'null'); } catch (e) { return null; } };
   async function ajustes() { const { data, error } = await sb.rpc('ajustes'); if (error) throw falla(error); if (data) ls.set(K_AJ, JSON.stringify(data)); return data; }
   async function admAjustes(datos) { const { data, error } = await sb.rpc('admin_guardar_ajustes', { p_datos: datos }); if (error) throw falla(error); ls.set(K_AJ, JSON.stringify(data || datos)); return data; }
+  /* A dónde vuelve el enlace de los correos: la misma web desde donde se pidió; desde la app Android, la web oficial. */
+  function destinoWeb() { return location.origin.startsWith('http') && !/appassets/.test(location.host) ? location.origin + location.pathname : (CFG.web || 'https://morpheus-md.com/'); }
   async function misPagos() { const { data, error } = await sb.from('pagos').select('*').eq('user_id', usuario.id).order('creado', { ascending: false }).limit(20); if (error) throw falla(error); return data || []; }
 
   /* ---------- Administrador ---------- */

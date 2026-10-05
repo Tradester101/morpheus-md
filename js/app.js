@@ -2055,6 +2055,9 @@
   /* ---- Suscripción ---- */
   let suscDesde = 'inicio';
   function irSuscripcion() { if (pantalla !== 'suscripcion') suscDesde = pantalla; pantalla = 'suscripcion'; render(); window.scrollTo(0, 0); }
+  /* Correos y web oficiales (dominio propio) */
+  const CORREO = (k) => ((window.NUBE_CONFIG || {}).correos || {})[k] || '';
+  const mailA = (k, txt) => { const c = CORREO(k); return c ? `<a href="mailto:${esc(c)}">${esc(txt || c)}</a>` : ''; };
   /* Precios y datos de cobro vigentes: los del administrador (Supabase) sobre los de respaldo (nube-config.js). */
   function AJ() {
     const C = window.NUBE_CONFIG || {}, r = (window.Nube && Nube.ajustesCache && Nube.ajustesCache()) || {};
@@ -2101,7 +2104,7 @@
     v.innerHTML = (suscMsg ? `<section class="tarjeta guia-alerta"><p style="margin:0">${esc(suscMsg)}</p></section>` : '') +
       card('Tu cuenta', `<p style="margin:0"><b>${esc(est)}</b>${L.vence ? `<br><small class="nota">${L.activa ? 'Vence' : 'Venció'} el ${fv(L.vence)}</small>` : ''}</p>
         <p class="nota">Crisis (SOS) siempre funciona, con o sin suscripción.</p><div class="fila-btn" style="margin:0"><button class="secundario chico" data-acc="suscRefrescar">Actualizar estado</button></div>`) +
-      card('Pagar tu suscripción', `<p class="nota" style="margin-top:0">Incluye historias con PDF, valoración preanestésica, récipe, calculadoras, guías y bloqueos, en el teléfono y en la computadora con la misma cuenta. Para clínicas con varios anestesiólogos, escríbenos.</p>
+      card('Pagar tu suscripción', `<p class="nota" style="margin-top:0">Incluye historias con PDF, valoración preanestésica, récipe, calculadoras, guías y bloqueos, en el teléfono y en la computadora con la misma cuenta. Para clínicas con varios anestesiólogos, escríbenos a ${mailA('contacto')}.</p>
         <h3>1. Elige el plan</h3><div class="opciones" id="spPlanes">${['mensual', 'anual'].map((k) => `<button type="button" class="opcion" data-spplan="${k}">${k === 'mensual' ? 'Mensual' : 'Anual'}${k === 'anual' && ah > 0 ? ` · ahorras ${ah} %` : ''}</button>`).join('')}</div>
         <h3>2. Elige cómo pagar</h3><div class="planes" id="spMedios"></div>
         <p class="nota" id="spTasaInfo" style="margin:8px 0 0"></p>
@@ -2120,7 +2123,7 @@
         <p class="nota" style="margin:0">Activamos tu cuenta al confirmar el pago (normalmente el mismo día). Google Play: próximamente en la app de Android.</p>`) +
       card('Calculadora USD ⇄ Bs (tasa BCV)', `<div class="rejilla"><label class="campo"><span>Dólares (USD)</span><input id="spCalcU" inputmode="decimal" placeholder="0,00"></label><label class="campo"><span>Bolívares (Bs)</span><input id="spCalcB" inputmode="decimal" placeholder="0,00"></label></div><p class="nota" id="spCalcT" style="margin:6px 0 0"></p>`) +
       card('Mis pagos', '<div id="spLista"><p class="nota" style="margin:0">Cargando…</p></div>') +
-      (C.contacto ? `<p class="nota" style="padding:0 6px 20px">¿Dudas con tu pago? Escríbenos: ${esc(C.contacto)}</p>` : '');
+      (C.contacto ? `<p class="nota" style="padding:0 6px 20px">¿Dudas con tu pago? Escríbenos a <a href="mailto:${esc(C.contacto)}">${esc(C.contacto)}</a>.</p>` : '');
     const tasa = () => { const t = tasaBcv(); if (t) return t; const m = numM(($('#spTasa') || {}).value); return m > 0 ? { v: m, fecha: '', fuente: 'escrita' } : null; };
     const monto = (plan, canal) => { const p = PR[plan], x = PG[canal] || {}, t = tasa(); if (x.moneda === 'Bs') return t ? { n: p.bcv * t.v, mon: 'Bs', det: `${fmtUsd(p.bcv)} USD × ${fmtM(t.v)}` } : { n: 0, mon: 'Bs', det: `${fmtUsd(p.bcv)} USD a tasa BCV` }; return { n: p.usd, mon: x.moneda || 'USD', det: '' }; };
     let tasaFallo = false;
@@ -2240,7 +2243,7 @@
         <label class="campo"><span>Tasa USDT (Bs por USDT)</span><input id="apUsdt" inputmode="decimal" placeholder="Ej.: 975,43"></label><div id="apMargen"></div>`) +
         card('Datos para pagar', `<p class="nota" style="margin-top:0">Lo que verán los colegas en Mi suscripción.</p>
         ${Object.entries(A.PG).map(([k, x]) => `<label class="campo completo"><span>${esc(x.t)}</span><input id="apP_${k}" value="${/por configurar/.test(x.datos || '') ? '' : esc(x.datos || '')}" placeholder="${esc({ pago_movil: 'Ej.: Banesco · 0414-0000000 · V-00.000.000', zelle: 'Ej.: correo@ejemplo.com · Nombre del titular', binance: 'Ej.: Pay ID 000000000' }[k] || '')}"></label>`).join('')}
-        <label class="campo completo"><span>Correo de contacto</span><input id="apCont" type="email" value="${esc(A.contacto)}"></label>
+        <label class="campo completo"><span>Correo para dudas de pago</span><input id="apCont" type="email" value="${esc(A.contacto)}"></label>
         <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="apOk">Guardar</button></div>`);
       $('#apOk').onclick = async () => {
         const val = (id) => numM($('#' + id).value);
@@ -2491,6 +2494,7 @@
       (l.length ? l.map((a, i) => `<details class="tarjeta ay-tema"${q || i === 0 ? ' open' : ''}><summary>${esc(a.t)}</summary><ul class="guia-items">${a.p.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
         ${a.ir ? `<div class="fila-btn" style="margin:6px 0 0"><button class="primario chico" data-acc="ayIr" data-ir="${a.ir}">${esc(a.b)} ›</button></div>` : ''}</details>`).join('')
         : card('Sin resultados', '<p class="nota" style="margin:0">Prueba con otra palabra.</p>')) +
+      card('¿Necesitas ayuda?', `<p class="nota" style="margin:0">Escríbenos a ${mailA('soporte')}: cuéntanos qué pasó y, si puedes, adjunta una captura de pantalla.</p>`) +
       `<p class="nota" style="padding:0 6px 20px">Morpheus MD ${VERSION}. Material de apoyo: no sustituye el juicio clínico ni los protocolos de tu institución.</p>`;
     const inp = $('#ayQ'); inp.oninput = () => { ayudaBusca = inp.value; const pos = inp.selectionStart; renderAyuda(v); const n = $('#ayQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} };
   }
@@ -2605,7 +2609,7 @@
         <li>Los textos están redactados con palabras propias a partir de guías, artículos, NYSORA y libros de referencia, que se citan en cada ficha. No se copian textos literales.</li>
         <li>Morpheus MD no reclama la propiedad de ninguna imagen. Todas las imágenes pertenecen a sus autores y editoriales, provienen de artículos publicados con licencia Creative Commons Atribución (CC BY 4.0), que permite compartirlas y adaptarlas citando la fuente, y se muestran con su crédito completo y un enlace al artículo original.</li>
         <li>Las figuras de libros (Miller, Hadzic, Tornero y otros), de NYSORA y de otros sitios web están protegidas por derechos de autor y no se reproducen: cada ficha indica dónde verlas (botón “Ver en NYSORA” y capítulo del libro).</li>
-        <li>Si eres autor o titular de alguna imagen y quieres que se retire o se corrija su atribución, escríbenos y se hará en la siguiente versión.</li></ul>`) +
+        <li>Si eres autor o titular de alguna imagen y quieres que se retire o se corrija su atribución, escríbenos a ${mailA('contacto')} y se hará en la siguiente versión.</li></ul>`) +
       card('Libros y guías de referencia', `<ul class="guia-items"><li>${esc(G.hadzic)}</li>
         <li>El-Boghdadly K, Albrecht E, Wolmarans M, et al. Standardizing nomenclature in regional anesthesia: an ASRA-ESRA Delphi consensus study of upper and lower limb nerve blocks. Reg Anesth Pain Med 2024;49:782–792. ${enlace('https://doi.org/10.1136/rapm-2023-104884', 'doi:10.1136/rapm-2023-104884')}</li>
         <li>El-Boghdadly K, Wolmarans M, Stengel AD, et al. Standardizing nomenclature in regional anesthesia: an ASRA-ESRA Delphi consensus study of abdominal wall, paraspinal, and chest wall blocks. Reg Anesth Pain Med 2021;46:571–580. ${enlace('https://doi.org/10.1136/rapm-2020-102451', 'doi:10.1136/rapm-2020-102451')}</li>
@@ -3031,6 +3035,7 @@
         { sec: 'Ayuda' },
         { t: '❓ Guía de uso', f: irAyuda },
         { t: 'ℹ Acerca de', f: () => { abrirHoja(`<h2>Morpheus MD</h2><p>Versión ${VERSION} · Registro anestésico digital</p><p class="nota">${NUBE() && nubeU ? 'Tus datos se guardan en este dispositivo y se sincronizan con tu cuenta (' + esc(nubeU.correo) + ').' : 'Tus datos se guardan en este dispositivo.'} Ver la Política de privacidad para más detalles.</p>
+          <p class="nota">Web: <a href="https://morpheus-md.com/">morpheus-md.com</a><br>Soporte: ${mailA('soporte')}<br>Pagos: ${mailA('pagos')}<br>Clínicas y otros temas: ${mailA('contacto')}</p>
           <div class="fila-btn">${Object.entries(LEGAL.TEXTOS).map(([k, x]) => `<button class="secundario chico" data-legal="${k}">${x.t}</button>`).join('')}</div>
           <div class="acciones"><button class="primario" id="acCerrar">Cerrar</button></div>`);
           $('#acCerrar').onclick = cerrarHoja; $$('#capa [data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal))); } },

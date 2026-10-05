@@ -10,5 +10,7 @@ window.NUBE_CONFIG = {
     zelle: { t: 'Zelle', datos: 'Correo: por configurar · Titular: por configurar', moneda: 'USD' },
     binance: { t: 'Binance Pay (USDT)', datos: 'Pay ID: por configurar', moneda: 'USDT' },
   },
-  contacto: 'aemart27@gmail.com',
+  web: 'https://morpheus-md.com/',
+  correos: { contacto: 'contacto@morpheus-md.com', soporte: 'soporte@morpheus-md.com', pagos: 'pagos@morpheus-md.com' },
+  contacto: 'pagos@morpheus-md.com', // dudas de pago (respaldo; se edita en Administración › Precios y cobro)
 };
