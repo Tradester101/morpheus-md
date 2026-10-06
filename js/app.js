@@ -2092,6 +2092,9 @@
   /* Correos y web oficiales (dominio propio) */
   const CORREO = (k) => ((window.NUBE_CONFIG || {}).correos || {})[k] || '';
   const mailA = (k, txt) => { const c = CORREO(k); return c ? `<a href="mailto:${esc(c)}">${esc(txt || c)}</a>` : ''; };
+  /* Planes de clínica: Básica (5), Media (8), Plus (12); Institucional se ajusta a mano */
+  const PLANES_CLIN = ['basica', 'media', 'plus'], PUESTOS_CLIN = { basica: 5, media: 8, plus: 12 };
+  const nomClin = (k) => ({ basica: 'Básica', media: 'Media', plus: 'Plus', institucional: 'Institucional' }[k] || k);
   /* Datos que pide cada medio de cobro (Administración › Precios y cobro) */
   const CAMPOS_PAGO = {
     pago_movil: [['banco', 'Banco', 'Ej.: Banesco (0134)'], ['cedula', 'Cédula o RIF', 'Ej.: V-12.345.678'], ['telefono', 'Teléfono', 'Ej.: 0414-1234567']],
@@ -2109,8 +2112,8 @@
       const campos = def.map(([c, l]) => ({ c, l, v: val[c] || '' })), lleno = campos.some((x) => x.v);
       PG[k] = Object.assign({}, b, { campos, valores: val }, lleno ? { datos: campos.filter((x) => x.v).map((x) => x.l + ': ' + x.v).join(' · ') } : {});
     });
-    const CL = {}; ['basica', 'plus'].forEach((k) => { const b = ((C.precios || {}).clinica || {})[k] || {}, x = (((r.precios || {}).clinica) || {})[k] || {};
-      CL[k] = { puestos: +x.puestos || b.puestos || (k === 'plus' ? 12 : 5) }; ['mensual', 'anual'].forEach((pp) => { const bb = b[pp] || {}, xx = x[pp] || {}; CL[k][pp] = { usd: +xx.usd || bb.usd || 0, bcv: +xx.bcv || bb.bcv || 0 }; }); });
+    const CL = {}; PLANES_CLIN.forEach((k) => { const b = ((C.precios || {}).clinica || {})[k] || {}, x = (((r.precios || {}).clinica) || {})[k] || {};
+      CL[k] = { puestos: +x.puestos || b.puestos || PUESTOS_CLIN[k] }; ['mensual', 'anual'].forEach((pp) => { const bb = b[pp] || {}, xx = x[pp] || {}; CL[k][pp] = { usd: +xx.usd || bb.usd || 0, bcv: +xx.bcv || bb.bcv || 0 }; }); });
     const tm = r.tasa || {};
     return { PR, PG, CL, contacto: (r.contacto || '').trim() || C.contacto || '', tasa: { v: +tm.v || 0, fecha: tm.fecha || '', usar: !!tm.usar } };
   }
@@ -2147,7 +2150,7 @@
   function pagoHtml(A, cl) {
     const PR = A.PR, ah = PR.mensual.usd ? Math.floor((1 - PR.anual.usd / (PR.mensual.usd * 12)) * 100) : 0;
     const planes = cl
-      ? `<h3>1. Elige el plan de la clínica</h3><div class="opciones" id="spClin">${Object.entries(A.CL).map(([k, x]) => `<button type="button" class="opcion" data-spclin="${k}">${k === 'plus' ? 'Plus' : 'Básica'} · hasta ${x.puestos} anestesiólogos</button>`).join('')}</div>
+      ? `<h3>1. Elige el plan de la clínica</h3><div class="opciones" id="spClin">${Object.entries(A.CL).map(([k, x]) => `<button type="button" class="opcion" data-spclin="${k}">${nomClin(k)} · hasta ${x.puestos} anestesiólogos</button>`).join('')}</div>
          <div class="opciones" id="spPlanes" style="margin-top:8px">${['mensual', 'anual'].map((k) => `<button type="button" class="opcion" data-spplan="${k}">${k === 'mensual' ? 'Mensual' : 'Anual'}</button>`).join('')}</div>`
       : `<h3>1. Elige el plan</h3><div class="opciones" id="spPlanes">${['mensual', 'anual'].map((k) => `<button type="button" class="opcion" data-spplan="${k}">${k === 'mensual' ? 'Mensual' : 'Anual'}${k === 'anual' && ah > 0 ? ` · ahorras ${ah} %` : ''}</button>`).join('')}</div>`;
     return card(cl ? 'Pagar el plan de la clínica' : 'Pagar tu suscripción', `${cl ? '' : `<p class="nota" style="margin-top:0">Incluye historias con PDF, valoración preanestésica, récipe, calculadoras, guías y bloqueos, en el teléfono y en la computadora con la misma cuenta.</p>`}
@@ -2177,7 +2180,7 @@
     if (cl && !A.CL[spSel.clin]) spSel.clin = (cl.plan && A.CL[cl.plan]) ? cl.plan : 'basica';
     const tasa = () => { const t = tasaBcv(); if (t) return t; const m = numM(($('#spTasa') || {}).value); return m > 0 ? { v: m, fecha: '', fuente: 'escrita' } : null; };
     const monto = (plan, canal) => { const p = precioPlan(A, plan, cl), x = PG[canal] || {}, t = tasa(); if (x.moneda === 'Bs') return t ? { n: p.bcv * t.v, mon: 'Bs', det: `${fmtUsd(p.bcv)} USD × ${fmtM(t.v)}` } : { n: 0, mon: 'Bs', det: `${fmtUsd(p.bcv)} USD a tasa BCV` }; return { n: p.usd, mon: x.moneda || 'USD', det: '' }; };
-    const nomPlan = () => (cl ? `${spSel.clin === 'plus' ? 'Plus' : 'Básica'} ${spSel.plan}` : spSel.plan);
+    const nomPlan = () => (cl ? `${nomClin(spSel.clin)} ${spSel.plan}` : spSel.plan);
     let tasaFallo = false;
     const pintar = () => {
       const t = tasa();
@@ -2240,7 +2243,7 @@
       } catch (e) { aviso(e.message, 5000); bOk.disabled = false; bOk.textContent = 'Enviar reporte'; }
     };
     Nube.misPagos().then((l) => { const e = $('#spLista'); if (!e) return; l = l.filter((p) => (cl ? p.clinica_id === cl.id : !p.clinica_id));
-      e.innerHTML = l.length ? `<ul class="lista">${l.map((p) => `<li class="item"><div class="txt"><b>${p.clinica_plan ? (p.clinica_plan === 'plus' ? 'Plus ' : 'Básica ') : ''}${esc(p.plan)} · ${esc((PG[p.canal] || {}).t || p.canal)}${p.monto ? ' · ' + fmtM(p.monto) + ' ' + esc(p.moneda || '') : ''}</b><small>Ref. ${esc(p.referencia)} · ${new Date(p.creado).toLocaleDateString('es-VE')}</small></div><span class="estado-pago ${p.estado}">${{ pendiente: 'Pendiente', aprobado: 'Aprobado', rechazado: 'Rechazado' }[p.estado] || p.estado}</span></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Aún no hay pagos reportados.</p>'; })
+      e.innerHTML = l.length ? `<ul class="lista">${l.map((p) => `<li class="item"><div class="txt"><b>${p.clinica_plan ? nomClin(p.clinica_plan) + ' ' : ''}${esc(p.plan)} · ${esc((PG[p.canal] || {}).t || p.canal)}${p.monto ? ' · ' + fmtM(p.monto) + ' ' + esc(p.moneda || '') : ''}</b><small>Ref. ${esc(p.referencia)} · ${new Date(p.creado).toLocaleDateString('es-VE')}</small></div><span class="estado-pago ${p.estado}">${{ pendiente: 'Pendiente', aprobado: 'Aprobado', rechazado: 'Rechazado' }[p.estado] || p.estado}</span></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Aún no hay pagos reportados.</p>'; })
       .catch((er) => { const e = $('#spLista'); if (e) e.innerHTML = `<p class="nota" style="margin:0">${esc(er.message)}</p>`; });
   }
 
@@ -2290,7 +2293,7 @@
     if ($('#invSi')) $('#invSi').onclick = async () => { try { const r = await Nube.aceptarInvitacion(cod); invGuardar(''); await Nube.estado(true); cerrarHoja(); aviso('Listo: ahora usas el plan de ' + r.clinica, 3500); render(); } catch (e) { aviso(e.message, 5000); } };
   }
   function tablaClinicas(A) {
-    const fila = (k, x) => `<tr><td><b>${k === 'plus' ? 'Plus' : 'Básica'}</b><br><small class="nota">hasta ${x.puestos} anestesiólogos</small></td><td>${fmtUsd(x.mensual.usd)} USD<br><small class="nota">o ${fmtUsd(x.mensual.bcv)} USD a tasa BCV</small></td><td>${fmtUsd(x.anual.usd)} USD<br><small class="nota">o ${fmtUsd(x.anual.bcv)} USD a tasa BCV</small></td></tr>`;
+    const fila = (k, x) => `<tr><td><b>${nomClin(k)}</b><br><small class="nota">hasta ${x.puestos} anestesiólogos</small></td><td>${fmtUsd(x.mensual.usd)} USD<br><small class="nota">o ${fmtUsd(x.mensual.bcv)} USD a tasa BCV</small></td><td>${fmtUsd(x.anual.usd)} USD<br><small class="nota">o ${fmtUsd(x.anual.bcv)} USD a tasa BCV</small></td></tr>`;
     return `<div class="tabla-scroll"><table class="cl-tabla"><tr><th>Plan</th><th>Mensual</th><th>Anual</th></tr>${Object.entries(A.CL).map(([k, x]) => fila(k, x)).join('')}
       <tr><td><b>Institucional</b><br><small class="nota">más de ${A.CL.plus.puestos}</small></td><td colspan="2">A convenir: escríbenos a ${mailA('contacto')}</td></tr></table></div>
       <p class="nota" style="margin:6px 0 0">En divisas: Zelle o USDT. En bolívares: Pago Móvil, a la tasa BCV del día.</p>`;
@@ -2331,7 +2334,7 @@
       return;
     }
     const activa = cl.estado === 'activa', usados = (cl.miembros || []).length, pend = (cl.invitaciones || []).length;
-    const estTxt = { solicitud: 'Pendiente de pago: elige el plan y reporta el pago para activarla.', activa: `Activa · plan ${cl.plan === 'plus' ? 'Plus' : cl.plan === 'institucional' ? 'Institucional' : 'Básica'} · vence el ${fv(cl.vence)}`, vencida: `Venció el ${fv(cl.vence)}: renueva para que tus anestesiólogos sigan cubiertos.`, cancelada: 'Cancelada.' }[cl.estado] || cl.estado;
+    const estTxt = { solicitud: 'Pendiente de pago: elige el plan y reporta el pago para activarla.', activa: `Activa · plan ${nomClin(cl.plan)} · vence el ${fv(cl.vence)}`, vencida: `Venció el ${fv(cl.vence)}: renueva para que tus anestesiólogos sigan cubiertos.`, cancelada: 'Cancelada.' }[cl.estado] || cl.estado;
     const link = (i) => webBase() + '?invitacion=' + i.token;
     const wa = (i) => 'https://wa.me/?text=' + encodeURIComponent(`Hola, te invito a usar Morpheus MD con el plan de ${cl.nombre}. Abre este enlace y crea tu cuenta (o entra) con ${i.correo}: ${link(i)}\nCódigo: ${i.codigo}`);
     v.innerHTML = card(cl.nombre, `<p style="margin:0"><b>${esc(estTxt)}</b></p><p class="nota">${[cl.rif, cl.ciudad].filter(Boolean).map(esc).join(' · ')}</p>
@@ -2365,9 +2368,9 @@
         <div class="adm-bot"><button class="secundario chico" data-acl="${c.id}" data-d="30">+30 d</button><button class="secundario chico" data-acl="${c.id}" data-d="365">+1 año</button><button class="secundario chico" data-aclp="${c.id}" data-pl="${esc(c.plan)}" data-pu="${c.puestos}">Plan / puestos</button></div></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Todavía no hay clínicas registradas.</p>');
     $$('#admCont [data-acl]').forEach((b) => (b.onclick = async () => { if (!confirm(`¿Extender ${b.dataset.d} días el plan de esta clínica?`)) return; try { await Nube.admClinicaAjustar(b.dataset.acl, +b.dataset.d, null, ''); aviso('Clínica extendida'); admClinicasUI(v); } catch (e) { aviso(e.message, 4500); } }));
     $$('#admCont [data-aclp]').forEach((b) => (b.onclick = async () => {
-      const pl = prompt('Plan: basica, plus o institucional', b.dataset.pl); if (pl == null) return; const plan = pl.trim().toLowerCase();
-      if (!['basica', 'plus', 'institucional'].includes(plan)) return aviso('Plan no válido');
-      const pu = prompt('Número de puestos (anestesiólogos)', plan === 'basica' ? 5 : plan === 'plus' ? 12 : b.dataset.pu); if (pu == null) return;
+      const pl = prompt('Plan: basica, media, plus o institucional', b.dataset.pl); if (pl == null) return; const plan = pl.trim().toLowerCase();
+      if (!['basica', 'media', 'plus', 'institucional'].includes(plan)) return aviso('Plan no válido');
+      const pu = prompt('Número de puestos (anestesiólogos)', (AJ().CL[plan] || {}).puestos || b.dataset.pu); if (pu == null) return;
       try { await Nube.admClinicaAjustar(b.dataset.aclp, 0, Math.max(0, parseInt(pu, 10) || 0), plan); aviso('Clínica actualizada'); admClinicasUI(v); } catch (e) { aviso(e.message, 4500); }
     }));
   }
@@ -2388,7 +2391,7 @@
       if (admTab === 'pagos') {
         const l = pagos.filter((p) => !q || sinTilde([p.referencia, uDe(p.user_id).correo, uDe(p.user_id).nombre, remTxt(p.remitente)].join(' ')).includes(q));
         const pend = l.filter((p) => p.estado === 'pendiente'), resto = l.filter((p) => p.estado !== 'pendiente');
-        const fila = (p) => { const u = uDe(p.user_id); return `<li class="item"><div class="txt"><b>${esc(u.correo || p.user_id)}</b><small>${esc(u.nombre || '')}</small><small>${p.clinica_plan ? '🏥 Clínica · ' + (p.clinica_plan === 'plus' ? 'Plus ' : 'Básica ') : ''}${esc(p.plan)} · ${esc(p.canal)} · ${p.monto ? fmtM(p.monto) + ' ' + esc(p.moneda || '') : 'sin monto'} · Ref. ${esc(p.referencia)} · ${fv(p.creado)}</small>${remTxt(p.remitente) ? `<small>Remitente: ${esc(remTxt(p.remitente))}</small>` : ''}${p.nota ? `<small>${esc(p.nota)}</small>` : ''}${p.comprobante ? `<button class="secundario chico" style="margin-top:6px;align-self:flex-start" data-admcomp="${esc(p.comprobante)}">📷 Ver captura</button>` : '<small style="color:#b3261e">Sin captura</small>'}</div>
+        const fila = (p) => { const u = uDe(p.user_id); return `<li class="item"><div class="txt"><b>${esc(u.correo || p.user_id)}</b><small>${esc(u.nombre || '')}</small><small>${p.clinica_plan ? '🏥 Clínica · ' + nomClin(p.clinica_plan) + ' ' : ''}${esc(p.plan)} · ${esc(p.canal)} · ${p.monto ? fmtM(p.monto) + ' ' + esc(p.moneda || '') : 'sin monto'} · Ref. ${esc(p.referencia)} · ${fv(p.creado)}</small>${remTxt(p.remitente) ? `<small>Remitente: ${esc(remTxt(p.remitente))}</small>` : ''}${p.nota ? `<small>${esc(p.nota)}</small>` : ''}${p.comprobante ? `<button class="secundario chico" style="margin-top:6px;align-self:flex-start" data-admcomp="${esc(p.comprobante)}">📷 Ver captura</button>` : '<small style="color:#b3261e">Sin captura</small>'}</div>
           ${p.estado === 'pendiente' ? `<div class="adm-bot"><button class="primario chico" data-admok="${p.id}">Aprobar</button><button class="peligro chico" data-admno="${p.id}">Rechazar</button></div>` : `<span class="estado-pago ${p.estado}">${p.estado}</span>`}</li>`; };
         cont.innerHTML = card(`Pendientes (${pend.length})`, pend.length ? `<ul class="lista">${pend.map(fila).join('')}</ul>` : '<p class="nota" style="margin:0">No hay pagos por revisar.</p>') + (resto.length ? card('Revisados', `<ul class="lista">${resto.slice(0, 50).map(fila).join('')}</ul>`) : '');
       } else {
@@ -2429,8 +2432,8 @@
       c.innerHTML = card('Precios', `<p class="nota" style="margin-top:0">En divisas: Zelle o USDT. En bolívares: Pago Móvil, en USD a la tasa BCV del día (la app la consulta sola y muestra el monto en Bs).</p>
         <div class="rejilla"><label class="campo"><span>Mensual · USD (divisas)</span>${n('apMu', A.PR.mensual.usd, '8')}</label><label class="campo"><span>Mensual · USD a tasa BCV</span>${n('apMb', A.PR.mensual.bcv, '9,5')}</label>
         <label class="campo"><span>Anual · USD (divisas)</span>${n('apAu', A.PR.anual.usd, '60')}</label><label class="campo"><span>Anual · USD a tasa BCV</span>${n('apAb', A.PR.anual.bcv, '68')}</label></div>`) +
-        card('Precios para clínicas', ['basica', 'plus'].map((k) => { const x = A.CL[k], K = k === 'plus' ? 'P' : 'B';
-          return `<h3>${k === 'plus' ? 'Plus' : 'Básica'}</h3><div class="rejilla"><label class="campo"><span>Puestos (anestesiólogos)</span>${n('apC' + K + 'p', x.puestos, '')}</label><span></span>
+        card('Precios para clínicas', PLANES_CLIN.map((k) => { const x = A.CL[k], K = { basica: 'B', media: 'M', plus: 'P' }[k];
+          return `<h3>${nomClin(k)}</h3><div class="rejilla"><label class="campo"><span>Puestos (anestesiólogos)</span>${n('apC' + K + 'p', x.puestos, '')}</label><span></span>
             <label class="campo"><span>Mensual · USD (divisas)</span>${n('apC' + K + 'mu', x.mensual.usd, '')}</label><label class="campo"><span>Mensual · USD a tasa BCV</span>${n('apC' + K + 'mb', x.mensual.bcv, '')}</label>
             <label class="campo"><span>Anual · USD (divisas)</span>${n('apC' + K + 'au', x.anual.usd, '')}</label><label class="campo"><span>Anual · USD a tasa BCV</span>${n('apC' + K + 'ab', x.anual.bcv, '')}</label></div>`; }).join('') +
           '<p class="nota" style="margin:0">Institucional (más puestos): se ajusta a mano en la pestaña Clínicas.</p>') +
@@ -2450,7 +2453,7 @@
         const val = (id) => numM($('#' + id).value);
         const pr = { mensual: { usd: val('apMu'), bcv: val('apMb') }, anual: { usd: val('apAu'), bcv: val('apAb') } };
         if (Object.values(pr).some((x) => !(x.usd > 0) || !(x.bcv > 0))) return aviso('Revisa los precios: deben ser números mayores que cero');
-        pr.clinica = {}; for (const [k, K] of [['basica', 'B'], ['plus', 'P']]) {
+        pr.clinica = {}; for (const [k, K] of [['basica', 'B'], ['media', 'M'], ['plus', 'P']]) {
           const c = { puestos: Math.round(val('apC' + K + 'p')), mensual: { usd: val('apC' + K + 'mu'), bcv: val('apC' + K + 'mb') }, anual: { usd: val('apC' + K + 'au'), bcv: val('apC' + K + 'ab') } };
           if (!(c.puestos > 0) || [c.mensual, c.anual].some((x) => !(x.usd > 0) || !(x.bcv > 0))) return aviso('Revisa los precios de clínicas: deben ser números mayores que cero');
           pr.clinica[k] = c;
