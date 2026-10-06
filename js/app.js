@@ -1977,7 +1977,7 @@
     let L = null; try { L = Store.legado(); } catch (e) { return; }
     const nh = (L.historias || []).length, nd = (L.docs || []).length;
     if (!nh && !nd) { cfg.legadoRevisado = true; Store.guardarConfig(cfg); return; }
-    abrirHoja(`<h2>Historias de este dispositivo</h2><p>Encontramos <b>${nh} historia${nh === 1 ? '' : 's'}</b>${nd ? ` y <b>${nd} documento${nd === 1 ? '' : 's'}</b>` : ''} guardados aquí antes de la versión 2.0.</p>
+    abrirHoja(`<h2>Historias de este dispositivo</h2><p>Encontramos <b>${nh} historia${nh === 1 ? '' : 's'}</b>${nd ? ` y <b>${nd} documento${nd === 1 ? '' : 's'}</b>` : ''} guardad${nd ? 'os' : nh === 1 ? 'a' : 'as'} aquí antes de la versión 2.0.</p>
       <p class="nota">Si las pasas a tu cuenta quedarán respaldadas en la nube y las verás en tus otros dispositivos. Solo hazlo si son tuyas.</p>
       <div class="acciones"><button class="secundario" id="lgNo">Ahora no</button><button class="primario" id="lgSi">Pasar a mi cuenta</button></div>`);
     $('#lgNo').onclick = () => { cfg.legadoRevisado = true; Store.guardarConfig(cfg); cerrarHoja(); };
@@ -2644,7 +2644,7 @@
 
   /* ---- Novedades de cada versión ---- */
   const NOVEDADES = [
-    ['2.0.0', ['Cuenta con tu correo: tus historias, documentos y ajustes se guardan en tu cuenta y los ves en el teléfono y en la computadora.', 'Equipo compartido para clínicas: al cerrar sesión se borran tus datos de ese equipo y la sesión se cierra sola tras 30 min sin uso.', '7 días de prueba gratis; luego suscripción mensual o anual (Menú › Mi suscripción). Crisis (SOS) siempre es gratis.', 'Si ya usabas la app en este dispositivo, te ofrecemos pasar tus historias a tu cuenta.']],
+    ['2.0.0', ['Cuenta con tu correo: tus historias, documentos y ajustes se guardan en tu cuenta y los ves en el teléfono y en la computadora (web: morpheus-md.com).', 'Si ya usabas la app en este dispositivo, te ofrecemos pasar tus historias a tu cuenta.', 'Equipo compartido: en la computadora de la clínica, al cerrar sesión se borran tus datos de ese equipo y la sesión se cierra sola tras 30 min sin uso.', '7 días de prueba gratis; luego plan mensual o anual en Menú › Mi suscripción: Pago Móvil (monto en Bs a la tasa BCV del día), Zelle o Binance, con captura del pago. Crisis (SOS) siempre es gratis.', 'Planes para clínicas: el responsable paga un solo plan e invita a sus anestesiólogos.', 'Varios consultorios: en ⚙ Ajustes › Mis datos agrega tus direcciones y elige cuál sale en cada valoración o récipe.']],
     ['1.9.13', ['Menú reorganizado por grupos: Documentos, Herramientas clínicas, Configuración y Ayuda.', 'Nuevo botón ⚙ Ajustes arriba: Mis datos, Firma y sello, Imágenes, Lugares de trabajo y Cuenta, en pestañas.', 'Valoración y récipe: en el menú ⋮ del documento, Compartir PDF y Guardar PDF directo, sin pasar por la vista previa.']],
     ['1.9.12', ['Guía de uso (Menú › ❓ Guía de uso) y recorrido guiado para quien entra por primera vez.', 'Mi farmacia: marca los fármacos de tu hospital; las mezclas de bloqueos y la calculadora se adaptan.',
       'Al crear la cuenta, un asistente pregunta tus lugares de trabajo y tu farmacia.', 'Bloqueos: dosis de ropivacaína y levobupivacaína, lidocaína 4 % y 10 % en vía aérea, raquídea con dosis habituales y límites de volumen, PENG con sus acotaciones.',
