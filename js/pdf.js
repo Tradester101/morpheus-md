@@ -108,13 +108,18 @@ window.PDFHistoria = (function () {
   function Opacidad(o) { try { d.setGState(new d.GState({ opacity: o })); } catch (e) { } }
   function Encabezado(h, sede, cont) {
     Negro(FX1, FY1, FX2, 124);
-    let x0 = 46;
-    if (MARCA.on && MARCA.blanca) { Opacidad(MARCA.op); Img(MARCA.blanca, 42, 85, 84, 121.5); Opacidad(1); x0 = 90; }
-    if (sede.logo) { Rc(x0 - 2, 85, x0 + 42, 121.5, { fill: [255, 255, 255], stroke: false }); Img(sede.logo, x0 - 0.5, 86.5, x0 + 40.5, 120); x0 += 48; }
+    // 2.0.1: la corona de Morpheus MD siempre arriba a la izquierda; el logo propio del colega, arriba a la derecha.
+    Opacidad(0.85); Img(window.IMGS.marcaBlanca, 42, 85, 84, 121.5); Opacidad(1); let x0 = 90;
+    // Logo del lugar: versión clara sin fondo directamente sobre la barra negra; los logos viejos (sin versión clara) siguen en su recuadro blanco
+    if (sede.logoB) { Img(sede.logoB, x0 - 1, 86, x0 + 44, 120.5); x0 += 50; }
+    else if (sede.logo) { Rc(x0 - 2, 85, x0 + 42, 121.5, { fill: [255, 255, 255], stroke: false }); Img(sede.logo, x0 - 0.5, 86.5, x0 + 40.5, 120); x0 += 48; }
     T(sede.nombre || '', (x0 + 655) / 2, 96, { b: true, size: 11, c: [255, 255, 255], align: 'center', maxw: 655 - x0 });
-    T(sede.sub || '', (x0 + 655) / 2, 114, { b: true, size: 6.8, c: [255, 255, 255], align: 'center', maxw: 655 - x0 });
-    T('Historia de Anestesia', 797, cont ? 99 : 104, { b: true, size: 10.5, c: [255, 255, 255], align: 'center' });
-    if (cont) T('Hoja de continuación ' + cont, 797, 114, { size: 6, c: [255, 255, 255], align: 'center' });
+    const sub = [t(sede.sub).trim(), t(sede.rif).trim() && 'RIF ' + t(sede.rif).trim()].filter(Boolean).join(' · ');
+    T(sub, (x0 + 655) / 2, 114, { b: true, size: 6.8, c: [255, 255, 255], align: 'center', maxw: 655 - x0 });
+    const xt = MARCA.propio ? 752 : 797;
+    if (MARCA.propio) { Opacidad(MARCA.op); Img(MARCA.propio, 850, 85, 892, 121.5); Opacidad(1); }
+    T('Historia de Anestesia', xt, cont ? 99 : 104, { b: true, size: 10.5, c: [255, 255, 255], align: 'center' });
+    if (cont) T('Hoja de continuación ' + cont, xt, 114, { size: 6, c: [255, 255, 255], align: 'center' });
   }
   function BloquePaciente(h) {
     const p = h.p;
@@ -128,25 +133,29 @@ window.PDFHistoria = (function () {
   function Datos(h) {
     const p = h.p; const y = [124, 141, 157.5, 174, 190.5, 207];
     const vol = t(p.volemia) || t(p._volemia), pmp = t(p.pmp) || t(p._pmp);
-    Celda(FX1, y[0], 104.5, y[1], 'Edad', p.edad ? p.edad + ' a' : '');
-    Celda(104.5, y[0], 171, y[1], 'Peso', p.peso ? p.peso + ' kg' : '');
-    Celda(171, y[0], 237, y[1], 'Talla', p.talla ? p.talla + ' cm' : '');
-    Celda(237, y[0], 301.5, y[1], 'Hb', p.hb);
-    Celda(301.5, y[0], 367.5, y[1], 'Hto', p.hto ? p.hto + ' %' : '');
-    Celda(367.5, y[0], 467.5, y[1], 'Plaquetas', p.plaq);
-    Celda(467.5, y[0], 666.5, y[1], 'Perd. Máx. Permisibles (Hto. ' + (t(p.htoMin) || (t(p.hto) ? '30' : '____')) + ' )', pmp ? pmp + ' ml' : '');
-    if (pmp && !t(p.pmp) && p.formPmp) {
-      d.setFont('helvetica', 'bold'); d.setFontSize(5.4 * FF); const wl = d.getTextWidth('Perd. Máx. Permisibles (Hto. ' + (t(p.htoMin) || '30') + ' )') / SX + 5;
-      d.setFont('helvetica', 'normal'); d.setFontSize(7 * FF); const wv = d.getTextWidth(pmp + ' ml') / SX;
-      const x = 467.5 + wl + wv + 2.5, tag = '(' + ({ rapida: 'rápida', clasica: 'clásica', gross: 'Gross', log: 'log.' }[p.formPmp] || '') + ')';
-      d.setFontSize(4.2 * FF); if (x + d.getTextWidth(tag) / SX < 665) T(tag, x, 133.2, { size: 4.2, c: GRIS });
-    }
-    Celda(FX1, y[1], 153.5, y[2], 'Glicemia', p.glic);
-    Celda(153.5, y[1], 253.5, y[2], 'Urea', p.urea);
-    Celda(253.5, y[1], 367.5, y[2], 'Creatinina', p.creat);
-    Celda(367.5, y[1], 467.5, y[2], 'TP', p.tp);
-    Celda(467.5, y[1], 565.5, y[2], 'TPT', p.tpt);
-    Celda(565.5, y[1], 666.5, y[2], 'Volemia', vol ? vol + ' ml' : '');
+    // Línea 1 (2.0.1): Edad · Peso · Talla · IMC · Hb · Hto · Plaquetas · Volemia · PMP
+    const imc = t(p._imc) || (() => { const w = parseFloat(t(p.peso).replace(',', '.')), tl = parseFloat(t(p.talla).replace(',', '.')); return w > 0 && tl > 0 ? (Math.round((w / Math.pow(tl / 100, 2)) * 10) / 10).toString().replace('.', ',') : ''; })();
+    const x1 = [FX1, 90, 148, 208, 262, 312, 362, 452, 538, 666.5];
+    [['Edad', p.edad ? p.edad + ' a' : ''], ['Peso', p.peso ? p.peso + ' kg' : ''], ['Talla', p.talla ? p.talla + ' cm' : ''], ['IMC', imc], ['Hb', p.hb], ['Hto', p.hto ? p.hto + ' %' : ''],
+      ['Plaquetas', p.plaq], ['Volemia', vol ? vol + ' ml' : ''], ['PMP (Hto ' + (t(p.htoMin) || (t(p.hto) ? '30' : '__')) + ')', pmp ? pmp + ' ml' : '']].forEach(([e, v], i) => Celda(x1[i], y[0], x1[i + 1], y[1], e, v));
+    // Línea 2: Glicemia · Urea · Creatinina · TP · TPT · Grupo y Rh · Na · K · Cl · Otros
+    const x2 = [FX1, 96, 140, 202, 256, 312, 358, 394, 424, 458, 666.5];
+    const grupo = t(p.grupo) + (p.rh === '+' ? '+' : p.rh === '-' ? '-' : '');
+    [['Glicemia', p.glic], ['Urea', p.urea], ['Creat.', p.creat], ['TP', p.tp], ['TPT', p.tpt], ['Grupo', grupo], ['Na', p.na], ['K', p.k], ['Cl', p.cl]]
+      .forEach(([e, v], i) => Celda(x2[i], y[1], x2[i + 1], y[2], e, v, { size: 5.2 }));
+    // Otros exámenes: lo que no quepa pasa a Observaciones
+    const CORTO = { 'Hepatitis B (HBsAg)': 'Hep B', 'Hepatitis C (anti-HCV)': 'Hep C', 'β-HCG': 'B-HCG', 'Tiempo de sangría': 'T. sangría', 'Tiempo de coagulación': 'T. coag.', 'Calcio iónico': 'Ca iónico', 'Calcio': 'Ca', 'Magnesio': 'Mg', 'Fósforo': 'P',
+      'Glicemia postprandial': 'Glic. postpr.', 'Proteínas totales': 'Prot. tot.', 'Bilirrubina total': 'BT', 'Bilirrubina directa': 'BD', 'TGO (AST)': 'TGO', 'TGP (ALT)': 'TGP', 'Fosfatasa alcalina': 'FA', 'Ácido úrico': 'Ác. úrico',
+      'Depuración de creatinina': 'Dep. creat.', 'Colesterol total': 'Colest.', 'Triglicéridos': 'TG', 'Exceso de base': 'EB', 'SatO2 arterial': 'SaO2', 'Leucocitos': 'Leuc.', 'Neutrófilos': 'Neut.', 'Linfocitos': 'Linf.', 'Hierro sérico': 'Fe', 'Saturación de transferrina': 'Sat. transf.', 'Procalcitonina': 'PCT', 'Examen de orina': 'Orina' };
+    const piezas = (Array.isArray(p.labs) ? p.labs : []).filter((x) => t(x.n).trim() && t(x.v).trim()).map((x) => (CORTO[x.n] || t(x.n).trim()) + ' ' + t(x.v).trim() + (x.u === '%' ? '%' : ''));
+    const ox = x2[9]; Rc(ox, y[1], 666.5, y[2]); T('Otros:', ox + 2, (y[1] + y[2]) / 2 + 0.3, { b: true, size: 5.2 });
+    const wOtros = 666.5 - ox - anchoTxt('Otros:', 5.2, true) - 7; let cabe = piezas.length, sz = 7;
+    const ancho = (n, z) => anchoTxt(piezas.slice(0, n).join(' · '), z, false);
+    while (sz > 5 && ancho(cabe, sz) > wOtros) sz -= 0.25;
+    while (cabe > 0 && ancho(cabe, sz) > wOtros) cabe--;
+    const txtO = piezas.slice(0, cabe).join(' · ') + (cabe < piezas.length ? ' · (ver Obs.)' : '');
+    V(txtO, ox + 4 + anchoTxt('Otros:', 5.2, true), (y[1] + y[2]) / 2 + 0.4, { size: sz, maxw: wOtros });
+    h._labsObs = cabe < piezas.length ? 'Otros laboratorios: ' + piezas.slice(cabe).join(' · ') + '.' : '';
     Celda(FX1, y[2], 351, y[3], 'Alergias:', h.alergias); Celda(351, y[2], 666.5, y[3], 'Premedicación:', h.premed);
     Celda(FX1, y[3], 351, y[4], 'Anestesiólogo(s):', h.anest); Celda(351, y[3], 666.5, y[4], 'Asistente de Anestesia:', h.asist);
     Celda(FX1, y[4], 351, y[5], 'Cirujanos:', h.ciruj); Celda(351, y[4], 666.5, y[5], 'Instrumentista:', h.instr);
@@ -154,7 +163,7 @@ window.PDFHistoria = (function () {
 
   /* ---- columna izquierda superior ---- */
   function Izquierda(h) {
-    Rc(FX1, 207, 268.5, 711.5);
+    Rc(FX1, 207, 268.5, 622.5);
     // Mallampati
     T('Mallampati', 41, 214, { b: true, size: 6.4 });
     const mx = [63.5, 113.5, 162.5, 212.5], rom = ['I', 'II', 'III', 'IV'];
@@ -229,15 +238,7 @@ window.PDFHistoria = (function () {
         V(l.t, 234, yl - 0.2, { size: 6.4, align: 'right', maxw: TXW }); if (l.u) T(l.u, 237.5, yl + 0.3, { size: 5.2 });
       });
     });
-    // Inducción
-    L(FX1, 622.5, 268.5, 622.5, 0.9);
-    T('INDUCCIÓN:', 41, 628, { b: true, size: 7.2 });
-    const ti = (h.ind || {}).tipo;
-    Opc(47, 641, 'INTRAVENOSA', ti === 'iv', { b: true, size: 5.3 }); Opc(47, 653, 'INHALATORIA', ti === 'inh', { b: true, size: 5.3 }); Opc(47, 665, 'MIXTA', ti === 'mixta', { b: true, size: 5.3 });
-    Negro(121.5, 622.5, 268.5, 633); T('Medicamentos inducción:', 124, 628, { b: true, size: 6.4, c: [255, 255, 255] });
-    L(121.5, 622.5, 121.5, 711.5);
-    const meds = (h.ind || {}).meds || [];
-    ['A.', 'B.', 'C.', 'D.', 'E.', 'F.'].forEach((l, i) => { const y = 639 + i * 12.8; T(l, 123.5, y, { size: 4.6 }); V(meds[i], 132, y, { size: 6.6, maxw: 134 }); });
+    TecInd(h);
   }
 
   /* ---- grilla transoperatoria ---- */
@@ -486,53 +487,100 @@ window.PDFHistoria = (function () {
   }
   function off(to, hm) { const a = minDe(to.inicio), b = minDe(hm); if (!isFinite(a) || !isFinite(b)) return NaN; let x = b - a; if (x < -60) x += 1440; return x; }
 
-  /* ---- técnica / vía aérea ---- */
+  /* ---- técnica e inducción (2.0.1): bloque izquierdo y 622.5–838.5 ---- */
+  const TEC_N = { sed: 'Sedación', gen: 'General', tiva: 'TIVA', reg: 'Regional', esp: 'Espinal', epi: 'Peridural', bloq: 'Bloqueo regional', local: 'Local' };
+  const SED_N = { ansio: '(ansiólisis)', consc: 'consciente', prof: 'profunda' };
+  function tecNombre(k, h) {
+    const tc = h.tec || {};
+    if (k === 'gen') return 'General' + ({ inh: ' inhalatoria', bal: ' balanceada' }[tc.genVia] || '');
+    if (k === 'sed') return 'Sedación' + (SED_N[h.sedNivel] ? ' ' + SED_N[h.sedNivel] : '');
+    if (k === 'esp') return 'Espinal (raquídea)';
+    return TEC_N[k] || '';
+  }
+  function tecTexto(h) {
+    const tc = (h && h.tec) || {}; const p = tc.p === 'reg' ? tc.regTipo || 'reg' : tc.p || ''; if (!p) return '';
+    const A = tecNombre(p, h), c = tc.comb && tc.comb !== p ? tc.comb : '';
+    const anest = (k, x) => (['gen', 'esp', 'epi', 'reg', 'local'].includes(k) ? 'Anestesia ' + x.charAt(0).toLowerCase() + x.slice(1) : k === 'tiva' ? 'TIVA (anestesia total intravenosa)' : x);
+    if (!c) return anest(p, A);
+    const B = tecNombre(c, h);
+    if (c === 'sed' || c === 'local' || p === 'sed' || p === 'local') return anest(p, A) + ' + ' + B.charAt(0).toLowerCase() + B.slice(1);
+    return 'Anestesia combinada: ' + A + ' + ' + B;
+  }
+  /* Texto y casillas en fila, midiendo el ancho real (evita que se monten) */
+  function anchoTxt(s, size, b) { d.setFont('helvetica', b ? 'bold' : 'normal'); d.setFontSize(size * FF); return d.getTextWidth(limpia(s)) / SX; }
+  function Flujo(x, y, items, o = {}) {
+    const size = o.size || 5.3, gap = o.gap == null ? 6 : o.gap;
+    items.forEach((it) => {
+      if (!it) return;
+      if (it.t != null) { T(it.t, x, y, { b: it.b !== false, size: it.size || size }); x += anchoTxt(it.t, it.size || size, it.b !== false) + (it.gap == null ? 3 : it.gap); }
+      else if (it.v != null) { const sz = it.size || 6.4, w = it.w || Math.max(10, anchoTxt(t(it.v), sz)); if (it.caja) Rc(x, y - 4.5, x + w, y + 4.5, { w: 0.5 }); V(it.v, it.caja ? x + w / 2 : x, y + 0.3, { size: sz, maxw: w - 1, align: it.caja ? 'center' : 'left' }); x += w + (it.gap == null ? gap : it.gap); }
+      else { Opc(x + 3.5, y, it[0], it[1], { size, b: o.b }); x += 10.5 + anchoTxt(it[0], size, o.b) + gap; }
+    });
+    return x;
+  }
+  function TecInd(h) {
+    const tc = h.tec || {}, I = h.ind || {}, pr = tc.p, c = tc.comb;
+    const tiene = (k) => pr === k || c === k || (k === 'reg' && (c === 'esp' || c === 'epi'));
+    Rc(FX1, 622.5, 268.5, 838.5, { w: 0.8 });
+    Negro(FX1, 622.5, 98, 632); T('TÉCNICA', 68, 627.5, { b: true, size: 6.6, c: [255, 255, 255], align: 'center' });
+    const cols = [44, 100, 192];
+    [['sed', 'Sedación'], ['gen', 'General'], ['tiva', 'TIVA'], ['reg', 'Regional'], ['bloq', 'Bloqueo regional'], ['local', 'Local']].forEach(([k, e], i) => {
+      Opc(cols[i % 3], 639 + Math.floor(i / 3) * 9.5, e, tiene(k), { b: true, size: 5.2 }); });
+    const txt = tecTexto(h);
+    if (txt) { d.setFont('helvetica', 'normal'); d.setFontSize(6.4 * FF); const ls = d.splitTextToSize(limpia(txt), 222 * SX).slice(0, 2); ls.forEach((l, i) => V(l, 42, 658 + i * 7.6, { size: 6.4, maxw: 222 })); }
+    // Inducción
+    L(FX1, 670.5, 268.5, 670.5, 0.8);
+    Flujo(41, 677, [{ t: 'INDUCCIÓN:', size: 5.8, gap: 4 }, ['Intravenosa', I.tipo === 'iv'], ['Inhalatoria', I.tipo === 'inh'], ['Mixta', I.tipo === 'mixta']], { size: 5, b: true, gap: 4 });
+    Flujo(60, 687, [{ t: 'Intravenosa:', b: false, size: 5.2, gap: 5 }, ['Estándar', I.tipo === 'iv' && I.ivTipo === 'est'], ['Secuencia rápida', I.tipo === 'iv' && I.ivTipo === 'sr']], { size: 5.2, gap: 8 });
+    Negro(FX1, 693, 268.5, 702.5); T('Medicamentos de inducción:', 42, 698, { b: true, size: 6.4, c: [255, 255, 255] });
+    const meds = I.meds || [];
+    'ABCDEFGHIJ'.split('').forEach((l, i) => { const y = 709 + i * 12.7; T(l + '.', 42, y, { size: 4.8 }); V(meds[i], 51, y, { size: 6.8, maxw: 214 }); if (i < 9) L(50, y + 6.2, 266, y + 6.2, 0.15, GRIS); });
+  }
+
+  /* ---- Anestesia general y recién nacido (2.0.1): x 268.5–895, y 711.5–838.5 ---- */
   function Tecnica(h) {
-    const tc = h.tec || {}, ga = h.ga || {}, va = h.va || {}, as = va.asist || {}, rz = va.razon || {};
-    Rc(FX1, 711.5, FX2, 838.5, { w: 0.8 });
-    Negro(45, 711.5, 104, 721.5); T('TÉCNICA', 74.5, 716.8, { b: true, size: 7, c: [255, 255, 255], align: 'center' });
-    Opc(47, 727, 'SEDACIÓN', !!tc.sed, { b: true, size: 5.6 });
-    Opc(62, 736.5, 'Inhalatoria', tc.sedVia === 'inh'); Opc(62, 746, 'Intravenosa', tc.sedVia === 'iv');
-    T('+', 125, 741, { b: true, size: 7 });
-    [['local', 'Local'], ['regional', 'Regional'], ['conductiva', 'Conductiva'], ['ninguna', 'Ninguna otra']].forEach(([k, e], i) => Opc(146, 727 + i * 9.5, e, tc.sedMas === k));
-    Opc(47, 775, 'GENERAL', !!tc.gen, { b: true, size: 5.6 });
-    [['inh', 'Inhalatoria'], ['iv', 'Intravenosa'], ['bal', 'Balanceada']].forEach(([k, e], i) => Opc(62, 795 + i * 9.5, e, tc.genVia === k));
-    T('+', 125, 805, { b: true, size: 7 });
-    [['local', 'Local'], ['regional', 'Regional'], ['conductiva', 'Conductiva'], ['ninguna', 'Ninguna otra']].forEach(([k, e], i) => Opc(146, 795 + i * 9.5, e, tc.genMas === k));
-    // Sedación / General
-    L(268.5, 711.5, 268.5, 838.5, 0.8); // alineado con el divisor superior (Medicamentos inducción | Ventilación)
-    T('Sedación', 272, 716.5, { b: true, size: 6.4 });
-    [['ansio', 'Ansiólisis'], ['consc', 'Consciente'], ['prof', 'Profunda']].forEach(([k, e], i) => Opc(278, 727 + i * 9.5, e, h.sedNivel === k));
-    T('General', 272, 766, { b: true, size: 6.4 });
-    Opc(278, 775.5, 'Intubación oral', !!ga.oral); Opc(278, 785, 'Intubación nasal', !!ga.nasal);
-    Opc(278, 794.5, 'Disp. Supraglótico Tipo:', !!ga.supra); V(ga.supraTipo, 351, 794.8, { size: 6, maxw: 96 });
-    Opc(278, 804, 'Otro:', !!ga.otro); V(ga.otroTxt, 300, 804.3, { size: 6, maxw: 146 });
-    // Cormack
-    L(449.5, 711.5, 449.5, 838.5, 0.8);
-    T('Cormack-Lehane', 452, 716.5, { b: true, size: 6.4 });
-    const cx = [457, 511, 567, 626];
-    ['I', 'II', 'III', 'IV'].forEach((r, i) => { Caja(cx[i], 727, va.cl === r); Img(window.IMGS['cl' + (i + 1)], cx[i] + 6, 721, cx[i] + 42, 745); T(r, cx[i], 738, { b: true, size: 6, align: 'center' }); });
-    [['recta', 'Hoja recta', 457], ['curva', 'Hoja curva', 510], ['hiper', 'Hiperangulada', 567]].forEach(([k, e, x]) => Opc(x, 757, e, va.hoja === k, { size: 5.3, fijo: true }));
-    T('N:', 640, 757.3, { b: true, size: 5.8 }); V(va.hojaN, 650, 757.5, { size: 6.4 });
-    T('Tubo N°', 452, 766.5, { b: true, size: 5.8 }); V(va.tuboN, 492, 766.8, { size: 7 });
-    Opc(457, 776, 'Tubo simple', va.tubo === 'simple', { size: 5.3, fijo: true }); Opc(545, 776, 'Tubo armado', va.tubo === 'armado', { size: 5.3, fijo: true });
-    Opc(457, 785.5, 'Tubo preformado', va.tubo === 'preformado', { size: 5.3, fijo: true }); Opc(545, 785.5, 'Tubo selectivo D/I', va.tubo === 'selectivo', { size: 5.3, fijo: true });
-    if (va.tubo === 'selectivo' && va.lado) V(va.lado === 'D' ? 'Derecho' : 'Izquierdo', 614, 785.8, { size: 6, b: true });
-    Caja(457, 795, !!t(va.aire)); T('Aire cc:', 464, 795.3, { b: true, size: 5.3, fijo: true }); Rc(499, 790.5, 531, 799.5, { w: 0.5 }); V(va.aire, 515, 795.3, { size: 6.4, align: 'center' });
-    T('Long:', 545, 795.3, { b: true, size: 5.3, fijo: true }); Rc(570, 790.5, 612, 799.5, { w: 0.5 }); V(va.long ? va.long + ' cm' : '', 591, 795.3, { size: 6.4, align: 'center' });
-    Opc(457, 804.5, 'Con manguito', va.manguito === 'con', { size: 5.3, fijo: true }); Opc(545, 804.5, 'Sin manguito', va.manguito === 'sin', { size: 5.3, fijo: true });
-    Opc(457, 814, 'Ruidos resp simétricos', !!va.ruidos, { size: 5.3, fijo: true }); Opc(457, 823.5, 'EtCO2 +', !!va.etco2);
-    // Intubación asistida
-    L(681, 711.5, 681, 999, 0.8);
-    T('Intubacion asistida con:', 684, 716.5, { b: true, size: 6.2 });
-    Opc(688, 727, 'VideoLaringoscopio', !!as.video); Opc(790, 727, 'Fibroscopio flexible', !!as.fibro);
-    Opc(688, 736.5, 'AirTraq', !!as.airtraq); Opc(790, 736.5, 'Glidescope', !!as.glide);
-    Opc(688, 746, 'FastTrach', !!as.fast); Opc(790, 746, 'Otro:', !!as.otro); V(as.otroTxt, 812, 746.3, { size: 5.8, maxw: 80 });
-    T('Razon:', 684, 755, { b: true, size: 5.2 });
-    Opc(688, 764, 'Entrenamiento', !!rz.entren); Opc(688, 773.5, 'Vía aérea difícil', !!rz.dificil);
-    Caja(790, 773.5, !!va.pogoOn); T('POGO:', 797, 773.8, { b: true, size: 5.8 }); L(830, 777, 868, 777, 0.5); V(va.pogo, 849, 773.5, { size: 6.4, align: 'center' }); T('%', 871, 773.8, { size: 5.6 });
-    const px = [686, 726, 766, 806, 846];
-    ['0', '25', '50', '75', '100'].forEach((k, i) => { Img(window.IMGS['pogo' + k], px[i], 783, px[i] + 32, 815, { marco: true }); Opc(px[i] + 3, 823, k + '%', va.pogoCat === k); });
+    const va = h.va || {}, rz = va.razon || {}, rn = h.rn || {}, X = 272, XM = 760, ind = va.lar === 'ind';
+    Rc(268.5, 711.5, FX2, 838.5, { w: 0.8 });
+    Negro(268.5, 711.5, XM, 721); T('ANESTESIA GENERAL', 272, 716.4, { b: true, size: 6.6, c: [255, 255, 255] });
+    Negro(XM, 711.5, FX2, 721); T('RECIÉN NACIDO (cesárea)', (XM + FX2) / 2, 716.4, { b: true, size: 5.8, c: [255, 255, 255], align: 'center' });
+    L(XM, 711.5, XM, 838.5, 0.8);
+    L(681, 838.5, 681, 999, 0.8); // divisor de la columna Mezcla / infusión (debajo)
+    Flujo(X, 728, [{ t: 'Vía aérea:' }, ['TET oral', va.disp === 'oral'], ['TET nasal', va.disp === 'nasal'], ['Supraglótico:', va.disp === 'supra'],
+      { v: va.disp === 'supra' ? [va.supraTipo, va.supraN && 'N° ' + va.supraN].filter(Boolean).join(' ') : '', w: 70, size: 6 },
+      ['Mascarilla facial', va.disp === 'masc'], ['Otro:', va.disp === 'otro'], { v: va.disp === 'otro' ? va.dispOtro : '', w: 90, size: 6 }]);
+    const IND = [['video', 'Videolaringoscopio'], ['airtraq', 'AirTraq'], ['glide', 'Glidescope'], ['fast', 'FastTrach'], ['fibro', 'Fibroscopio flexible'], ['otro', 'Otro']];
+    Flujo(X, 736.5, [{ t: 'Laringoscopía:' }, ['Directa', va.lar === 'dir'], ['A ciegas', va.lar === 'ciegas'], ['Indirecta', ind], { t: '', gap: 30 },
+      { t: 'Hoja N°', gap: 2 }, { v: va.hojaN || '', w: 14, size: 6.6 }, ['Recta', va.hoja === 'recta'], ['Curva', va.hoja === 'curva'], ['Hiperangulada', va.hoja === 'hiper']], { gap: 7 });
+    Flujo(X, 745, [{ t: 'Indirecta con:' }].concat(IND.map(([k, e]) => [e, ind && va.ind === k]), [{ v: ind && va.ind === 'otro' ? va.indOtro : '', w: 70, size: 5.8 }]), { gap: 7 });
+    Flujo(X, 753.5, [{ t: 'Razón:' }, ['Entrenamiento', !!rz.entren], ['Vía aérea difícil', !!rz.dificil]], { gap: 8 });
+    L(268.5, 758, XM, 758, 0.3);
+    if (ind) {
+      Flujo(X, 764, [{ t: 'POGO:' }, { v: t(va.pogo) ? va.pogo + ' %' : '', w: 30 }]);
+      const px = [278, 326, 374, 422, 470];
+      ['0', '25', '50', '75', '100'].forEach((k, i) => { Img(window.IMGS['pogo' + k], px[i], 768, px[i] + 30, 795, { marco: true }); Opc(px[i] + 6, 800.5, k + '%', va.pogoCat === k, { size: 5.2 }); });
+    } else {
+      T('Cormack-Lehane:', X, 764, { b: true, size: 5.6 });
+      const cx = [282, 342, 402, 462];
+      ['I', 'II', 'III', 'IV'].forEach((r, i) => { Caja(cx[i], 780, va.cl === r); Img(window.IMGS['cl' + (i + 1)], cx[i] + 6, 768, cx[i] + 50, 797); T(r, cx[i], 791, { b: true, size: 6, align: 'center' }); });
+    }
+    const TX = 530; L(TX - 5, 758, TX - 5, 806, 0.3);
+    Flujo(TX, 764, [{ t: 'TET N°', gap: 2 }, { v: va.tuboN || '', w: 18, size: 7 }, ['Simple', va.tubo === 'simple'], ['Armado', va.tubo === 'armado']]);
+    Flujo(TX, 772.2, [['Preformado', va.tubo === 'preformado'], ['Selectivo', va.tubo === 'selectivo'], { v: va.tubo === 'selectivo' && va.lado ? (va.lado === 'D' ? 'Derecho' : 'Izquierdo') : '', w: 40, size: 6 }]);
+    Flujo(TX, 780.4, [['Con manguito', va.manguito === 'con'], ['Sin manguito', va.manguito === 'sin'], { t: 'Aire', gap: 2 }, { v: va.aire || '', w: 16, caja: true, size: 6.2, gap: 2 }, { t: 'cc', b: false }]);
+    Flujo(TX, 788.6, [{ t: 'Fijado a', gap: 2 }, { v: va.long || '', w: 16, caja: true, size: 6.2, gap: 2 }, { t: 'cm de la comisura labial', b: false, gap: 5 }, ['Izq', va.fijLado === 'I'], ['Der', va.fijLado === 'D']]);
+    Flujo(TX, 797, [['Ruidos resp. simétricos', !!va.ruidos], ['EtCO2 +', !!va.etco2]], { gap: 8 });
+    L(268.5, 806, XM, 806, 0.3);
+    Flujo(X, 813, [{ t: 'Se conecta a sistema semicerrado:', gap: 6 }, ['Circular', va.sist === 'circ'], ['Lineal', va.sist === 'lin'], ['con reinhalación parcial de gases', !!va.reinh]], { size: 5.4, gap: 9 });
+    // Recién nacido
+    const RX = XM + 5, hm = minDe(rn.hora);
+    const h12 = isFinite(hm) ? String(Math.floor(hm / 60) % 12 || 12).padStart(2, '0') + ':' + String(hm % 60).padStart(2, '0') : '';
+    Flujo(RX, 729, [['Vivo', rn.estado === 'vivo'], ['Fallecido', rn.estado === 'fall']], { size: 5.4, gap: 9 });
+    Flujo(RX, 739, [['Masculino', rn.sexo === 'M'], ['Femenino', rn.sexo === 'F']], { size: 5.4, gap: 7 });
+    Flujo(RX, 750, [{ t: 'Hora:' }, { v: h12, w: 24 }, ['AM', isFinite(hm) && hm < 720], ['PM', isFinite(hm) && hm >= 720]], { size: 5.4, gap: 6 });
+    Flujo(RX, 761, [{ t: 'APGAR', gap: 5 }, { t: "1':", b: false, gap: 2 }, { v: rn.apgar1 || '', w: 14 }, { t: "5':", b: false, gap: 2 }, { v: rn.apgar5 || '', w: 14 }], { size: 5.4 });
+    Flujo(RX, 772, [{ t: 'Peso:' }, { v: rn.peso ? rn.peso + ' g' : '', w: 38 }, { t: 'Talla:' }, { v: rn.talla ? rn.talla + ' cm' : '', w: 34 }], { size: 5.4 });
+    Flujo(RX, 784, [{ t: '¿Lloró al nacer?', gap: 4, size: 5.1 }, ['Sí', rn.lloro === 'si'], ['No', rn.lloro === 'no']], { size: 5.1, gap: 4 });
+    Flujo(RX, 795, [{ t: '¿Respiró al nacer?', gap: 4, size: 5.1 }, ['Sí', rn.respiro === 'si'], ['No', rn.respiro === 'no']], { size: 5.1, gap: 4 });
   }
 
   /* ---- balance, ácido-base ---- */
@@ -666,7 +714,7 @@ window.PDFHistoria = (function () {
     // Observaciones
     T('Observaciones/Nota:', 41, 1014.5, { b: true, i: true, size: 6.2 });
     L(335, 1008.5, 335, FY2, 0.5);
-    Parrafo(window.Obs ? Obs.texto(h) : t(h.obs), 41, 1019, 332, 1107, { size: 7.6 });
+    Parrafo([h._labsObs, window.Obs ? Obs.texto(h) : t(h.obs)].filter((x) => t(x).trim()).join('\n'), 41, 1019, 332, 1107, { size: 7.6 });
     // Rel muscular
     Sub(338, 1010.5, 398, 1018.5, 'Rel Muscular');
     const dosis = (y, x1, x2, v) => { L(x1, y + 3.4, x2, y + 3.4, 0.5); V(v, (x1 + x2) / 2, y + 0.3, { size: 6.2, align: 'center', maxw: x2 - x1 + 2 }); };
@@ -702,16 +750,17 @@ window.PDFHistoria = (function () {
   }
 
   let MARCA = {};
-  function MarcaCentro() {
-    if (!MARCA.on || !MARCA.centro || !MARCA.negra) return;
+  function MarcaCentro(sede) {
+    // Clínica: su logo muy tenue en el fondo de la grilla (solo historias hechas en esa clínica)
+    if (sede && sede.clinica && sede.logo) { Opacidad(0.08); Img(sede.logo, 400, 250, 845, 610); Opacidad(1); return; }
+    if (!MARCA.centro || !MARCA.negra) return;
     Opacidad(0.07); Img(MARCA.negra, 250, 380, 685, 820); Opacidad(1);
   }
   function generar(h, sede, perfil) {
     h = JSON.parse(JSON.stringify(h || {})); h.p = h.p || {}; h.to = h.to || {};
     if (window.Pistas) window.Pistas.asegurar(h);
     const pf = perfil || {};
-    MARCA = { on: pf.marcaOn !== false && !!(pf.marcaBlanca || window.IMGS.marcaBlanca), blanca: pf.marcaBlanca || window.IMGS.marcaBlanca,
-      negra: pf.marcaNegra || window.IMGS.marcaNegra, op: pf.marcaOpacidad ? +pf.marcaOpacidad : 0.55, centro: !!pf.marcaCentro };
+    MARCA = { propio: pf.marcaOn !== false && pf.marcaBlanca ? pf.marcaBlanca : '', negra: pf.marcaNegra || window.IMGS.marcaNegra, op: pf.marcaOpacidad ? +pf.marcaOpacidad : 0.55, centro: !!pf.marcaCentro };
     const { jsPDF } = window.jspdf;
     d = new jsPDF({ unit: 'pt', format: 'letter', compress: true });
     d.setProperties({ title: 'Historia de Anestesia - ' + (h.p.nombre || ''), creator: 'Morpheus MD' });
@@ -733,10 +782,10 @@ window.PDFHistoria = (function () {
       }
       Grilla(h, pg * MINP);
       if (pg === 0) { Tecnica(h); Balance(h); Regional(h); Final(h); }
-      MarcaCentro();
+      MarcaCentro(sede);
       T('Página ' + (pg + 1) + ' de ' + paginas, FX2, 1118, { size: 5, c: GRIS, align: 'right' });
     }
     return d;
   }
-  return { generar };
+  return { generar, tecTexto };
 })();

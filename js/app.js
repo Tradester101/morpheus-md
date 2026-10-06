@@ -56,8 +56,8 @@
       id: uid(), creado: Date.now(), modificado: Date.now(), sedeId: cfg.sedeActual || (cfg.sedes[0] && cfg.sedes[0].id),
       p: { fecha: hoyISO(), tipoVol: '70' },
       anest: cfg.perfil.nombre || '',
-      gcs: {}, chk: {}, coad: {}, ind: { meds: ['', '', '', '', '', ''] }, tec: {}, ga: {},
-      va: { asist: {}, razon: {} }, reg: {}, cond: {},
+      gcs: {}, chk: {}, coad: {}, ind: { meds: ['', '', '', '', '', '', '', '', '', ''] }, tec: { v: 2 }, ga: {},
+      va: { v: 2, asist: {}, razon: {} }, reg: {}, cond: {}, rn: {},
       bal: { cris: [], colo: [], hemo: [], pins: [], sang: [], diur: [], cols: ['1ª h', '2ª h', '3ª h', '4ª h'] },
       ab: { horas: [], ph: [], pco2: [], hco3: [], po2: [], nak: [], lact: [] },
       rev: {}, sap: {}, tras: {}, inf: [],
@@ -71,7 +71,11 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '2.0.0';
+  const VERSION = '2.0.1';
+  /* App Android: se descarga de la web oficial (morpheus-md.com/descargar/). Dentro de la APK existe window.Nativo. */
+  const EN_APK = () => !!window.Nativo;
+  const urlDescarga = () => (location.origin.startsWith('http') && !/appassets/.test(location.host) ? location.origin : ((window.NUBE_CONFIG || {}).web || 'https://morpheus-md.com/').replace(/\/$/, '')) + '/descargar/';
+  const irDescarga = () => { if (EN_APK()) { const a = document.createElement('a'); a.href = urlDescarga(); a.click(); } else location.href = urlDescarga(); };
   let seccion = 0;
   let timerGuardar = null;
 
@@ -188,14 +192,52 @@
     { id: 'pac', t: 'Paciente', r: secPaciente },
     { id: 'val', t: 'Valoración', r: secValoracion },
     { id: 'pre', t: 'Preparación', r: secPreparacion },
-    { id: 'ind', t: 'Inducción y técnica', r: secInduccion },
-    { id: 'va', t: 'Vía aérea', r: secViaAerea },
+    { id: 'ind', t: 'Técnica e inducción', r: secInduccion },
+    { id: 'va', t: 'Anestesia general', r: secViaAerea },
     { id: 'reg', t: 'Regional', r: secRegional },
     { id: 'to', t: 'Transoperatorio', r: secTransop },
     { id: 'bal', t: 'Balance y gases', r: secBalance },
     { id: 'sal', t: 'Salida', r: secSalida },
     { id: 'fir', t: 'Notas y firma', r: secFirma },
   ];
+
+  /* Otros exámenes (2.0.1): lista buscable; en el PDF van en la línea 2 ("Otros:") y lo que no quepa, en Observaciones */
+  const LAB_OTROS = [
+    ['INR'], ['Fibrinógeno', 'mg/dl'], ['Tiempo de sangría', 'min'], ['Tiempo de coagulación', 'min'],
+    ['Calcio', 'mg/dl'], ['Calcio iónico', 'mmol/L'], ['Magnesio', 'mg/dl'], ['Fósforo', 'mg/dl'],
+    ['HbA1c', '%'], ['Glicemia postprandial', 'mg/dl'], ['TSH', 'µUI/ml'], ['T4L', 'ng/dl'], ['T3L', 'pg/ml'],
+    ['Albúmina', 'g/dl'], ['Proteínas totales', 'g/dl'], ['Bilirrubina total', 'mg/dl'], ['Bilirrubina directa', 'mg/dl'],
+    ['TGO (AST)', 'U/L'], ['TGP (ALT)', 'U/L'], ['Fosfatasa alcalina', 'U/L'], ['GGT', 'U/L'], ['LDH', 'U/L'], ['Amilasa', 'U/L'], ['Lipasa', 'U/L'], ['Ácido úrico', 'mg/dl'],
+    ['Depuración de creatinina', 'ml/min'], ['Colesterol total', 'mg/dl'], ['Triglicéridos', 'mg/dl'],
+    ['pH'], ['pCO2', 'mmHg'], ['pO2', 'mmHg'], ['HCO3', 'mEq/L'], ['Exceso de base', 'mEq/L'], ['Lactato', 'mmol/L'], ['SatO2 arterial', '%'],
+    ['Troponina', 'ng/ml'], ['CK-MB', 'U/L'], ['BNP', 'pg/ml'], ['NT-proBNP', 'pg/ml'], ['Dímero D', 'ng/ml'], ['PCR', 'mg/L'], ['VSG', 'mm/h'], ['Procalcitonina', 'ng/ml'],
+    ['Leucocitos', '/mm³'], ['Neutrófilos', '%'], ['Linfocitos', '%'], ['Ferritina', 'ng/ml'], ['Hierro sérico', 'µg/dl'], ['Saturación de transferrina', '%'],
+    ['β-HCG', 'mUI/ml'], ['HIV', '', 'ser'], ['VDRL', '', 'ser'], ['Hepatitis B (HBsAg)', '', 'ser'], ['Hepatitis C (anti-HCV)', '', 'ser'], ['Examen de orina', '', 'txt'],
+  ];
+  function labsOtros() {
+    const l = (H.p.labs = Array.isArray(H.p.labs) ? H.p.labs : []);
+    return '<h3>Otros exámenes</h3>' + (l.length ? l.map((x, i) => `<div class="lab-fila"><div class="lab-n">${x.otro ? `<input data-k="p.labs.${i}.n" value="${esc(x.n || '')}" placeholder="Nombre del examen">` : `<b>${esc(x.n)}</b>`}</div>
+      <div class="lab-v">${x.ser ? R(`p.labs.${i}.v`, '', [['NR', 'No reactivo'], ['R', 'Reactivo']]) : `<div class="con-unidad"><input data-k="p.labs.${i}.v" value="${esc(x.v || '')}"${x.txt ? ' placeholder="Resultado"' : ' inputmode="decimal"'}>${x.u ? `<em>${esc(x.u)}</em>` : ''}</div>`}</div>
+      <button type="button" class="icono quitar" data-acc="labQuitar" data-i="${i}" aria-label="Quitar">×</button></div>`).join('') : '<p class="nota" style="margin-top:0">Agrega solo lo que sea importante para la cirugía.</p>') +
+      '<div class="fila-btn"><button type="button" class="secundario chico" data-acc="labAgregar">+ Agregar examen</button></div>';
+  }
+  function labElegir() {
+    const usados = new Set((H.p.labs || []).map((x) => x.n));
+    abrirHoja(`<h2>Agregar examen</h2><input class="buscar" id="labBusca" type="search" placeholder="Buscar (ej. TSH, HIV, calcio)">
+      <div class="opciones" id="labLista">${LAB_OTROS.map(([n, u, t], i) => `<button type="button" class="opcion chico" data-lab="${i}"${usados.has(n) ? ' disabled' : ''}>${esc(n)}${u ? ` <small>${esc(u)}</small>` : ''}</button>`).join('')}
+      <button type="button" class="opcion chico" data-lab="otro">+ Otro (escribir)</button></div>
+      <div class="acciones"><button class="secundario" id="labCerrar">Cerrar</button></div>`);
+    const b = $('#labBusca'), sinT = (x) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    b.oninput = () => { const q = sinT(b.value); $$('#labLista [data-lab]').forEach((x) => (x.hidden = x.dataset.lab !== 'otro' && !sinT(x.textContent).includes(q))); };
+    $('#labCerrar').onclick = cerrarHoja;
+    $$('#labLista [data-lab]').forEach((x) => (x.onclick = () => {
+      const k = x.dataset.lab, L = H.p.labs, r = k === 'otro' ? { n: '', v: '', otro: true } : { n: LAB_OTROS[k][0], u: LAB_OTROS[k][1] || '', v: '' };
+      if (k !== 'otro' && LAB_OTROS[k][2] === 'ser') r.ser = true; if (k !== 'otro' && LAB_OTROS[k][2] === 'txt') r.txt = true;
+      L.push(r); cerrarHoja(); guardarPronto(); render();
+      const e = $(`[data-k="p.labs.${L.length - 1}.${k === 'otro' ? 'n' : 'v'}"]`); if (e) { e.focus(); e.scrollIntoView({ block: 'center' }); }
+    }));
+    setTimeout(() => b.focus(), 50);
+  }
 
   function secPaciente() {
     const sedes = cfg.sedes.map((s) => [s.id, s.nombre || '(sin nombre)']);
@@ -209,7 +251,10 @@
       card('Laboratorio', rej(
         Nm('p.hb', 'Hb', 'g/dl') + Nm('p.hto', 'Hto', '%') + T('p.plaq', 'Plaquetas', { num: true }) +
         Nm('p.glic', 'Glicemia', 'mg/dl') + Nm('p.urea', 'Urea', 'mg/dl') + Nm('p.creat', 'Creatinina', 'mg/dl') +
-        T('p.tp', 'TP', { ph: 'seg / control' }) + T('p.tpt', 'TPT', { ph: 'seg / control' })) +
+        T('p.tp', 'TP', { ph: 'seg / control' }) + T('p.tpt', 'TPT', { ph: 'seg / control' }) +
+        Nm('p.na', 'Na', 'mEq/L') + Nm('p.k', 'K', 'mEq/L') + Nm('p.cl', 'Cl', 'mEq/L')) +
+        '<div class="fila-grupo">' + R('p.grupo', 'Grupo sanguíneo', ['A', 'B', 'AB', 'O']) + R('p.rh', 'Rh', [['+', 'Positivo (+)'], ['-', 'Negativo (−)']]) + '</div>' +
+        labsOtros() +
         '<h3>Volemia y pérdidas máximas permisibles</h3>' + rej(
           SEL('p.tipoVol', 'Tipo de paciente', VOLEMIA, { full: true }) +
           Nm('p.htoMin', 'Hto mínimo aceptable', '%', { ph: '30' }) +
@@ -353,7 +398,8 @@
     return t;
   }
 
-  // Inducción: filas {n, d, u} (A–F); ind.meds (texto) se mantiene para la hoja y versiones anteriores
+  // Inducción: filas {n, d, u} (A–J, 10 renglones); ind.meds (texto) se mantiene para la hoja y versiones anteriores
+  const MAX_IND = 10, LETRAS_IND = 'ABCDEFGHIJ';
   function indLista() {
     const I = (H.ind = H.ind || {});
     if (!Array.isArray(I.lista) || (!I.lista.length && (I.meds || []).some((x) => String(x || '').trim()))) {
@@ -366,7 +412,7 @@
   }
   function indSincronizar() {
     const l = H.ind.lista || [];
-    H.ind.meds = [0, 1, 2, 3, 4, 5].map((i) => { const m = l[i]; if (!m) return ''; return [m.n, m.d ? m.d + ' ' + (m.u || '') : ''].map((x) => String(x || '').trim()).filter(Boolean).join(' '); });
+    H.ind.meds = [...Array(MAX_IND).keys()].map((i) => { const m = l[i]; if (!m) return ''; return [m.n, m.d ? m.d + ' ' + (m.u || '') : ''].map((x) => String(x || '').trim()).filter(Boolean).join(' '); });
   }
   function indBotones() {
     const w = pesoKg(), usados = (cfg.indUsados || []);
@@ -388,42 +434,81 @@
   function secIndMeds() {
     const l = indLista();
     return `<div class="grupo"><div class="etq">Medicamentos de inducción</div>
-      ${l.map((m, i) => `<div class="coad-med ind-med"><b class="letra">${'ABCDEF'[i]}.</b><input data-k="ind.lista.${i}.n" value="${esc(m.n || '')}" placeholder="Fármaco" data-indmed="${i}">
+      ${l.map((m, i) => `<div class="coad-med ind-med"><b class="letra">${LETRAS_IND[i]}.</b><input data-k="ind.lista.${i}.n" value="${esc(m.n || '')}" placeholder="Fármaco" data-indmed="${i}">
         <input class="dosis" data-k="ind.lista.${i}.d" value="${esc(m.d || '')}" placeholder="Dosis" inputmode="decimal" data-indmed="${i}">
         <select data-k="ind.lista.${i}.u" data-indmed="${i}">${UNI_IND.concat(UNI_IND.includes(m.u) || !m.u ? [] : [m.u]).map((u) => `<option${(m.u || 'mg') === u ? ' selected' : ''}>${u}</option>`).join('')}</select>
         <button type="button" class="icono quitar" data-acc="indQuitar" data-i="${i}" aria-label="Quitar">×</button></div>
         <div class="nota guia-dosis" id="indG${i}">${guiaDosis(IND_FARM, m.n, m.d, m.u)}</div>`).join('')}
-      ${l.length >= 6 ? '<p class="nota">La hoja tiene 6 renglones (A–F).</p>' : `<div class="opciones coad-chips ind-chips">${indBotones()}
+      ${l.length >= MAX_IND ? '<p class="nota">La hoja tiene 10 renglones (A–J).</p>' : `<div class="opciones coad-chips ind-chips">${indBotones()}
         <button type="button" class="opcion chico" data-acc="indAgregar" data-n="" data-d="" data-u="mg">+ Otro</button></div>`}
       <p class="nota">${pesoKg() ? `Dosis calculadas con ${fmtN(pesoKg())} kg (peso en Paciente).` : 'Escribe el peso del paciente para que los botones traigan la dosis calculada.'} Son orientativas: ajústalas a tu paciente. Los fármacos que escribas se guardan para la próxima vez.</p></div>`;
   }
 
+  const RE_RENDER = ['tec.p', 'tec.comb', 'tec.regTipo', 'tec.genVia', 'sedNivel', 'ind.tipo', 'va.disp', 'va.lar', 'va.ind', 'va.tubo'];
+  /* ---- Técnica (cambio 1, 2.0.1): principal + combinada; enlaza con Regional/Conductiva ---- */
+  const TEC_P = [['sed', 'Sedación'], ['gen', 'General'], ['tiva', 'TIVA'], ['reg', 'Regional'], ['bloq', 'Bloqueo regional'], ['local', 'Local']];
+  const TEC_COMB = [['', 'Ninguna'], ['sed', 'Sedación'], ['gen', 'General'], ['tiva', 'TIVA'], ['esp', 'Espinal'], ['epi', 'Peridural'], ['bloq', 'Bloqueo'], ['local', 'Local']];
+  const tecPrincipal = (t) => (t.p === 'reg' ? t.regTipo || 'reg' : t.p || '');
+  function tecSet(h) { const t = h.tec || {}, s = new Set(); const p = tecPrincipal(t); if (p) s.add(p); if (t.comb) s.add(t.comb); return s; }
+  const sub = (x) => `<div class="subbloque">${x}</div>`;
+  function enlazarRegional() {
+    const t = H.tec, s = tecSet(H), a = (t._auto = t._auto || {}); H.cond = H.cond || {}; H.reg = H.reg || {};
+    const ct = s.has('esp') && s.has('epi') ? 'comb' : s.has('esp') ? 'sub' : s.has('epi') ? 'epi' : '';
+    if (ct) { H.cond.tec = ct; a.cond = ct; } else if (a.cond) { if (H.cond.tec === a.cond) H.cond.tec = ''; a.cond = ''; }
+    if (s.has('bloq')) { if (!H.reg.bloqueo) { H.reg.bloqueo = true; a.bloq = true; } } else if (a.bloq) { H.reg.bloqueo = false; a.bloq = false; }
+  }
   function secInduccion() {
-    const mas = [['local', 'Local'], ['regional', 'Regional'], ['conductiva', 'Conductiva'], ['ninguna', 'Ninguna otra']];
-    return card('Inducción', R('ind.tipo', 'Tipo', [['iv', 'Intravenosa'], ['inh', 'Inhalatoria'], ['mixta', 'Mixta']]) + secIndMeds()) +
-      card('Técnica', C('tec.sed', '<b>SEDACIÓN</b>') + '<div class="subbloque">' +
-        R('tec.sedVia', '', [['inh', 'Inhalatoria'], ['iv', 'Intravenosa']]) + R('tec.sedMas', '+', mas) + '</div>' +
-        C('tec.gen', '<b>GENERAL</b>') + '<div class="subbloque">' +
-        R('tec.genVia', '', [['inh', 'Inhalatoria'], ['iv', 'Intravenosa'], ['bal', 'Balanceada']]) + R('tec.genMas', '+', mas) + '</div>') +
-      card('Sedación', R('sedNivel', 'Nivel', [['ansio', 'Ansiólisis'], ['consc', 'Consciente'], ['prof', 'Profunda']])) +
-      card('General — manejo de vía aérea', C('ga.oral', 'Intubación oral') + C('ga.nasal', 'Intubación nasal') +
-        C('ga.supra', 'Disp. supraglótico', { k: 'ga.supraTipo', ph: 'Tipo / N°' }) + C('ga.otro', 'Otro', { k: 'ga.otroTxt', ph: '¿Cuál?' }));
+    const t = (H.tec = H.tec || { v: 2 }), s = tecSet(H), pr = tecPrincipal(t);
+    let tec = R('tec.p', 'Técnica principal', TEC_P);
+    if (t.p === 'reg') tec += sub(R('tec.regTipo', 'Regional', [['esp', 'Espinal (raquídea, subaracnoidea)'], ['epi', 'Peridural (epidural)']]));
+    if (t.p) tec += R('tec.comb', 'Combinada con', TEC_COMB.filter(([v]) => !v || v !== pr));
+    if (s.has('gen')) tec += sub(R('tec.genVia', 'Anestesia general', [['inh', 'Inhalatoria'], ['bal', 'Balanceada']]));
+    if (s.has('sed')) tec += sub(R('sedNivel', 'Nivel de sedación', [['ansio', 'Ansiólisis'], ['consc', 'Consciente'], ['prof', 'Profunda']]));
+    const txt = PDFHistoria.tecTexto(H);
+    if (txt) tec += `<p class="nota">En la hoja: <b>${esc(txt)}</b></p>`;
+    if (s.has('esp') || s.has('epi') || s.has('bloq')) tec += '<p class="nota">Ya quedó marcado en la sección Regional; allí anotas aguja, nivel, catéter y mezcla.</p>';
+    const I = H.ind || {};
+    const ind = R('ind.tipo', 'Tipo de inducción', [['iv', 'Intravenosa'], ['inh', 'Inhalatoria'], ['mixta', 'Mixta']]) +
+      (I.tipo === 'iv' ? sub(R('ind.ivTipo', 'Intravenosa', [['est', 'Estándar'], ['sr', 'Secuencia rápida']])) : '');
+    return card('Técnica', tec) + card('Inducción', ind + secIndMeds());
   }
 
+  /* ---- Anestesia general (cambio 2, 2.0.1): vía aérea, laringoscopía, Cormack o POGO, hoja, TET y sistema ---- */
   function secViaAerea() {
-    return card('Cormack-Lehane', R('va.cl', '', ['I', 'II', 'III', 'IV'], [IMGS.cl1, IMGS.cl2, IMGS.cl3, IMGS.cl4]) +
-      R('va.hoja', 'Hoja', [['recta', 'Recta'], ['curva', 'Curva'], ['hiper', 'Hiperangulada']]) + rej(T('va.hojaN', 'N° de hoja', { num: true }))) +
-      card('Tubo', rej(T('va.tuboN', 'Tubo N°', { num: true }) + Nm('va.aire', 'Aire', 'cc') + Nm('va.long', 'Long. (fijación)', 'cm')) +
+    const va = (H.va = H.va || { v: 2, asist: {}, razon: {} });
+    let d = R('va.disp', 'Dispositivo', [['oral', 'TET oral'], ['nasal', 'TET nasal'], ['supra', 'Supraglótico'], ['masc', 'Mascarilla facial'], ['otro', 'Otro']]);
+    if (va.disp === 'supra') d += rej(T('va.supraTipo', 'Tipo de supraglótico', { ph: 'ML clásica, i-gel…' }) + T('va.supraN', 'N°', { num: true }));
+    if (va.disp === 'otro') d += rej(T('va.dispOtro', '¿Cuál?', { full: true }));
+    let out = card('Vía aérea', d);
+    if (!va.disp || va.disp === 'oral' || va.disp === 'nasal') {
+      let l = R('va.lar', '', [['dir', 'Directa'], ['ind', 'Indirecta'], ['ciegas', 'A ciegas']]);
+      if (va.lar === 'dir') l += '<p class="nota" style="margin-top:0">Laringoscopio convencional.</p>';
+      if (va.lar === 'ind') l += sub(R('va.ind', 'Con', [['video', 'Videolaringoscopio'], ['airtraq', 'AirTraq'], ['glide', 'Glidescope'], ['fast', 'FastTrach'], ['fibro', 'Fibroscopio flexible'], ['otro', 'Otro']]) +
+        (va.ind === 'otro' ? rej(T('va.indOtro', '¿Cuál?', { full: true })) : '') + '<div class="etq" style="margin-top:8px">Razón</div>' + C('va.razon.entren', 'Entrenamiento') + C('va.razon.dificil', 'Vía aérea difícil'));
+      if (va.lar === 'dir') l += '<h3>Cormack-Lehane</h3>' + R('va.cl', '', ['I', 'II', 'III', 'IV'], [IMGS.cl1, IMGS.cl2, IMGS.cl3, IMGS.cl4]);
+      if (va.lar === 'ind') l += '<h3>POGO</h3>' + R('va.pogoCat', '', [['0', '0%'], ['25', '25%'], ['50', '50%'], ['75', '75%'], ['100', '100%']], [IMGS.pogo0, IMGS.pogo25, IMGS.pogo50, IMGS.pogo75, IMGS.pogo100]) +
+        rej(Nm('va.pogo', 'Valor exacto (opcional)', '%'));
+      if (va.lar === 'dir' || va.lar === 'ind') l += '<h3>Hoja</h3>' + R('va.hoja', '', [['recta', 'Recta'], ['curva', 'Curva']].concat(va.lar === 'ind' ? [['hiper', 'Hiperangulada']] : [])) + rej(T('va.hojaN', 'N° de hoja', { num: true }));
+      out += card('Laringoscopía', l);
+      out += card('Tubo endotraqueal (TET)', rej(T('va.tuboN', 'TET N°', { num: true }) + Nm('va.aire', 'Aire del manguito', 'cc') + Nm('va.long', 'Fijado a', 'cm')) +
+        R('va.fijLado', 'Fijación en la comisura labial', [['I', 'Izquierda'], ['D', 'Derecha']]) +
         R('va.tubo', 'Tipo', [['simple', 'Simple'], ['armado', 'Armado'], ['preformado', 'Preformado'], ['selectivo', 'Selectivo']]) +
-        R('va.lado', 'Selectivo lado', [['D', 'Derecho'], ['I', 'Izquierdo']]) +
-        R('va.manguito', 'Manguito', [['con', 'Con manguito'], ['sin', 'Sin manguito']]) +
-        C('va.ruidos', 'Ruidos respiratorios simétricos') + C('va.etco2', 'EtCO2 +')) +
-      card('Intubación asistida con', C('va.asist.video', 'Videolaringoscopio') + C('va.asist.fibro', 'Fibroscopio flexible') +
-        C('va.asist.airtraq', 'AirTraq') + C('va.asist.glide', 'Glidescope') + C('va.asist.fast', 'FastTrach') +
-        C('va.asist.otro', 'Otro', { k: 'va.asist.otroTxt', ph: '¿Cuál?' }) +
-        '<h3>Razón</h3>' + C('va.razon.entren', 'Entrenamiento') + C('va.razon.dificil', 'Vía aérea difícil') +
-        '<h3>POGO</h3>' + C('va.pogoOn', 'POGO', { k: 'va.pogo', ph: 'Valor', u: '%', num: true }) +
-        R('va.pogoCat', '', [['0', '0%'], ['25', '25%'], ['50', '50%'], ['75', '75%'], ['100', '100%']], [IMGS.pogo0, IMGS.pogo25, IMGS.pogo50, IMGS.pogo75, IMGS.pogo100]));
+        (va.tubo === 'selectivo' ? R('va.lado', 'Selectivo lado', [['D', 'Derecho'], ['I', 'Izquierdo']]) : '') +
+        R('va.manguito', 'Manguito', [['con', 'Con manguito'], ['sin', 'Sin manguito']]) + C('va.ruidos', 'Ruidos respiratorios simétricos') + C('va.etco2', 'EtCO2 +'));
+    } else out += card('Comprobación', C('va.ruidos', 'Ruidos respiratorios simétricos') + C('va.etco2', 'EtCO2 +'));
+    out += card('Sistema', '<div class="etq">Se conecta a sistema semicerrado</div>' + R('va.sist', '', [['circ', 'Circular'], ['lin', 'Lineal']]) + C('va.reinh', 'Con reinhalación parcial de gases') +
+      '<p class="nota">Los parámetros del ventilador van en Transoperatorio (filas VC / FR, Ppico / PEEP).</p>');
+    return out;
+  }
+
+  /* Recién nacido (cesárea) */
+  function cardRN() {
+    const rn = (H.rn = H.rn || {}), lleno = Object.values(rn).some((x) => x !== '' && x != null);
+    return `<details class="tarjeta"${lleno ? ' open' : ''}><summary><h2 style="display:inline">👶 Recién nacido (cesárea)</h2></summary>` +
+      R('rn.estado', '', [['vivo', 'Vivo'], ['fall', 'Fallecido']]) + R('rn.sexo', 'Sexo', [['M', 'Masculino'], ['F', 'Femenino']]) +
+      rej(`<label class="campo"><span>Hora de nacimiento</span><div class="con-unidad"><input type="time" data-k="rn.hora" value="${esc(rn.hora || '')}"><button class="secundario chico" data-acc="ahora" data-p="rn.hora">Ahora</button></div></label>` +
+        Nm('rn.apgar1', 'APGAR 1′', '') + Nm('rn.apgar5', 'APGAR 5′', '') + Nm('rn.peso', 'Peso', 'g') + Nm('rn.talla', 'Talla', 'cm')) +
+      R('rn.lloro', '¿Lloró al nacer?', [['si', 'Sí'], ['no', 'No']]) + R('rn.respiro', '¿Respiró al nacer?', [['si', 'Sí'], ['no', 'No']]) + '</details>';
   }
 
   function secRegional() {
@@ -458,12 +543,13 @@
       '<p class="nota">Cada hoja cubre 5 h 30 min (11 columnas de 30 min, divididas en 5 min). Si la cirugía dura más, el PDF agrega hojas de continuación.</p>') +
       card('Tiempos', `<div class="rejilla tiempos">${tiempos}</div>` +
         R('to.cierre', 'Cierre de la grilla en el fin de anestesia', [['recta', 'Línea recta'], ['zigzag', 'Zigzag'], ['no', 'No marcar']]) +
-        '<p class="nota">En el PDF se traza una línea gruesa a la hora del fin de anestesia y el espacio que queda a la derecha se raya en diagonal, para que no se agregue nada después.</p>') +
+        '<p class="nota">En el PDF se traza una línea gruesa a la hora del fin de anestesia y el espacio que queda a la derecha se raya en diagonal, para que no se agregue nada después.</p>') + cardRN() +
       card('Signos vitales de inicio', rej(Nm('to.base.tas', 'TA sistólica', 'mmHg') + Nm('to.base.tad', 'TA diastólica', 'mmHg') +
         Nm('to.base.fc', 'FC', 'lpm') + Nm('to.base.fr', 'FR', 'rpm') + Nm('to.base.sat', 'SatO2', '%'))) +
       card('Registro de signos, fármacos y ventilación',
-        `<svg class="grafica" id="grafica" viewBox="0 0 360 170"></svg><div class="leyenda"><span><i style="color:#c62828">∨</i> TA sistólica</span><span><i style="color:#c62828">∧</i> TA diastólica</span><span><i style="color:#1565c0">●</i> FC</span><span><i style="color:#2e7d32">○</i> FR</span></div>` +
-        '<div class="fila-btn"><button class="primario" data-acc="nuevoReg">+ Registrar ahora</button></div><div style="margin-top:12px">' + regs + '</div>') +
+        `<svg class="grafica" id="grafica" viewBox="0 0 360 220"></svg><div class="leyenda"><span><i style="color:#c62828">∨</i> TA sistólica</span><span><i style="color:#c62828">∧</i> TA diastólica</span><span><i style="color:#1565c0">●</i> FC</span><span><i style="color:#2e7d32">○</i> FR</span></div>` +
+        '<p class="nota" style="margin:6px 0 0">👆 Toca la gráfica para marcar la TA o la FC en esa hora; toca un punto para corregirlo.</p>' +
+        `<div class="fila-btn reg-btns"><button class="primario" data-acc="nuevoReg">+ Registrar ahora</button>${to.regs.length ? `<button class="secundario" data-acc="igualReg">✓ Igual que el anterior <small>(${esc(to.regs[to.regs.length - 1].hora)})</small></button>` : ''}</div><div style="margin-top:12px">` + regs + '</div>') +
       secPistas() + secInfusiones() +
       card('Vías venosas (filas VC / VP)', '<p class="nota" style="margin:0 0 10px">Ej. VP #18 MSD, VC #7 YI D.</p>' + rej([7, 8, 9].map((i) => T('to.filas.' + i, `Fila ${i + 1}`, { ph: FILAS_BASE[i] })).join(''), true));
   }
@@ -1029,6 +1115,68 @@
     };
   }
 
+  /* Registro rápido de signos vitales: − / + , "Igual que el anterior" y toque sobre la gráfica. */
+  const PASOS = { tas: [5, 120, 40, 260], tad: [5, 70, 20, 160], fc: [5, 80, 20, 220], fr: [1, 12, 4, 60], sat: [1, 98, 50, 100], etco2: [1, 35, 10, 80] }; // paso, valor inicial, mín, máx
+  const COPIA_REG = ['tas', 'tad', 'fc', 'fr', 'sat', 'etco2', 'ekg', 'vent', 'vc', 'vfr', 'ppico', 'peep', 'pvc', 'pap', 'gc', 'cuna', 'temp', 'entrop'];
+  function enlazarPasos() {
+    $$('#capa [data-paso]').forEach((b) => (b.onclick = () => {
+      const k = b.dataset.pk, e = $(`#capa [data-rk="${k}"]`), [, ini, mn, mx] = PASOS[k] || [5, 0, -1e9, 1e9];
+      const v = num(e.value); e.value = String(Math.min(mx, Math.max(mn, isFinite(v) ? Math.round((v + +b.dataset.paso) * 10) / 10 : ini)));
+    }));
+    $$('#capa [data-hpaso]').forEach((b) => (b.onclick = () => { const e = b.parentNode.querySelector('input[type=time]'); e.value = hmMas(e.value || ahoraHM(), +b.dataset.hpaso); }));
+  }
+  function ajustarInicio(hora) {
+    if (!(offset(hora) < 0)) return;
+    const nm = Math.floor(minDe(hora) / 5) * 5;
+    H.to.inicio = String(Math.floor(nm / 60)).padStart(2, '0') + ':' + String(nm % 60).padStart(2, '0');
+    aviso('La hora de inicio de la grilla se movió a ' + H.to.inicio);
+  }
+  function registroIgual() {
+    const ult = H.to.regs[H.to.regs.length - 1]; if (!ult) return abrirRegistro(null);
+    const hora = ahoraHM();
+    if (H.to.regs.some((r) => r.hora === hora)) { aviso('Ya hay un registro a las ' + hora + '. Tócalo en la lista para cambiarlo.', 3000); return; }
+    const o = { hora, f: {} }; COPIA_REG.forEach((k) => { if (ult[k]) o[k] = ult[k]; });
+    H.to.regs.push(o); ordenarRegs(); guardarPronto(); render();
+    aviso('Registrado a las ' + hora + ' (igual que ' + ult.hora + ')');
+  }
+  function tocarGrafica(ev) {
+    const svg = $('#grafica'), g = pintarGrafica.geo; if (!svg || !g || !svg.getScreenCTM()) return;
+    const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    if (p.x < g.x0 - 6 || p.x > g.x1 + 6 || p.y < g.y0 - 6 || p.y > g.y1 + 6) return;
+    if (!H.to.inicio) { aviso('Primero toca “Ahora” en la hora de inicio de la grilla', 3000); return; }
+    let cerca = -1, dmin = 10;
+    H.to.regs.forEach((r, i) => { const m = offset(r.hora); if (!isFinite(m)) return;
+      ['tas', 'tad', 'fc'].forEach((k) => { const v = num(r[k]); if (!isFinite(v)) return; const d = Math.hypot(g.X(m) - p.x, g.Y(v) - p.y); if (d < dmin) { dmin = d; cerca = i; } }); });
+    if (cerca >= 0) return abrirRegistro(cerca);
+    const mx = Math.max(0, g.Xi(p.x));
+    const misma = H.to.regs.find((r) => Math.abs(offset(r.hora) - mx) <= 3); // se une al registro de esa hora
+    const hora = misma ? misma.hora : hmMas(H.to.inicio, Math.round(mx / 5) * 5);
+    marcarPunto(hora, Math.min(220, Math.max(20, Math.round(g.Yi(p.y) / 5) * 5)));
+  }
+  function marcarPunto(hora, valor) {
+    const ult = H.to.regs[H.to.regs.length - 1];
+    const ultTxt = ult ? `Último (${esc(ult.hora)}): ${[(ult.tas || ult.tad) && 'TA ' + esc(ult.tas || '–') + '/' + esc(ult.tad || '–'), ult.fc && 'FC ' + esc(ult.fc)].filter(Boolean).join(' · ') || 'sin TA ni FC'}` : '';
+    abrirHoja(`<h2>Marcar en la gráfica</h2>
+      <div class="rejilla"><label class="campo" style="grid-column:1/-1"><span>Hora</span><div class="con-paso"><button type="button" class="paso" data-hpaso="-5" aria-label="5 min antes">−5</button><input type="time" id="mpHora" value="${esc(hora)}"><button type="button" class="paso" data-hpaso="5" aria-label="5 min después">+5</button></div></label>
+      <label class="campo" style="grid-column:1/-1"><span>Valor</span><div class="con-paso"><button type="button" class="paso" data-paso="-5" data-pk="mp" aria-label="Bajar">−</button><input inputmode="decimal" data-rk="mp" id="mpValor" value="${valor}"><button type="button" class="paso" data-paso="5" data-pk="mp" aria-label="Subir">+</button></div></label></div>
+      ${ultTxt ? `<p class="nota" style="margin:6px 0 0">${ultTxt}</p>` : ''}
+      <p style="margin:14px 0 0;font-weight:600">¿Qué es este punto?</p>
+      <div class="mp-tipos"><button type="button" data-mp="tas"><i style="color:#c62828">∨</i> TA sistólica</button><button type="button" data-mp="tad"><i style="color:#c62828">∧</i> TA diastólica</button><button type="button" data-mp="fc"><i style="color:#1565c0">●</i> FC</button></div>
+      <div class="acciones"><button class="secundario" id="mpCancelar">Cancelar</button></div>`);
+    enlazarPasos();
+    $('#mpCancelar').onclick = cerrarHoja;
+    $$('#capa [data-mp]').forEach((b) => (b.onclick = () => {
+      const k = b.dataset.mp, h = $('#mpHora').value, v = num($('#mpValor').value);
+      if (!h) { aviso('Falta la hora'); return; }
+      if (!isFinite(v) || v <= 0) { aviso('Escribe el valor'); return; }
+      ajustarInicio(h);
+      let r = H.to.regs.find((x) => x.hora === h);
+      if (!r) { const ue = [...H.to.regs].reverse().find((x) => x.ekg); r = { hora: h, f: {} }; if (ult && ult.vent) r.vent = ult.vent; if (ue) r.ekg = ue.ekg; H.to.regs.push(r); }
+      r[k] = String(v); ordenarRegs(); cerrarHoja(); guardarPronto(); render();
+      aviso({ tas: 'TA sistólica', tad: 'TA diastólica', fc: 'FC' }[k] + ' ' + v + ' a las ' + h);
+    }));
+  }
   function resumenReg(r) {
     const p = [];
     if (r.tas || r.tad) p.push(`TA ${esc(r.tas || '–')}/${esc(r.tad || '–')}`);
@@ -1048,9 +1196,11 @@
   function pintarGrafica() {
     const svg = $('#grafica'); if (!svg) return;
     const regs = H.to.regs.filter((r) => isFinite(offset(r.hora)));
-    const W = 360, Hh = 170, x0 = 28, x1 = W - 6, y0 = 8, y1 = Hh - 16;
+    const W = 360, Hh = 220, x0 = 28, x1 = W - 6, y0 = 8, y1 = Hh - 16;
     const maxMin = Math.max(120, ...regs.map((r) => offset(r.hora) + 5));
     const X = (m) => x0 + (m / maxMin) * (x1 - x0), Y = (v) => y1 - ((Math.max(10, Math.min(230, v)) - 20) / 200) * (y1 - y0);
+    pintarGrafica.geo = { x0, x1, y0, y1, X, Y, Xi: (x) => ((x - x0) / (x1 - x0)) * maxMin, Yi: (y) => 20 + ((y1 - y) / (y1 - y0)) * 200 };
+    svg.onclick = tocarGrafica;
     let s = '';
     for (let v = 20; v <= 220; v += 20) s += `<line x1="${x0}" x2="${x1}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e3eaec"/><text x="${x0 - 4}" y="${Y(v) + 3}" font-size="8" text-anchor="end" fill="#5f6f74">${v}</text>`;
     for (let m = 0; m <= maxMin; m += 15) {
@@ -1081,12 +1231,16 @@
     const ult = H.to.regs[H.to.regs.length - 1];
     const ultEkg = [...H.to.regs].reverse().find((x) => x.ekg);
     const r = nuevo ? { hora: ahoraHM(), f: {}, vent: ult ? ult.vent || '' : '', ekg: ultEkg ? ultEkg.ekg : '' } : JSON.parse(JSON.stringify(H.to.regs[i]));
+    if (nuevo && ult) COPIA_REG.forEach((k) => { if (ult[k] && k !== 'ekg' && k !== 'vent') r[k] = ult[k]; });
     r.f = r.f || {};
-    const n = (k, t, u) => `<label class="campo"><span>${t}</span><div class="con-unidad"><input inputmode="decimal" data-rk="${k}" value="${esc(r[k] || '')}">${u ? `<em>${u}</em>` : ''}</div></label>`;
+    const n = (k, t, u) => PASOS[k]
+      ? `<label class="campo"><span>${t}${u ? ` <small>(${u})</small>` : ''}</span><div class="con-paso"><button type="button" class="paso" data-paso="-${PASOS[k][0]}" data-pk="${k}" aria-label="Bajar">−</button><input inputmode="decimal" data-rk="${k}" value="${esc(r[k] || '')}"><button type="button" class="paso" data-paso="${PASOS[k][0]}" data-pk="${k}" aria-label="Subir">+</button></div></label>`
+      : `<label class="campo"><span>${t}</span><div class="con-unidad"><input inputmode="decimal" data-rk="${k}" value="${esc(r[k] || '')}">${u ? `<em>${u}</em>` : ''}</div></label>`;
     const filas = [7, 8, 9].filter((j) => H.to.filas[j]).map((j) =>
       `<label class="campo"><span>${esc(nombreFila(j))}</span><input data-rf="${j}" value="${esc(r.f[j] || '')}"></label>`).join('');
     abrirHoja(`<h2>${nuevo ? 'Nuevo registro' : 'Editar registro'}</h2>
-      <div class="rejilla"><label class="campo"><span>Hora</span><input type="time" data-rk="hora" value="${esc(r.hora)}"></label>
+      ${nuevo && ult ? `<p class="nota" style="margin:0 0 8px">Valores del registro de las <b>${esc(ult.hora)}</b>: cambia solo lo que varió con − / +. <button type="button" class="enlace" id="rVaciar">Vaciar</button></p>` : ''}
+      <div class="rejilla"><label class="campo" style="grid-column:1/-1"><span>Hora</span><div class="con-paso"><button type="button" class="paso" data-hpaso="-5" aria-label="5 min antes">−5</button><input type="time" data-rk="hora" value="${esc(r.hora)}"><button type="button" class="paso" data-hpaso="5" aria-label="5 min después">+5</button></div></label>
       ${n('tas', 'TA sistólica', 'mmHg')}${n('tad', 'TA diastólica', 'mmHg')}${n('fc', 'FC', 'lpm')}${n('fr', 'FR', 'rpm')}${n('sat', 'SatO2', '%')}${n('etco2', 'EtCO2', 'mmHg')}</div>
       <div class="grupo" style="margin-top:12px"><div class="etq">EKG (ritmo)</div><div class="segmento" id="segEkg">
         ${EKG.map((v) => `<button type="button" data-v="${v}" class="${r.ekg === v ? 'sel' : ''}">${v}</button>`).join('')}</div>
@@ -1097,7 +1251,7 @@
       <p class="nota">Los gases, el inhalatorio, los opioides, relajantes y demás drogas se registran en “Fármacos y gases”, debajo de la gráfica.</p>
       <details style="margin-top:10px"><summary style="font-weight:600;color:var(--pri);padding:8px 0">Parámetros del ventilador y monitoreo avanzado</summary>
       <div class="rejilla">${n('vc', 'VC', 'ml')}${n('vfr', 'FR vent.', 'rpm')}${n('ppico', 'P pico', 'cmH2O')}${n('peep', 'PEEP', 'cmH2O')}${n('pvc', 'PVC', 'mmHg')}${n('pap', 'PAP', 'mmHg')}${n('gc', 'GC', 'L/min')}${n('cuna', 'P. cuña', 'mmHg')}${n('temp', 'Temp.', '°C')}${n('entrop', 'Entropía', '')}</div></details>
-      <div class="acciones">${nuevo ? (ult ? '<button class="secundario" id="rCopiar">Copiar anterior</button>' : '') : '<button class="peligro" id="rBorrar">Eliminar</button>'}
+      <div class="acciones">${nuevo ? '' : '<button class="peligro" id="rBorrar">Eliminar</button>'}
       <button class="secundario" id="rCancelar">Cancelar</button><button class="primario" id="rGuardar">Guardar</button></div>`);
     let vent = r.vent || '';
     $$('#segVent button').forEach((b) => b.onclick = () => { vent = vent === b.dataset.v ? '' : b.dataset.v; $$('#segVent button').forEach((x) => x.classList.toggle('sel', x.dataset.v === vent)); });
@@ -1105,9 +1259,8 @@
     $$('#segEkg button').forEach((b) => b.onclick = () => { const e = $('#ekgTxt'); e.value = e.value.trim() === b.dataset.v ? '' : b.dataset.v; marcarEkg(); });
     $('#ekgTxt').oninput = marcarEkg;
     $('#rCancelar').onclick = cerrarHoja;
-    if ($('#rCopiar')) $('#rCopiar').onclick = () => {
-      ['tas', 'tad', 'fc', 'fr', 'sat', 'etco2', 'ekg', 'vc', 'vfr', 'ppico', 'peep', 'pvc', 'pap', 'gc', 'cuna', 'temp', 'entrop'].forEach((k) => { const e = $(`[data-rk="${k}"]`); if (e && ult[k]) e.value = ult[k]; });
-    };
+    enlazarPasos();
+    if ($('#rVaciar')) $('#rVaciar').onclick = () => Object.keys(PASOS).forEach((k) => { const e = $(`[data-rk="${k}"]`); if (e) e.value = ''; });
     if ($('#rBorrar')) $('#rBorrar').onclick = () => { if (confirm('¿Eliminar este registro?')) { H.to.regs.splice(i, 1); cerrarHoja(); guardarPronto(); render(); } };
     $('#rGuardar').onclick = () => {
       const o = { f: {} };
@@ -1116,11 +1269,7 @@
       if (vent) o.vent = vent;
       if (!o.hora) { aviso('Falta la hora'); return; }
       if (!isFinite(offset(o.hora))) { aviso('Define primero la hora de inicio'); return; }
-      if (offset(o.hora) < 0) {
-        const m = minDe(o.hora); const nm = Math.floor(m / 5) * 5;
-        H.to.inicio = String(Math.floor(nm / 60)).padStart(2, '0') + ':' + String(nm % 60).padStart(2, '0');
-        aviso('La hora de inicio de la grilla se movió a ' + H.to.inicio);
-      }
+      ajustarInicio(o.hora);
       if (nuevo) H.to.regs.push(o); else H.to.regs[i] = o;
       ordenarRegs(); cerrarHoja(); guardarPronto(); render();
     };
@@ -1328,15 +1477,36 @@
     const q = (renderInicio.q || '').toLowerCase();
     const f = idx.filter((x) => !q || [x.nombre, x.ci, x.interv, x.fecha].join(' ').toLowerCase().includes(q));
     const fechaTxt = (s) => (s ? s.split('-').reverse().join('/') : '');
-    v.innerHTML = bannerLicencia() + `<button class="ex-banner" data-acc="irExtras"><span><b>✦ Extras</b><small>Valoración preanestésica · Récipe</small></span><em>Abrir ›</em></button>` +
+    v.innerHTML = bannerLicencia() + avisoApk() + `<button class="ex-banner" data-acc="irExtras"><span><b>✦ Extras</b><small>Valoración preanestésica · Récipe</small></span><em>Abrir ›</em></button>` +
       `<input class="buscar" id="buscar" type="search" placeholder="Buscar por nombre, CI, cirugía o fecha" value="${esc(renderInicio.q || '')}">` +
       (f.length ? `<ul class="lista">${f.map((x) => `<li class="item" data-abrir="${x.id}"><div class="txt"><b>${esc(x.nombre || 'Sin nombre')}</b>
         <small>${[x.ci && 'CI ' + x.ci, fechaTxt(x.fecha)].filter(Boolean).map(esc).join(' · ')}</small><small>${esc(x.interv || '')}</small>
         <span class="chipsede">${esc(abrev(sede(x.sede).nombre))}</span></div><button class="icono" style="color:var(--suave)" data-mas="${x.id}" aria-label="Opciones">&#8942;</button></li>`).join('')}</ul>` :
         `<div class="vacio"><b>${idx.length ? 'Sin resultados' : 'Aún no hay historias'}</b>${idx.length ? '' : 'Toca “Nueva historia” para empezar.'}</div>`);
     const fab = document.createElement('button'); fab.className = 'fab'; fab.textContent = '+ Nueva historia'; fab.onclick = crear; document.body.appendChild(fab);
+    enlazarAvisoApk(); revisarApk();
     if (cfg.tourPend && !$('#tour')) setTimeout(() => { if (pantalla === 'inicio' && !$('#tour')) tour(0); }, 250); else setTimeout(() => { if (pantalla === 'inicio') revisarNovedades(); }, 300);
     const b = $('#buscar'); b.oninput = () => { renderInicio.q = b.value; const pos = b.selectionStart; render(); const nb = $('#buscar'); nb.focus(); nb.setSelectionRange(pos, pos); };
+  }
+  /* Aviso de versión nueva de la APK: lee morpheus-md.com/descargar/android.json (una vez por apertura). */
+  let apkNueva = null, apkRevisada = false;
+  const APK_K = 'morpheus-apk-aviso';
+  function avisoApk() {
+    if (!EN_APK() || !apkNueva || cmpVer(apkNueva.version, VERSION) <= 0) return '';
+    let omitida = ''; try { omitida = localStorage.getItem(APK_K) || ''; } catch (e) {}
+    if (omitida === apkNueva.version) return '';
+    return `<div class="tarjeta apk-aviso" id="apkAviso"><b>📲 Hay una versión nueva de la app: ${esc(apkNueva.version)}</b><p class="nota" style="margin:4px 0 8px">Tienes la ${VERSION}. Se instala encima y tus datos se mantienen.</p><div class="fila-btn" style="justify-content:flex-end;margin:0"><button class="secundario chico" id="apkLuego">Después</button><button class="primario chico" id="apkIr">Descargar</button></div></div>`;
+  }
+  function enlazarAvisoApk() {
+    if ($('#apkIr')) $('#apkIr').onclick = irDescarga;
+    if ($('#apkLuego')) $('#apkLuego').onclick = () => { try { localStorage.setItem(APK_K, apkNueva.version); } catch (e) {} const c = $('#apkAviso'); if (c) c.remove(); };
+  }
+  function revisarApk() {
+    if (!EN_APK() || apkRevisada || !navigator.onLine) return; apkRevisada = true;
+    fetch(urlDescarga() + 'android.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (!j || !j.version || cmpVer(j.version, VERSION) <= 0) return;
+      apkNueva = j; if (pantalla === 'inicio' && !$('#apkAviso')) { const h = avisoApk(); const v = $('#vista'); if (h && v) { v.insertAdjacentHTML('afterbegin', h); enlazarAvisoApk(); } }
+    }).catch(() => { apkRevisada = false; });
   }
   function abrev(n) { n = n || ''; return n.length > 42 ? n.slice(0, 40) + '…' : n; }
 
@@ -1347,7 +1517,34 @@
     else go();
   }
   function abrir(id) { const h = Store.cargar(id); if (!h) { aviso('No se pudo abrir'); return; } H = migrar(h); pantalla = 'editor'; seccion = 0; render(); window.scrollTo(0, 0); }
+  /* 2.0.1: técnica (tec.v 2) y vía aérea (va.v 2) con el modelo nuevo */
+  function migrarTecVa(h) {
+    const t = (h.tec = h.tec || {});
+    if (t.v !== 2) {
+      const mas = t.genMas || t.sedMas || '', ct = (h.cond || {}).tec;
+      if (t.gen) { if (t.genVia === 'iv') t.p = 'tiva'; else { t.p = 'gen'; if (t.genVia) t.genVia = t.genVia === 'bal' ? 'bal' : 'inh'; } if (t.sed) t.comb = 'sed'; }
+      else if (t.sed) t.p = 'sed';
+      const m = { local: 'local', regional: 'bloq', conductiva: ct === 'epi' ? 'epi' : 'esp' }[mas];
+      if (m) { if (t.p) t.comb = t.comb || m; else t.p = m === 'esp' || m === 'epi' ? 'reg' : m, t.regTipo = m === 'esp' || m === 'epi' ? m : t.regTipo; }
+      t.v = 2;
+    }
+    const va = (h.va = h.va || {}); va.asist = va.asist || {}; va.razon = va.razon || {};
+    if (va.v !== 2) {
+      const g = h.ga || {};
+      if (!va.disp) va.disp = g.oral ? 'oral' : g.nasal ? 'nasal' : g.supra ? 'supra' : g.otro ? 'otro' : '';
+      if (g.supra && !va.supraTipo) va.supraTipo = g.supraTipo || '';
+      if (g.otro && !va.dispOtro) va.dispOtro = g.otroTxt || '';
+      const a = va.asist, ayuda = ['video', 'airtraq', 'glide', 'fast', 'fibro', 'otro'].find((k) => a[k]);
+      if (!va.lar) va.lar = ayuda ? 'ind' : va.cl || va.hoja || va.tuboN ? 'dir' : '';
+      if (ayuda && !va.ind) { va.ind = ayuda; if (ayuda === 'otro') va.indOtro = a.otroTxt || ''; }
+      if (va.pogoOn && !va.pogoCat && va.pogo) va.pogoCat = '';
+      va.v = 2;
+    }
+    h.rn = h.rn || {};
+    return h;
+  }
   function migrar(h) {
+    migrarTecVa(h);
     const base = nuevaHistoria();
     const tenia = !!(h.to && h.to.pistas); if (!tenia && base.to) delete base.to.pistas;
     const fusion = (a, b) => { for (const k in b) { if (a[k] == null) a[k] = b[k]; else if (typeof b[k] === 'object' && !Array.isArray(b[k]) && typeof a[k] === 'object') fusion(a[k], b[k]); } return a; };
@@ -1363,7 +1560,7 @@
       ['alergias', 'premed', 'dx', 'intervencion', 'asaRazon', 'obs', 'obsOpc', 'mallampati', 'asa'].forEach((k) => (copia[k] = ''));
       copia.asaE = false; copia.gcs = {}; copia.bal = n.bal; copia.ab = n.ab; copia.tras = {};
       copia.to.regs = []; copia.to.inicio = ''; copia.to.t = {}; copia.to.base = {};
-      copia.va.cl = ''; copia.va.pogo = ''; copia.va.pogoCat = ''; copia.va.pogoOn = false;
+      copia.va.cl = ''; copia.va.pogo = ''; copia.va.pogoCat = ''; copia.va.pogoOn = false; copia.rn = {};
       copia.cond.conducta = ''; copia.cond.punc = false; copia.cond.otras = false; copia.cond.otrasTxt = '';
     } else copia.p.fecha = hoyISO();
     H = copia; Store.guardar(H); pantalla = 'editor'; seccion = 0; render(); aviso('Copia creada');
@@ -1380,23 +1577,52 @@
 
   function renderSedes(v) {
     $('#titulo').textContent = 'Lugares de trabajo';
-    v.innerHTML = '<p class="nota" style="margin:0 0 12px">El lugar elegido en cada historia define el encabezado y el logo del PDF.</p>' +
-      cfg.sedes.map((s, i) => `<section class="tarjeta"><div class="rejilla ancha">
+    v.innerHTML = '<p class="nota" style="margin:0 0 12px">El lugar elegido en cada historia define el encabezado del PDF (nombre, ciudad, RIF y logo).</p>' +
+      cfg.sedes.map((s, i) => s.clinica ? `<section class="tarjeta"><h2>🏥 ${esc(s.nombre)}</h2><div class="fila-btn" style="align-items:center">${s.logo ? `<img class="logo-prev ajedrez" src="${s.logo}" alt="logo">` : ''}${s.logoB ? `<img class="logo-prev negro" src="${s.logoB}" alt="en el encabezado">` : ''}
+        <p class="nota" style="margin:0">${esc([s.sub, s.rif && 'RIF ' + s.rif].filter(Boolean).join(' · '))}<br>Es tu clínica: el nombre, el RIF y el logo los cambia su responsable. Las historias hechas aquí llevan su logo de fondo en la grilla.</p></div></section>` :
+        `<section class="tarjeta"><div class="rejilla ancha">
         <label class="campo completo"><span>Nombre (línea 1)</span><input data-sede="${i}" data-c="nombre" value="${esc(s.nombre)}"></label>
-        <label class="campo completo"><span>Ciudad / subtítulo (línea 2)</span><input data-sede="${i}" data-c="sub" value="${esc(s.sub)}"></label></div>
-        <div class="fila-btn" style="align-items:center">${s.logo ? `<img class="logo-prev" src="${s.logo}" alt="logo">` : '<span class="nota">Sin logo</span>'}
+        <label class="campo"><span>Ciudad / subtítulo (línea 2)</span><input data-sede="${i}" data-c="sub" value="${esc(s.sub)}"></label>
+        <label class="campo"><span>RIF (opcional)</span><input data-sede="${i}" data-c="rif" value="${esc(s.rif || '')}" placeholder="J-12345678-9"></label></div>
+        <div class="fila-btn" style="align-items:center">${s.logo ? `<img class="logo-prev ajedrez" src="${s.logo}" alt="logo">${s.logoB ? `<img class="logo-prev negro" src="${s.logoB}" alt="en el encabezado">` : ''}` : '<span class="nota">Sin logo</span>'}
         <label class="secundario chico" style="display:inline-block">Cambiar logo<input type="file" accept="image/*" data-logo="${i}" hidden></label>
         ${s.logo ? `<button class="secundario chico" data-quitalogo="${i}">Quitar logo</button>` : ''}
-        ${cfg.sedes.length > 1 ? `<button class="peligro chico" data-borrasede="${i}">Eliminar lugar</button>` : ''}</div></section>`).join('') +
+        ${cfg.sedes.filter((x) => !x.clinica).length > 1 ? `<button class="peligro chico" data-borrasede="${i}">Eliminar lugar</button>` : ''}</div></section>`).join('') +
       '<button class="primario" id="agregarSede" style="width:100%">+ Agregar lugar de trabajo</button>';
     $$('[data-sede]').forEach((e) => (e.oninput = () => { cfg.sedes[+e.dataset.sede][e.dataset.c] = e.value; Store.guardarConfig(cfg); }));
     $$('[data-logo]').forEach((e) => (e.onchange = () => {
       const f = e.files[0]; if (!f) return;
-      leerImagen(f, 400).then((d) => { cfg.sedes[+e.dataset.logo].logo = d; Store.guardarConfig(cfg); render(); });
+      aDataURL(f).then((d) => limpiarLogo(d, 700)).then((L) => { const s = cfg.sedes[+e.dataset.logo]; s.logo = L.color; s.logoB = L.blanca; Store.guardarConfig(cfg); render(); avisoFondo(L); }).catch((er) => aviso(er.message));
     }));
-    $$('[data-quitalogo]').forEach((e) => (e.onclick = () => { cfg.sedes[+e.dataset.quitalogo].logo = ''; Store.guardarConfig(cfg); render(); }));
+    $$('[data-quitalogo]').forEach((e) => (e.onclick = () => { const s = cfg.sedes[+e.dataset.quitalogo]; s.logo = ''; s.logoB = ''; Store.guardarConfig(cfg); render(); }));
     $$('[data-borrasede]').forEach((e) => (e.onclick = () => { if (confirm('¿Eliminar este lugar?')) { cfg.sedes.splice(+e.dataset.borrasede, 1); Store.guardarConfig(cfg); render(); } }));
-    $('#agregarSede').onclick = () => { cfg.sedes.push({ id: uid(), nombre: '', sub: '', logo: '' }); Store.guardarConfig(cfg); render(); window.scrollTo(0, document.body.scrollHeight); };
+    $('#agregarSede').onclick = () => { cfg.sedes.push({ id: uid(), nombre: '', sub: '', rif: '', logo: '' }); Store.guardarConfig(cfg); render(); window.scrollTo(0, document.body.scrollHeight); };
+  }
+  /* 2.0.1: la clínica del colega (miembro o responsable) aparece sola como Lugar de trabajo, con su logo (descargado y guardado para usar sin internet). */
+  let clinLogoCargando = '';
+  async function logosSinFondo() {
+    let cambio = false;
+    for (const s of cfg.sedes) { if (s.logo && !s.logoB && !s.clinica) { try { const L = await limpiarLogo(s.logo, 700); s.logo = L.color; s.logoB = L.blanca; cambio = true; } catch (e) { s.logoB = ''; } } }
+    if (cambio) Store.guardarConfig(cfg);
+  }
+  async function sedeClinica() {
+    if (!NUBE() || !nubeU) return; const L = licencia() || {}, c = L.clinica || L.clinicaAdmin;
+    const i = cfg.sedes.findIndex((s) => s.clinica);
+    if (!c || !c.id) { if (i >= 0) { cfg.sedes.splice(i, 1); Store.guardarConfig(cfg); } return; }
+    let s = i >= 0 ? cfg.sedes[i] : null; const antes = JSON.stringify(s);
+    if (!s) { s = { id: 'clin-' + c.id, clinica: true, logo: '' }; cfg.sedes.push(s); }
+    Object.assign(s, { id: 'clin-' + c.id, clinica: true, nombre: c.nombre || '', sub: c.ciudad || '', rif: c.rif || '' });
+    if ((c.logo || '') !== (s.logoRuta || '') && clinLogoCargando !== c.logo) {
+      if (!c.logo) { s.logo = ''; s.logoB = ''; s.logoRuta = ''; }
+      else {
+        clinLogoCargando = c.logo;
+        try {
+          const r = await fetch(Nube.logoUrl(c.logo)); if (!r.ok) throw new Error(r.status);
+          const L = await limpiarLogo(await aDataURL(await r.blob()), 1000); s.logo = L.color; s.logoB = L.blanca; s.logoRuta = c.logo;
+        } catch (e) { console.warn('logo de la clínica', e); } finally { clinLogoCargando = ''; }
+      }
+    }
+    if (JSON.stringify(s) !== antes) Store.guardarConfig(cfg);
   }
   // Convierte un logo en dos versiones sin fondo (blanca y negra) usando su transparencia o, si no tiene, el contraste con el fondo.
   function prepararMarca(f) {
@@ -1424,6 +1650,49 @@
       r.readAsDataURL(f);
     });
   }
+  /* 2.0.1: logos de clínicas y lugares sin fondo. Quita el fondo liso que toca los bordes (relleno desde el borde, conserva
+     los blancos internos), recorta al contenido y prepara una versión clara para la barra negra del encabezado. */
+  function limpiarLogo(src, max = 1200) {
+    return new Promise((ok, mal) => {
+      const im = new Image(); im.onerror = () => mal(new Error('No se pudo leer la imagen'));
+      im.onload = () => {
+        const k = Math.min(1, max / Math.max(im.width, im.height)), W = Math.max(1, Math.round(im.width * k)), Hh = Math.max(1, Math.round(im.height * k));
+        const c = document.createElement('canvas'); c.width = W; c.height = Hh; const x = c.getContext('2d'); x.drawImage(im, 0, 0, W, Hh);
+        const id = x.getImageData(0, 0, W, Hh), px = id.data, n = W * Hh;
+        let transp = 0; for (let i = 0; i < n; i++) if (px[i * 4 + 3] < 240) transp++;
+        const transparente = transp > n * 0.05; let quitado = false;
+        if (!transparente) {
+          const bordes = []; for (let i = 0; i < W; i++) bordes.push(i, (Hh - 1) * W + i); for (let y = 0; y < Hh; y++) bordes.push(y * W, y * W + W - 1);
+          let r = 0, g = 0, b = 0; bordes.forEach((i) => { r += px[i * 4]; g += px[i * 4 + 1]; b += px[i * 4 + 2]; }); r /= bordes.length; g /= bordes.length; b /= bordes.length;
+          const dist = (i) => Math.hypot(px[i * 4] - r, px[i * 4 + 1] - g, px[i * 4 + 2] - b);
+          const parejo = bordes.filter((i) => dist(i) < 40).length / bordes.length;
+          if (parejo >= 0.85) { // fondo liso: relleno desde los bordes
+            const T0 = 22, T1 = 60, vis = new Uint8Array(n), cola = new Int32Array(n); let ini = 0, fin = 0;
+            bordes.forEach((i) => { if (!vis[i] && dist(i) < T1) { vis[i] = 1; cola[fin++] = i; } });
+            while (ini < fin) { const i = cola[ini++], xx = i % W, yy = (i - xx) / W, dd = dist(i);
+              px[i * 4 + 3] = dd <= T0 ? 0 : Math.round(px[i * 4 + 3] * Math.min(1, (dd - T0) / (T1 - T0)));
+              if (dd > T0) continue; // en el borde suave no se sigue avanzando
+              [xx > 0 ? i - 1 : -1, xx < W - 1 ? i + 1 : -1, yy > 0 ? i - W : -1, yy < Hh - 1 ? i + W : -1].forEach((j) => { if (j >= 0 && !vis[j] && dist(j) < T1) { vis[j] = 1; cola[fin++] = j; } }); }
+            quitado = true;
+          }
+        }
+        let a = W, bb = Hh, cc = -1, e = -1; for (let y = 0; y < Hh; y++) for (let xx = 0; xx < W; xx++) if (px[(y * W + xx) * 4 + 3] > 20) { if (xx < a) a = xx; if (xx > cc) cc = xx; if (y < bb) bb = y; if (y > e) e = y; }
+        if (cc < a) { mal(new Error('La imagen quedó vacía')); return; }
+        const pad = 2; a = Math.max(0, a - pad); bb = Math.max(0, bb - pad); cc = Math.min(W - 1, cc + pad); e = Math.min(Hh - 1, e + pad);
+        const w = cc - a + 1, h = e - bb + 1; x.putImageData(id, 0, 0);
+        const o = document.createElement('canvas'); o.width = w; o.height = h; o.getContext('2d').drawImage(c, a, bb, w, h, 0, 0, w, h);
+        // versión clara (para la barra negra): blanco con la opacidad según lo oscuro de cada punto; los blancos internos quedan como huecos
+        const ob = document.createElement('canvas'); ob.width = w; ob.height = h; const bx = ob.getContext('2d'), sd = o.getContext('2d').getImageData(0, 0, w, h), bd = bx.createImageData(w, h);
+        for (let i = 0; i < w * h; i++) { const lu = 0.299 * sd.data[i * 4] + 0.587 * sd.data[i * 4 + 1] + 0.114 * sd.data[i * 4 + 2];
+          bd.data[i * 4] = bd.data[i * 4 + 1] = bd.data[i * 4 + 2] = 255; bd.data[i * 4 + 3] = Math.round(sd.data[i * 4 + 3] * Math.min(1, Math.max(0, (250 - lu) / 160))); }
+        bx.putImageData(bd, 0, 0);
+        ok({ color: o.toDataURL('image/png'), blanca: ob.toDataURL('image/png'), quitado, transparente, ancho: im.width, alto: im.height });
+      };
+      im.src = src;
+    });
+  }
+  const aDataURL = (f) => new Promise((ok, mal) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = mal; r.readAsDataURL(f); });
+  const avisoFondo = (L) => { if (!L.transparente && !L.quitado) aviso('No pudimos quitar el fondo (no es de un solo color). Para que se vea integrado, sube el logo en PNG sin fondo.', 6500); };
   function leerImagen(f, max, tipo) {
     return new Promise((ok, mal) => {
       const r = new FileReader(); r.onerror = mal;
@@ -1551,7 +1820,7 @@
     const etqV = nb ? (nubeU ? 'Entrar' : 'Iniciar sesión') : etq;
     const botonesV = !nb ? botones : nubeU ? `<p class="bv-ayuda">Sesión iniciada como <b>${esc(nubeU.correo)}</b></p><div class="bv-links2"><button id="bvSalirN">Cerrar sesión</button></div>`
       : `<div class="bv-fila"><button class="bv-borde" id="bvCrear">Crear cuenta · 7 días gratis</button></div>${invPendiente() ? '<p class="bv-ayuda">🏥 Tienes una invitación de una clínica: inicia sesión o crea tu cuenta con el correo invitado.</p>' : ''}`;
-    const clinBtn = nb ? '<button class="bv-sec" id="bvClin">🏥 Planes para clínicas</button>' : '';
+    const clinBtn = (nb ? '<button class="bv-sec" id="bvClin">🏥 Planes para clínicas</button>' : '') + (EN_APK() ? '' : '<button class="bv-sec" id="bvApk">📱 Descargar la app para Android</button>');
     const titular = p.nombre ? esc(p.nombre) : 'Morpheus MD';
     v.innerHTML = `<div id="bienvenida">
       <div class="bv-foto"><img src="${p.portada || 'img/portada.jpg'}" alt="" onerror="this.remove()"></div>
@@ -1574,6 +1843,7 @@
     if ($('#bvLogin')) $('#bvLogin').onclick = () => { pantalla = 'login'; render(); window.scrollTo(0, 0); };
     if ($('#bvCrear')) $('#bvCrear').onclick = () => { regTipo = 'medico'; pantalla = 'registro'; render(); window.scrollTo(0, 0); };
     if ($('#bvClin')) $('#bvClin').onclick = () => irClinicasInfo();
+    if ($('#bvApk')) $('#bvApk').onclick = irDescarga;
     if ($('#bvImportar')) $('#bvImportar').onclick = () => irImportar('bienvenida');
     if ($('#bvSalir')) $('#bvSalir').onclick = cerrarSesion;
     if ($('#bvOtra')) $('#bvOtra').onclick = () => { if (!confirm('Este dispositivo ya tiene la cuenta “' + cfg.cuenta.usuario + '”. Si creas otra, la reemplaza aquí (tus historias se conservan). ¿Continuar?')) return; pantalla = 'registro'; render(); window.scrollTo(0, 0); };
@@ -1742,18 +2012,19 @@
         <div style="flex:1"><p class="nota" style="margin-top:0">La foto de la pantalla de inicio. Puedes usar una tuya (vertical se ve mejor).</p>
         <div class="fila-btn"><label class="secundario chico" style="display:inline-block">Cambiar foto<input type="file" accept="image/*" id="ptFile" hidden></label>
         ${p.portada ? '<button class="secundario chico" id="ptReset">Volver a la original</button>' : ''}</div></div></div>`);
-    const cMarca = () => card('Mi marca personal (marca de agua)', `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    const cMarca = () => card('Mi logo', `<p class="nota" style="margin-top:0">La <b>corona de Morpheus MD</b> sale siempre arriba a la izquierda de la historia. <b>Tu logo</b> va arriba a la derecha, como marca de agua, y en el membrete de la valoración y del récipe${p.marcaBlanca ? '' : ' (mientras no subas uno, ahí sale la corona)'}.</p>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
         <div style="background:#000;border-radius:10px;padding:10px;width:96px;height:96px;display:flex;align-items:center;justify-content:center">
-          <img src="${p.marcaBlanca || IMGS.marcaBlanca}" style="max-width:76px;max-height:76px;opacity:${p.marcaOpacidad || 0.55}" alt="marca"></div>
-        <div style="flex:1;min-width:180px">${''}
-          <div class="check"><input type="checkbox" id="mcOn"${p.marcaOn !== false ? ' checked' : ''}><label for="mcOn" style="flex:1;min-width:0">Mostrar en el encabezado del PDF</label></div>
-          <div class="check"><input type="checkbox" id="mcCentro"${p.marcaCentro ? ' checked' : ''}><label for="mcCentro" style="flex:1;min-width:0">También grande y muy tenue en el centro de la hoja</label></div>
+          ${p.marcaBlanca ? `<img src="${p.marcaBlanca}" style="max-width:76px;max-height:76px;opacity:${p.marcaOpacidad || 0.55}" alt="mi logo">` : '<span class="nota" style="color:#aaa;text-align:center">Sin logo propio</span>'}</div>
+        <div style="flex:1;min-width:180px">
+          ${p.marcaBlanca ? `<div class="check"><input type="checkbox" id="mcOn"${p.marcaOn !== false ? ' checked' : ''}><label for="mcOn" style="flex:1;min-width:0">Mostrar mi logo arriba a la derecha de la historia</label></div>` : ''}
+          <div class="check"><input type="checkbox" id="mcCentro"${p.marcaCentro ? ' checked' : ''}><label for="mcCentro" style="flex:1;min-width:0">También grande y muy tenue en el centro de la hoja (si el lugar no es una clínica con logo)</label></div>
         </div></div>
-        <div class="grupo" style="margin-top:10px"><div class="etq">Transparencia en el encabezado</div><div class="opciones">
-          ${[['0.35', 'Suave'], ['0.55', 'Media'], ['0.8', 'Fuerte'], ['1', 'Sólida']].map(([v, t]) => `<button type="button" class="opcion${String(p.marcaOpacidad || '0.55') === v ? ' sel' : ''}" data-mcop="${v}">${t}</button>`).join('')}</div></div>
-        <div class="fila-btn"><label class="secundario chico" style="display:inline-block">Cambiar imagen<input type="file" accept="image/*" id="mcFile" hidden></label>
-          ${p.marcaBlanca ? '<button class="secundario chico" id="mcReset">Volver a la original</button>' : ''}</div>
-        <p class="nota">Sube tu logo sin fondo (PNG transparente) o sobre fondo liso; la app le quita el fondo sola. También es el logo del membrete de la valoración preanestésica y del récipe.</p>`);
+        ${p.marcaBlanca ? `<div class="grupo" style="margin-top:10px"><div class="etq">Transparencia de mi logo</div><div class="opciones">
+          ${[['0.35', 'Suave'], ['0.55', 'Media'], ['0.8', 'Fuerte'], ['1', 'Sólida']].map(([v, t]) => `<button type="button" class="opcion${String(p.marcaOpacidad || '0.55') === v ? ' sel' : ''}" data-mcop="${v}">${t}</button>`).join('')}</div></div>` : ''}
+        <div class="fila-btn"><label class="secundario chico" style="display:inline-block">${p.marcaBlanca ? 'Cambiar mi logo' : 'Subir mi logo'}<input type="file" accept="image/*" id="mcFile" hidden></label>
+          ${p.marcaBlanca ? '<button class="secundario chico" id="mcReset">Quitar mi logo</button>' : ''}</div>
+        <p class="nota">Sube tu logo sin fondo (PNG transparente) o sobre fondo liso; la app le quita el fondo sola.</p>`);
     v.innerHTML = tabs + ({ datos: () => cDatos() + cCalc(), firma: () => cEsc() + cFirma(), imagenes: () => cMarca() + cPortada(), cuenta: () => (NUBE() && nubeU ? cuentaNubeHtml() : cCuenta()) }[perfTab] || (() => cDatos() + cCalc()))();
     enlTabs();
     if ($('#ptFile')) $('#ptFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return;
@@ -1763,7 +2034,7 @@
     if ($('#mcCentro')) $('#mcCentro').onchange = (e) => { p.marcaCentro = e.target.checked; Store.guardarConfig(cfg); };
     $$('[data-mcop]').forEach((b) => (b.onclick = () => { p.marcaOpacidad = b.dataset.mcop; Store.guardarConfig(cfg); render(); }));
     if ($('#mcFile')) $('#mcFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return;
-      prepararMarca(f).then((m) => { p.marcaBlanca = m.blanca; p.marcaNegra = m.negra; Store.guardarConfig(cfg); render(); aviso('Marca actualizada'); })
+      prepararMarca(f).then((m) => { p.marcaBlanca = m.blanca; p.marcaNegra = m.negra; p.marcaOn = true; Store.guardarConfig(cfg); render(); aviso('Logo actualizado'); })
         .catch(() => aviso('No se pudo leer la imagen')); };
     if ($('#mcReset')) $('#mcReset').onclick = () => { delete p.marcaBlanca; delete p.marcaNegra; Store.guardarConfig(cfg); render(); };
     if (perfTab === 'datos') enlazarMedico(p); if ($('#fsFile')) enlazarFirmaSello(p);
@@ -1968,6 +2239,7 @@
     try { await Nube.estado(true); } catch (e) {}
     try { await Promise.race([Nube.sincronizar(), new Promise((r) => setTimeout(r, 8000))]); } catch (e) { console.warn(e); }
     cfg = Store.config() || cfg;
+    try { await sedeClinica(); } catch (e) {}
     if (cfg.onbPend) return irConfiguracion();
     pantalla = 'inicio'; render(); window.scrollTo(0, 0);
     if (!invPendiente()) ofrecerLegado();
@@ -2004,7 +2276,7 @@
     if (L.dias <= 5) return `<button class="lic-banner" data-acc="irSusc"><b>Tu suscripción vence en ${L.dias} día${L.dias === 1 ? '' : 's'}</b><small>Renueva para no perder el acceso.</small></button>`;
     return '';
   }
-  async function refrescarLicencia() { if (!NUBE() || !nubeU) return; try { const antes = JSON.stringify(licencia()); await Nube.estado(); if (JSON.stringify(licencia()) !== antes && pantalla === 'inicio') render(); } catch (e) {} }
+  async function refrescarLicencia() { if (!NUBE() || !nubeU) return; try { const antes = JSON.stringify(licencia()); await Nube.estado(); await sedeClinica(); if (JSON.stringify(licencia()) !== antes && pantalla === 'inicio') render(); } catch (e) {} }
 
   /* ---- Pantallas de acceso (2.0) ---- */
   function renderLoginNube(v) {
@@ -2055,7 +2327,7 @@
     $('#rnOk').onclick = async () => {
       const n = $('#rnNombre').value.trim(), c = $('#rnCorreo').value.trim(), k1 = $('#rnC1').value;
       let clin = null;
-      if (esCl) { clin = { nombre: $('#rnClNom').value.trim(), rif: $('#rnClRif').value.trim(), ciudad: $('#rnClCiu').value.trim(), medicos: +$('#rnClMed').value || 0 }; if (!clin.nombre) return aviso('Escribe el nombre de la clínica'); }
+      if (esCl) { clin = { nombre: $('#rnClNom').value.trim(), rif: $('#rnClRif').value.trim(), ciudad: $('#rnClCiu').value.trim(), medicos: +$('#rnClMed').value || 0 }; if (!clin.nombre) return aviso('Escribe el nombre de la clínica'); if (!clin.rif) return aviso('Escribe el RIF de la clínica'); }
       if (!n) return aviso('Escribe tu nombre'); if (!/^\S+@\S+\.\S+$/.test(c)) return aviso('Revisa tu correo');
       if (k1.length < 8) return aviso('La contraseña debe tener al menos 8 caracteres'); if (k1 !== $('#rnC2').value) return aviso('Las contraseñas no coinciden');
       if (!$('#rnAcepto').checked) return aviso('Debes aceptar los términos para crear la cuenta');
@@ -2263,7 +2535,7 @@
         <p class="nota" style="margin:6px 0 0">${ca ? `Administras <b>${esc(ca.nombre)}</b>: <button class="enlace" id="spIrClinica">ir a 🏥 Mi clínica</button>` : `¿Representas una clínica? <button class="enlace" id="spVerClin">Ver planes para clínicas</button>`}</p>`)) +
       pagoHtml(A, null);
     pagoMontar(A, null, () => renderSuscripcion(v));
-    if ($('#spSalirCl')) $('#spSalirCl').onclick = async () => { if (!confirm(`¿Salir de ${cm.nombre}? Dejarás de estar cubierto por su plan. Tus historias se quedan contigo.`)) return; try { await Nube.salirClinica(); await Nube.estado(true); aviso('Saliste de la clínica'); renderSuscripcion(v); } catch (e) { aviso(e.message, 4500); } };
+    if ($('#spSalirCl')) $('#spSalirCl').onclick = async () => { if (!confirm(`¿Salir de ${cm.nombre}? Dejarás de estar cubierto por su plan. Tus historias se quedan contigo.`)) return; try { await Nube.salirClinica(); await Nube.estado(true); await sedeClinica(); aviso('Saliste de la clínica'); renderSuscripcion(v); } catch (e) { aviso(e.message, 4500); } };
     if ($('#spCodigoOk')) $('#spCodigoOk').onclick = () => { const c = $('#spCodigo').value.trim(); if (!c) return aviso('Pega el código de invitación'); usarInvitacion(c); };
     if ($('#spIrClinica')) $('#spIrClinica').onclick = () => irClinica();
     if ($('#spVerClin')) $('#spVerClin').onclick = () => irClinicasInfo();
@@ -2290,7 +2562,7 @@
       <p class="nota">Tus historias siguen siendo tuyas: la clínica no las ve. Puedes salir cuando quieras desde Mi suscripción.</p>
       <div class="acciones"><button class="secundario" id="invNo">${x.tuya ? 'Ahora no' : 'Cerrar'}</button>${x.tuya ? '<button class="primario" id="invSi">Aceptar invitación</button>' : ''}</div>`);
     $('#invNo').onclick = () => { if (x.tuya) invGuardar(''); cerrarHoja(); };
-    if ($('#invSi')) $('#invSi').onclick = async () => { try { const r = await Nube.aceptarInvitacion(cod); invGuardar(''); await Nube.estado(true); cerrarHoja(); aviso('Listo: ahora usas el plan de ' + r.clinica, 3500); render(); } catch (e) { aviso(e.message, 5000); } };
+    if ($('#invSi')) $('#invSi').onclick = async () => { try { const r = await Nube.aceptarInvitacion(cod); invGuardar(''); await Nube.estado(true); await sedeClinica(); cerrarHoja(); aviso('Listo: ahora usas el plan de ' + r.clinica, 3500); render(); } catch (e) { aviso(e.message, 5000); } };
   }
   function tablaClinicas(A) {
     const fila = (k, x) => `<tr><td><b>${nomClin(k)}</b><br><small class="nota">hasta ${x.puestos} anestesiólogos</small></td><td>${fmtUsd(x.mensual.usd)} USD<br><small class="nota">o ${fmtUsd(x.mensual.bcv)} USD a tasa BCV</small></td><td>${fmtUsd(x.anual.usd)} USD<br><small class="nota">o ${fmtUsd(x.anual.bcv)} USD a tasa BCV</small></td></tr>`;
@@ -2329,8 +2601,8 @@
         <label class="campo"><span>RIF</span><input id="ciRif" placeholder="J-12345678-9"></label><label class="campo"><span>Ciudad</span><input id="ciCiu"></label>
         <label class="campo"><span>N.º de anestesiólogos (aprox.)</span><input id="ciMed" inputmode="numeric"></label></div>
         <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="ciOk">Registrar clínica</button></div>`) + card('Planes', tablaClinicas(A));
-      $('#ciOk').onclick = async () => { const n = $('#ciNom').value.trim(); if (!n) return aviso('Escribe el nombre de la clínica');
-        try { await Nube.solicitarClinica({ nombre: n, rif: $('#ciRif').value.trim(), ciudad: $('#ciCiu').value.trim(), medicos: +$('#ciMed').value || 0 }); await Nube.estado(true); aviso('Clínica registrada: ahora elige el plan y paga'); renderClinica(v); } catch (e) { aviso(e.message, 4500); } };
+      $('#ciOk').onclick = async () => { const n = $('#ciNom').value.trim(); if (!n) return aviso('Escribe el nombre de la clínica'); if (!$('#ciRif').value.trim()) return aviso('Escribe el RIF de la clínica');
+        try { await Nube.solicitarClinica({ nombre: n, rif: $('#ciRif').value.trim(), ciudad: $('#ciCiu').value.trim(), medicos: +$('#ciMed').value || 0 }); await Nube.estado(true); await sedeClinica(); aviso('Clínica registrada: ahora elige el plan y paga'); renderClinica(v); } catch (e) { aviso(e.message, 4500); } };
       return;
     }
     const activa = cl.estado === 'activa', usados = (cl.miembros || []).length, pend = (cl.invitaciones || []).length;
@@ -2344,8 +2616,10 @@
         <h3>Invitar a un anestesiólogo</h3>${activa ? '' : '<p class="nota" style="margin-top:0">Disponible cuando el plan de la clínica esté activo.</p>'}
         <div class="rejilla"><label class="campo"><span>Correo del anestesiólogo</span><input id="clCorreo" type="email" autocapitalize="none" placeholder="colega@correo.com"${activa ? '' : ' disabled'}></label><label class="campo"><span>&nbsp;</span><button class="primario" id="clInv"${activa ? '' : ' disabled'}>Invitar</button></label></div>
         <p class="nota" style="margin:6px 0 0">Se crea un enlace para enviarle por WhatsApp o correo. Debe entrar o registrarse con ese mismo correo. Para usar la app tú también, invítate con tu correo (ocupa un puesto).</p>`) +
-      pagoHtml(A, cl);
-    pagoMontar(A, cl, () => renderClinica(v));
+      clinDatosHtml(cl) +
+      (clinFaltan(cl) ? card('Pagar el plan', '<p class="nota" style="margin:0">Antes de pagar o renovar el plan, sube el <b>logo</b> y escribe el <b>RIF</b> de la clínica (arriba).</p>') : pagoHtml(A, cl));
+    if (!clinFaltan(cl)) pagoMontar(A, cl, () => renderClinica(v));
+    clinDatosMontar(cl, () => renderClinica(v));
     $$('[data-clquita]').forEach((b) => (b.onclick = async () => { if (!confirm(`¿Quitar a ${b.dataset.n} de la clínica? Dejará de estar cubierto por el plan; sus historias se quedan con él.`)) return; try { await Nube.clinicaQuitar(b.dataset.clquita); aviso('Anestesiólogo retirado'); renderClinica(v); } catch (e) { aviso(e.message, 4500); } }));
     $$('[data-clanula]').forEach((b) => (b.onclick = async () => { if (!confirm('¿Anular esta invitación?')) return; try { await Nube.clinicaAnular(b.dataset.clanula); renderClinica(v); } catch (e) { aviso(e.message, 4500); } }));
     $$('[data-clcopia]').forEach((b) => (b.onclick = () => copiarTexto(b.dataset.clcopia)));
@@ -2357,6 +2631,42 @@
           <div class="acciones"><button class="secundario" id="ivCopia">Copiar enlace</button><a class="primario boton" href="${esc(wa(i))}" target="_blank" rel="noopener">Enviar por WhatsApp</a><button class="secundario" id="ivOk">Listo</button></div>`);
         $('#ivCopia').onclick = () => copiarTexto(l); $('#ivOk').onclick = () => { cerrarHoja(); renderClinica(v); };
       } catch (e) { aviso(e.message, 5000); }
+    };
+  }
+  /* Logo (PNG de alta calidad) y RIF obligatorios de la clínica (2.0.1) */
+  const clinFaltan = (cl) => !cl.logo || !String(cl.rif || '').trim();
+  const LOGO_MIN = 600;
+  function clinDatosHtml(cl) {
+    const url = cl.logo ? Nube.logoUrl(cl.logo) : '';
+    return card('Logo y RIF de la clínica', `${clinFaltan(cl) ? '<p class="lic-banner lic-mal" style="cursor:default"><b>Obligatorios</b>Sube el logo y escribe el RIF para poder pagar el plan.</p>' : ''}
+      <div class="fila-btn" style="align-items:center"><div class="logo-clin ajedrez" id="clLogoPrev">${url ? `<img src="${esc(url)}" alt="logo">` : '<span class="nota">Sin logo</span>'}</div>
+        <div class="logo-clin negro" id="clLogoPrevB" hidden></div>
+        <label class="secundario chico" style="display:inline-block">${url ? 'Cambiar logo' : 'Elegir logo'}<input type="file" accept="image/png,image/jpeg" id="clLogo" hidden></label></div>
+      <div class="rejilla"><label class="campo"><span>RIF</span><input id="clRif" value="${esc(cl.rif || '')}" placeholder="J-12345678-9"></label></div>
+      <p class="nota">Logo de <b>alta calidad</b> (mínimo ${LOGO_MIN} × ${LOGO_MIN} px), ideal en PNG sin fondo. Si tiene fondo liso (blanco o de un color), la app lo quita sola para que se integre a la hoja. Sale en el encabezado de las historias hechas en la clínica (en claro sobre la barra negra) y muy tenue de fondo en la grilla; el RIF va bajo el nombre.</p>
+      <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="clDatosOk">Guardar logo y RIF</button></div>`);
+  }
+  function clinDatosMontar(cl, listo) {
+    let archivo = null;
+    $('#clLogo').onchange = async (e) => {
+      const f = e.target.files[0]; archivo = null; if (!f) return;
+      if (!/^image\/(png|jpeg)$/.test(f.type)) { e.target.value = ''; return aviso('El logo debe ser PNG o JPG', 4000); }
+      if (f.size > 8 * 1048576) { e.target.value = ''; return aviso('La imagen pesa más de 8 MB: usa una más liviana', 4500); }
+      try {
+        const L = await limpiarLogo(await aDataURL(f), 1200);
+        if (Math.min(L.ancho, L.alto) < LOGO_MIN) { e.target.value = ''; return aviso(`El logo es muy pequeño (${L.ancho} × ${L.alto} px). Usa uno de al menos ${LOGO_MIN} × ${LOGO_MIN} px para que se vea nítido.`, 6000); }
+        archivo = await (await fetch(L.color)).blob();
+        if (archivo.size > 3 * 1048576) { archivo = null; e.target.value = ''; return aviso('El logo sin fondo pesa más de 3 MB: usa uno más liviano', 5000); }
+        $('#clLogoPrev').innerHTML = `<img src="${L.color}" alt="logo">`; const pb = $('#clLogoPrevB'); pb.innerHTML = `<img src="${L.blanca}" alt="en el encabezado">`; pb.hidden = false;
+        aviso(L.quitado ? 'Le quitamos el fondo. Revisa cómo queda y toca "Guardar logo y RIF".' : 'Logo listo: toca "Guardar logo y RIF"', 4500); avisoFondo(L);
+      } catch (er) { e.target.value = ''; aviso(er.message || 'No se pudo leer la imagen'); }
+    };
+    $('#clDatosOk').onclick = async () => {
+      const rif = $('#clRif').value.trim(); if (!rif) return aviso('Escribe el RIF de la clínica');
+      if (!archivo && !cl.logo) return aviso('Elige el logo de la clínica (PNG)');
+      const b = $('#clDatosOk'); b.disabled = true; b.textContent = 'Guardando…';
+      try { await Nube.clinicaDatos({ id: cl.id, rif, archivo }); await Nube.estado(true); await sedeClinica(); aviso('Logo y RIF guardados'); listo(); }
+      catch (e) { aviso(e.message, 5000); b.disabled = false; b.textContent = 'Guardar logo y RIF'; }
     };
   }
   async function admClinicasUI(v) {
@@ -2502,6 +2812,7 @@
   ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => (ultimoUso = Date.now()), { passive: true }));
   setInterval(() => { if (NUBE() && nubeU && Nube.compartido() && Date.now() - ultimoUso > 30 * 60e3) { ultimoUso = Date.now(); guardarYa(); cerrarSesionNube().then(() => aviso('Sesión cerrada por inactividad', 4000)); } }, 60e3);
   setInterval(() => refrescarLicencia(), 30 * 60e3);
+  setTimeout(() => { logosSinFondo().catch(() => {}); }, 1500);
 
   /* ---- Mi farmacia: qué presentaciones tiene el usuario en su hospital o clínica ---- */
   const FARMACIA = [
@@ -2626,7 +2937,7 @@
   /* ---- Avisos de primera vez (C) ---- */
   const TIPS = {
     editor: 'Las secciones de la historia están en la barra de arriba (desliza para ver todas) y abajo tienes los botones para avanzar. Todo se guarda solo. En la última sección está “Vista previa / PDF”.',
-    grilla: 'Transoperatorio: toca la grilla para anotar signos vitales a cada hora. En las pistas registras gases, inhalatorio, opioide, relajante y drogas (bolos e infusiones); el botón de calculadora ayuda con las infusiones.',
+    grilla: 'Transoperatorio: “+ Registrar ahora” trae los valores anteriores para cambiar solo lo que varió con − / +; si nada cambió, “✓ Igual que el anterior” lo registra en un toque. También puedes tocar la gráfica para marcar la TA o la FC. En las pistas registras gases, inhalatorio, opioide, relajante y drogas (bolos e infusiones); el botón de calculadora ayuda con las infusiones.',
     calc: 'Escribe peso, talla, edad y sexo del paciente. Pestañas: TIVA (esquemas por peso), TCI (Marsh, Schnider, Minto…) y BIC (bombas). Ajusta la unidad de tu bomba abajo.',
     bloqueos: 'Elige la región arriba o busca por palabra. En Generales está la calculadora de dosis máxima de anestésicos locales. Las mezclas con fármacos que no marcaste en Mi farmacia se ven atenuadas.',
     guias: 'Tres pestañas: Consulta (valoración preanestésica), Crisis y Técnicas. Cada ficha dice su fuente y año. El buscador revisa todas las guías.',
@@ -2644,6 +2955,15 @@
 
   /* ---- Novedades de cada versión ---- */
   const NOVEDADES = [
+    ['2.0.1', ['Técnica: elige la principal (Sedación, General, TIVA, Regional, Bloqueo o Local) y si es combinada; marca sola la sección Regional. Nivel de sedación y General inhalatoria/balanceada como sub-opción.',
+      'Inducción: Intravenosa estándar o secuencia rápida, y 10 renglones de fármacos (A–J).',
+      'Nueva sección Anestesia general: vía aérea, laringoscopía directa, indirecta o a ciegas, Cormack o POGO según el caso, tubo con lado de fijación y sistema circular o lineal.',
+      'Recién nacido (cesáreas), en Transoperatorio: vivo, sexo, hora, APGAR, peso, talla, si lloró y respiró al nacer.',
+      'Laboratorio: IMC en la hoja, grupo y Rh, Na/K/Cl y "+ Agregar examen" (TSH, T3L, serologías HIV/VDRL/hepatitis, gases y más).',
+      'Logos: la corona de Morpheus MD arriba a la izquierda; tu logo arriba a la derecha. Los lugares de trabajo pueden llevar RIF. Las clínicas suben logo y RIF, y sus historias llevan el logo de fondo en la grilla.',
+      'Valoración y récipe: elige qué logo de clínica o lugar sale de marca de agua en el centro.',
+      'Grilla más fácil: "✓ Igual que el anterior", botones − / + y marcar TA o FC tocando la gráfica.',
+      'App para Android: descárgala en morpheus-md.com/descargar; te avisa cuando hay versión nueva.']],
     ['2.0.0', ['Cuenta con tu correo: tus historias, documentos y ajustes se guardan en tu cuenta y los ves en el teléfono y en la computadora (web: morpheus-md.com).', 'Si ya usabas la app en este dispositivo, te ofrecemos pasar tus historias a tu cuenta.', 'Equipo compartido: en la computadora de la clínica, al cerrar sesión se borran tus datos de ese equipo y la sesión se cierra sola tras 30 min sin uso.', '7 días de prueba gratis; luego plan mensual o anual en Menú › Mi suscripción: Pago Móvil (monto en Bs a la tasa BCV del día), Zelle o Binance, con captura del pago. Crisis (SOS) siempre es gratis.', 'Planes para clínicas: el responsable paga un solo plan e invita a sus anestesiólogos.', 'Varios consultorios: en ⚙ Ajustes › Mis datos agrega tus direcciones y elige cuál sale en cada valoración o récipe.']],
     ['1.9.13', ['Menú reorganizado por grupos: Documentos, Herramientas clínicas, Configuración y Ayuda.', 'Nuevo botón ⚙ Ajustes arriba: Mis datos, Firma y sello, Imágenes, Lugares de trabajo y Cuenta, en pestañas.', 'Valoración y récipe: en el menú ⋮ del documento, Compartir PDF y Guardar PDF directo, sin pasar por la vista previa.']],
     ['1.9.12', ['Guía de uso (Menú › ❓ Guía de uso) y recorrido guiado para quien entra por primera vez.', 'Mi farmacia: marca los fármacos de tu hospital; las mezclas de bloqueos y la calculadora se adaptan.',
@@ -2673,11 +2993,12 @@
     { t: 'Primeros pasos', ir: 'tour', b: 'Ver el recorrido', p: ['Morpheus MD funciona sin internet: lo que escribes se guarda en este dispositivo y, cuando hay conexión, se sincroniza con tu cuenta. Así ves tus historias en el teléfono y en la computadora con el mismo correo.',
       'Tu cuenta incluye 7 días de prueba gratis; luego eliges un plan en Menú › Mi suscripción. Crisis (SOS) siempre es gratis.',
       'En una computadora de clínica marca “Equipo compartido” al iniciar sesión: al salir se borran tus datos de ese equipo (quedan en tu cuenta) y la sesión se cierra sola tras 30 minutos sin uso.'] },
+    { t: 'Descargar la app para Android', web: true, p: ['Menú › 📱 Descargar la app para Android, o abre morpheus-md.com/descargar en el teléfono.', 'Toca “Descargar”, abre el archivo y permite “Instalar apps desconocidas” para tu navegador si el teléfono lo pide.', 'Entra con la misma cuenta: verás tus historias y documentos.', 'La app te avisa cuando haya una versión nueva; se instala encima y tus datos se mantienen.'] },
     { t: 'Instalar la versión web como app', web: true, p: ['Android (Chrome): menú ⋮ del navegador › “Instalar app” o “Agregar a la pantalla de inicio”.', 'iPhone (Safari): botón Compartir › “Agregar a inicio”.', 'Tus datos quedan en ese navegador: si borras los datos del navegador, se borran. Respáldalos.'] },
     { t: 'Crear una historia de anestesia', ir: 'nueva', b: 'Crear una historia', p: ['En la pantalla de inicio toca “+ Nueva historia”. Si tienes varios lugares de trabajo, elige dónde.',
-      'La historia tiene 10 secciones: Paciente, Valoración, Preparación, Inducción y técnica, Vía aérea, Regional, Transoperatorio, Balance y gases, Salida, Notas y firma. Pásalas con la barra de arriba o los botones de abajo.',
+      'La historia tiene 10 secciones: Paciente, Valoración, Preparación, Técnica e inducción, Anestesia general, Regional, Transoperatorio, Balance y gases, Salida, Notas y firma. Pásalas con la barra de arriba o los botones de abajo.',
       'Se guarda sola. Para reutilizar una historia como plantilla: en la lista, botón ⋮ › “Nueva historia usando esta como plantilla”.'] },
-    { t: 'La grilla transoperatoria', p: ['En la sección Transoperatorio anotas signos vitales (PA, FC, SpO₂…) en la grilla por hora.', 'En las pistas registras O₂ y aire/N₂O, el inhalatorio, el opioide, el relajante y otras drogas: bolos, inicio o cambio de infusión y suspensión, con su hora.',
+    { t: 'La grilla transoperatoria', p: ['En la sección Transoperatorio anotas signos vitales (PA, FC, SpO₂…) en la grilla por hora.', 'Más rápido: “✓ Igual que el anterior” registra en un toque; “+ Registrar ahora” trae los últimos valores y los ajustas con − / +; o toca la gráfica en la hora y altura del valor y elige TA sistólica, diastólica o FC. Toca un punto para corregirlo.', 'En las pistas registras O₂ y aire/N₂O, el inhalatorio, el opioide, el relajante y otras drogas: bolos, inicio o cambio de infusión y suspensión, con su hora.',
       'Las infusiones tienen calculadora (dosis ↔ mL/h según tu bomba). El balance y los gases van en la sección siguiente.'] },
     { t: 'Vista previa, PDF y compartir', p: ['En la última sección toca “Vista previa / PDF”, o en la lista de historias botón ⋮ › “Ver / PDF”.', 'Desde la vista previa puedes guardar, imprimir o compartir el PDF.',
       'El encabezado sale del lugar de trabajo de la historia; la firma, el sello y el membrete, de ⚙ Ajustes.'] },
@@ -2946,6 +3267,14 @@
     return D.lab.map((l, i) => `${D.lab.length > 1 ? `<h3>Fecha ${i + 1}</h3>` : ''}<div class="rejilla labs">${LABS.map(([k, tx]) => `<label class="campo${k === 'fecha' ? ' doble' : ''}"><span>${tx}</span><input data-k="lab.${i}.${k}"${k === 'fecha' ? ' type="date"' : ['otros', 'hiv', 'vdrl'].includes(k) ? '' : ' inputmode="decimal"'} value="${esc(l[k] || '')}"></label>`).join('')}</div>`).join('') +
       (D.lab.length < 3 ? '<div class="fila-btn"><button class="secundario chico" data-acc="labMas">+ Otra fecha</button></div>' : '');
   }
+  /* 2.0.1: marca de agua del documento = logo de una clínica o lugar de trabajo (selector por documento; recuerda el último) */
+  const sedesConLogo = () => cfg.sedes.filter((s) => s.logo);
+  function marcaSel() {
+    const l = sedesConLogo(); if (!l.length) return '';
+    if (D.marca == null) D.marca = l.some((s) => s.id === cfg.marcaDoc) ? cfg.marcaDoc : '';
+    return SEL('marca', 'Marca de agua (centro de la hoja)', [['', 'Ninguna']].concat(l.map((s) => [s.id, (s.clinica ? '🏥 ' : '') + (s.nombre || 'Lugar sin nombre')])));
+  }
+  const pfDoc = () => Object.assign({}, cfg.perfil || {}, { marcaDoc: ((D && cfg.sedes.find((s) => s.id === D.marca)) || {}).logo || '' });
   function dirSel() { // consultorio del membrete para este documento (solo si hay varios)
     const l = direccionesDe(cfg.perfil || {}); if (D.dir == null) D.dir = (cfg.perfil || {}).direccion || '';
     if (l.length < 2 && !(D.dir && !l.includes(D.dir))) return '';
@@ -2956,7 +3285,7 @@
     const X = Extras; X.calcular(D); const p = D.p, au = D._sbAuto || {};
     $('#titulo').textContent = p.nombre || 'Valoración preanestésica';
     v.innerHTML =
-      card('Paciente', rej(T('fecha', 'Fecha de la valoración', { tipo: 'date' }) + dirSel() + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') +
+      card('Paciente', rej(T('fecha', 'Fecha de la valoración', { tipo: 'date' }) + dirSel() + marcaSel() + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') +
         SEL('p.sexo', 'Sexo', [['', '—'], ['M', 'Masculino'], ['F', 'Femenino']]) + Nm('p.edad', 'Edad', 'años') + Nm('p.peso', 'Peso', 'kg') + Nm('p.talla', 'Talla', 'm', { ph: '1.65' }) +
         '<label class="campo calc"><span>IMC</span><div class="con-unidad"><input id="vIMC" readonly><em>kg/m²</em></div></label>' + T('p.ocup', 'Ocupación')) +
         rej(T('p.dx', 'Diagnóstico', { full: true }) + T('p.proc', 'Procedimiento a realizar', { full: true }) + T('p.tratante', 'Médico tratante') + T('p.fechaCx', 'Fecha de la cirugía', { tipo: 'date' }), true) +
@@ -3018,7 +3347,7 @@
     $('#titulo').textContent = D.p.nombre || 'Récipe';
     const pl = cfg.rxPlantillas || [];
     if (!D.items || !D.items.length) D.items = [{}];
-    v.innerHTML = card('Paciente', rej(T('fecha', 'Fecha', { tipo: 'date' }) + dirSel() + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') + Nm('p.edad', 'Edad', 'años') + Nm('p.peso', 'Peso', 'kg')) +
+    v.innerHTML = card('Paciente', rej(T('fecha', 'Fecha', { tipo: 'date' }) + dirSel() + marcaSel() + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') + Nm('p.edad', 'Edad', 'años') + Nm('p.peso', 'Peso', 'kg')) +
         '<div class="fila-btn"><button class="secundario chico" data-acc="docDeHistoria">Tomar datos de una historia</button></div>') +
       card('Rp / medicamentos', D.items.map((it, i) => `<div class="med"><div class="rejilla ancha"><label class="campo completo"><span>Medicamento y presentación</span><input data-k="items.${i}.med" value="${esc(it.med || '')}" placeholder="Ej. Ketoprofeno 100 mg tabletas"></label>
           <label class="campo"><span>Cantidad</span><input data-k="items.${i}.cant" value="${esc(it.cant || '')}" placeholder="#10 (diez)"></label></div>
@@ -3052,7 +3381,7 @@
     guardarDocYa(); aviso('Preparando PDF…', 1200);
     setTimeout(() => {
       try {
-        const pf = cfg.perfil || {}; const copia = JSON.parse(JSON.stringify(D));
+        const pf = pfDoc(); const copia = JSON.parse(JSON.stringify(D));
         const doc = D.tipo === 'val' ? Extras.pdfValoracion(copia, pf) : Extras.pdfRecipe(copia, pf);
         const n = (D.p.nombre || 'paciente').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
         const nombre = (D.tipo === 'val' ? 'Valoracion_' : 'Recipe_') + n + '_' + (D.fecha || hoyISO()) + '.pdf';
@@ -3064,7 +3393,7 @@
     guardarDocYa(); aviso('Preparando vista previa…', 1200);
     setTimeout(() => {
       try {
-        const pf = cfg.perfil || {}; const copia = JSON.parse(JSON.stringify(D));
+        const pf = pfDoc(); const copia = JSON.parse(JSON.stringify(D));
         const doc = D.tipo === 'val' ? Extras.pdfValoracion(copia, pf) : Extras.pdfRecipe(copia, pf);
         const n = (D.p.nombre || 'paciente').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
         const nombre = (D.tipo === 'val' ? 'Valoracion_' : 'Recipe_') + n + '_' + (D.fecha || hoyISO()) + '.pdf';
@@ -3102,12 +3431,18 @@
   vista.addEventListener('change', alCambiar);
   vista.addEventListener('change', (e) => { const k = e.target.dataset && e.target.dataset.k; if (H && pantalla === 'editor' && ['anest', 'asist', 'ciruj', 'instr'].includes(k)) { recordarNombres(k); refrescarNombres(k); } });
   vista.addEventListener('change', (e) => { if (H && e.target.dataset && e.target.dataset.indmed != null) recordarInd(); });
+  vista.addEventListener('change', (e) => { if (pantalla === 'doc' && e.target.dataset && e.target.dataset.k === 'marca') { cfg.marcaDoc = e.target.value; Store.guardarConfig(cfg); } });
   vista.addEventListener('change', (e) => { const k = e.target.dataset && e.target.dataset.coadmed; if (k && H) { if (!H.coad[k].on) { H.coad[k].on = true; const cb = $('#c_coad_' + k); if (cb) cb.checked = true; } recordarCoad(k); } });
   document.addEventListener('click', (e) => {
     const r = e.target.closest('[data-r]');
     if (r && obj()) {
       const o = obj(), k = r.dataset.r; const nuevo = getP(o, k) === r.dataset.v && k !== 'p.formPmp' && k !== 'to.cierre' ? '' : r.dataset.v; setP(o, k, nuevo);
       if (k === 'to.cierre') { cfg.cierre = nuevo; Store.guardarConfig(cfg); }
+      if (o === H && RE_RENDER.includes(k)) {
+        if (k === 'tec.p' && H.tec.comb === tecPrincipal(H.tec)) H.tec.comb = '';
+        if (k.startsWith('tec.')) enlazarRegional();
+        guardarPronto(); render(); return;
+      }
       $$(`[data-r="${k}"]`).forEach((b) => b.classList.toggle('sel', b.dataset.v === nuevo));
       if (o === D) docCambio(k); else { refrescarCalculos(); guardarPronto(); } return;
     }
@@ -3131,13 +3466,16 @@
     else if (acc === 'nomBorrar') { const l = cfg.equipo[a.dataset.rol]; const j = l.indexOf(a.dataset.n); if (j >= 0) l.splice(j, 1); if (!l.length) editRol = ''; Store.guardarConfig(cfg); refrescarNombres(a.dataset.rol); }
     else if (acc === 'coadAgregar') { const c = (H.coad[a.dataset.c] = H.coad[a.dataset.c] || {}); c.meds = c.meds || []; c.meds.push({ n: a.dataset.n, d: a.dataset.d, u: a.dataset.u }); c.on = true; guardarPronto(); render(); if (!a.dataset.n) { const ins = $$(`[data-coadmed="${a.dataset.c}"]`); const f = ins[ins.length - 3]; if (f) f.focus(); } }
     else if (acc === 'coadQuitar') { const c = H.coad[a.dataset.c]; c.meds.splice(+a.dataset.i, 1); if (!c.meds.length && !c.det) c.on = false; guardarPronto(); render(); }
-    else if (acc === 'indAgregar') { const l = indLista(); if (l.length >= 6) return; l.push({ n: a.dataset.n, d: a.dataset.d, u: a.dataset.u }); indSincronizar(); guardarPronto(); render();
+    else if (acc === 'indAgregar') { const l = indLista(); if (l.length >= MAX_IND) return; l.push({ n: a.dataset.n, d: a.dataset.d, u: a.dataset.u }); indSincronizar(); guardarPronto(); render();
       const ins = $$('[data-indmed]'); const f = !a.dataset.n ? ins[ins.length - 3] : !a.dataset.d ? ins[ins.length - 2] : null; if (f) f.focus(); }
     else if (acc === 'indQuitar') { indLista().splice(+a.dataset.i, 1); indSincronizar(); guardarPronto(); render(); }
     else if (acc === 'revDosis') { const rv = (H.rev = H.rev || {}), k = a.dataset.c; rv[k] = true; rv[k + 'D'] = a.dataset.d; rv[k + 'U'] = a.dataset.u; guardarPronto(); render(); }
     else if (acc === 'coadNota') { const c = (H.coad[a.dataset.c] = H.coad[a.dataset.c] || {}); c._nota = true; render(); }
     else if (acc === 'marcarTodo') { CHECKLIST.forEach(([k]) => (H.chk[k] = true)); guardarPronto(); render(); }
     else if (acc === 'nuevoReg') abrirRegistro(null);
+    else if (acc === 'labAgregar') labElegir();
+    else if (acc === 'labQuitar') { H.p.labs.splice(+a.dataset.i, 1); guardarPronto(); render(); }
+    else if (acc === 'igualReg') registroIgual();
     else if (acc === 'agregarInf') { H.inf = H.inf || []; H.inf.push({ farm: a.dataset.farm === 'Otra' ? '' : a.dataset.farm }); guardarPronto(); render(); abrirCalculadora(H.inf.length - 1); }
     else if (acc === 'calcInf') abrirCalculadora(+a.dataset.i);
     else if (acc === 'pAg') { const p = H.to.pistas[a.dataset.p]; p.agente = p.agente === a.dataset.v && a.dataset.p === 'inh' ? '' : a.dataset.v; guardarPronto(); render(); }
@@ -3250,8 +3588,9 @@
         { t: '🗂 Respaldo (exportar / importar)', f: respaldo },
         { sec: 'Ayuda' },
         { t: '❓ Guía de uso', f: irAyuda },
+        ...(EN_APK() ? [] : [{ t: '📱 Descargar la app para Android', f: irDescarga }]),
         { t: 'ℹ Acerca de', f: () => { abrirHoja(`<h2>Morpheus MD</h2><p>Versión ${VERSION} · Registro anestésico digital</p><p class="nota">${NUBE() && nubeU ? 'Tus datos se guardan en este dispositivo y se sincronizan con tu cuenta (' + esc(nubeU.correo) + ').' : 'Tus datos se guardan en este dispositivo.'} Ver la Política de privacidad para más detalles.</p>
-          <p class="nota">Web: <a href="https://morpheus-md.com/">morpheus-md.com</a><br>Soporte: ${mailA('soporte')}<br>Pagos: ${mailA('pagos')}<br>Clínicas y otros temas: ${mailA('contacto')}</p>
+          <p class="nota">Web: <a href="https://morpheus-md.com/">morpheus-md.com</a><br>App Android: <a href="${urlDescarga()}">morpheus-md.com/descargar</a><br>Soporte: ${mailA('soporte')}<br>Pagos: ${mailA('pagos')}<br>Clínicas y otros temas: ${mailA('contacto')}</p>
           <div class="fila-btn">${Object.entries(LEGAL.TEXTOS).map(([k, x]) => `<button class="secundario chico" data-legal="${k}">${x.t}</button>`).join('')}</div>
           <div class="acciones"><button class="primario" id="acCerrar">Cerrar</button></div>`);
           $('#acCerrar').onclick = cerrarHoja; $$('#capa [data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal))); } },
@@ -3294,7 +3633,7 @@
     }
     return false;
   }
-  window.app = { version: VERSION, atras: () => atras(), pausa: () => guardarYa(), _estado: () => ({ H, cfg, D }) };
+  window.app = { version: VERSION, atras: () => atras(), pausa: () => guardarYa(), _estado: () => ({ H, cfg, D }), _migrar: (h) => migrar(h), _limpiarLogo: (s, m) => limpiarLogo(s, m) };
   document.addEventListener('visibilitychange', () => { if (document.hidden) guardarYa(); });
   pantalla = 'bienvenida';
   capturarInvitacion();

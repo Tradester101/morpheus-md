@@ -54,12 +54,16 @@ window.Nube = (function () {
       return q;
     }
     const storage = {
-      from: () => ({
+      from: (bucket) => ({
         async upload(path, blob) {
-          const u = yo(); if (!u || path.split('/')[0] !== u.id) return err('new row violates row-level security policy');
+          const u = yo();
+          if (bucket === 'logos') { const d0 = db(), c = (d0.clinicas || []).find((x) => u && x.admin_id === u.id); if (!c || path.split('/')[0] !== c.id) return err('new row violates row-level security policy'); }
+          else if (!u || path.split('/')[0] !== u.id) return err('new row violates row-level security policy');
+          if (bucket === 'logos') path = 'logos/' + path;
           const url = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(blob); });
           const d = db(); d.archivos = d.archivos || {}; if (d.archivos[path]) return err('The resource already exists'); d.archivos[path] = url; save(d); return { data: { path }, error: null };
         },
+        getPublicUrl(path) { const d = db(); return { data: { publicUrl: (d.archivos || {})['logos/' + path] || '' } }; },
         async createSignedUrl(path) {
           const d = db(), u = yo(); if (!u || !(d.archivos || {})[path] || (path.split('/')[0] !== u.id && !esAdmin(d))) return err('Object not found');
           return { data: { signedUrl: d.archivos[path] }, error: null };
@@ -104,15 +108,20 @@ window.Nube = (function () {
           const e = estadoJson(d, u.id), s = d.subs[u.id], cm = miMem(), ca = miAdm(), propia = Date.parse(s.vence) > Date.now();
           const porClin = cm && vig(cm) && (!propia || s.estado === 'prueba' || Date.parse(cm.vence) > Date.parse(s.vence));
           if (porClin) Object.assign(e, { estado: 'activa', plan: 'clinica', canal: 'clinica', vence: cm.vence });
-          e.clinica = cm ? { id: cm.id, nombre: cm.nombre, vigente: vig(cm), vence: cm.vence } : null;
-          e.clinica_admin = ca ? { id: ca.id, nombre: ca.nombre, estado: estC(ca), plan: ca.plan, puestos: ca.puestos, usados: d.miembros.filter((m) => m.clinica_id === ca.id).length, vence: ca.vence } : null;
+          e.clinica = cm ? { id: cm.id, nombre: cm.nombre, rif: cm.rif || '', ciudad: cm.ciudad || '', logo: cm.logo || '', vigente: vig(cm), vence: cm.vence } : null;
+          e.clinica_admin = ca ? { id: ca.id, nombre: ca.nombre, rif: ca.rif || '', ciudad: ca.ciudad || '', logo: ca.logo || '', estado: estC(ca), plan: ca.plan, puestos: ca.puestos, usados: d.miembros.filter((m) => m.clinica_id === ca.id).length, vence: ca.vence } : null;
           return { data: e, error: null };
         }
         if (fn === 'solicitar_clinica') { let c = miAdm(); if (!a.p_nombre) return err('Escribe el nombre de la clínica'); if (!c) { c = { id: 'c' + Math.random().toString(16).slice(2, 10), admin_id: u.id, plan: 'basica', puestos: 0, estado: 'solicitud', vence: null, creado: ahora() }; d.clinicas.push(c); } Object.assign(c, { nombre: a.p_nombre, rif: a.p_rif || '', ciudad: a.p_ciudad || '', medicos_estimados: a.p_medicos || 0 }); save(d); return { data: c.id, error: null }; }
         if (fn === 'mi_clinica') {
           const ca = miAdm(), cm = miMem();
           return { data: { admin: ca ? Object.assign({}, ca, { estado: estC(ca), miembros: d.miembros.filter((m) => m.clinica_id === ca.id).map((m) => ({ user_id: m.user_id, correo: correoDe(m.user_id), nombre: (d.users[correoDe(m.user_id)] || {}).nombre, desde: m.desde })), invitaciones: pendientes(ca).map((i) => ({ token: i.token, codigo: i.codigo, correo: i.correo, expira: i.expira })) }) : null,
-            miembro: cm ? { id: cm.id, nombre: cm.nombre, vigente: vig(cm), vence: cm.vence } : null }, error: null };
+            miembro: cm ? { id: cm.id, nombre: cm.nombre, rif: cm.rif || '', ciudad: cm.ciudad || '', logo: cm.logo || '', vigente: vig(cm), vence: cm.vence } : null }, error: null };
+        }
+        if (fn === 'clinica_datos') {
+          const ca = miAdm(); if (!ca) return err('No administras ninguna clínica'); if (!String(a.p_rif || '').trim()) return err('Escribe el RIF de la clínica');
+          if (a.p_logo && a.p_logo.split('/')[0] !== ca.id) return err('Logo no válido');
+          ca.rif = String(a.p_rif).trim().slice(0, 30); if (a.p_logo) ca.logo = a.p_logo; save(d); return { data: { rif: ca.rif, logo: ca.logo || '' }, error: null };
         }
         if (fn === 'clinica_invitar') {
           const ca = miAdm(), c = String(a.p_correo || '').trim().toLowerCase(); if (!ca) return err('No administras ninguna clínica');
@@ -168,9 +177,9 @@ window.Nube = (function () {
   const disponible = () => !!sb;
   const MSJ = [
     [/pagos_registro_completo/i, 'Faltan datos del pago: referencia, datos del remitente y captura.'],
-    [/Bucket not found/i, 'Falta activar el almacenamiento de comprobantes en el servidor. Avísale al administrador.'],
-    [/exceeded the maximum allowed size|Payload too large/i, 'La captura es demasiado grande. Prueba con otra imagen.'],
-    [/mime type .* is not supported|invalid_mime_type/i, 'Ese archivo no es una imagen válida. Sube una captura (JPG o PNG).'],
+    [/Bucket not found/i, 'Falta activar el almacenamiento en el servidor (comprobantes o logos). Avísale al administrador.'],
+    [/exceeded the maximum allowed size|Payload too large/i, 'La imagen es demasiado grande. Prueba con otra más liviana.'],
+    [/mime type .* is not supported|invalid_mime_type/i, 'Ese archivo no es una imagen válida para este paso (captura: JPG o PNG; logo de la clínica: PNG).'],
     [/Invalid login credentials/i, 'Correo o contraseña incorrectos.'],
     [/Email not confirmed/i, 'Todavía no confirmas tu correo: abre el enlace que te enviamos (revisa también spam).'],
     [/already registered|already been registered/i, 'Ese correo ya tiene una cuenta. Inicia sesión o recupera tu contraseña.'],
@@ -273,6 +282,17 @@ window.Nube = (function () {
   const salirClinica = () => rpc('salir_de_clinica');
   const admClinicas = () => rpc('admin_clinicas');
   const admClinicaAjustar = (id, dias, puestos, plan) => rpc('admin_clinica_ajustar', { p_id: id, p_dias: dias || 0, p_puestos: puestos == null ? null : puestos, p_plan: plan || '' });
+  /* Logo y RIF de la clínica (2.0.1): el logo va al almacenamiento público "logos/<id clínica>/" */
+  async function clinicaDatos(x) {
+    let ruta = '';
+    if (x.archivo) {
+      ruta = x.id + '/logo-' + Date.now() + '.png';
+      const up = await sb.storage.from('logos').upload(ruta, x.archivo, { contentType: 'image/png', upsert: true });
+      if (up.error) throw falla(up.error);
+    }
+    return rpc('clinica_datos', { p_rif: x.rif || '', p_logo: ruta });
+  }
+  const logoUrl = (ruta) => { if (!ruta || !sb) return ''; try { return sb.storage.from('logos').getPublicUrl(ruta).data.publicUrl || ''; } catch (e) { return ''; } };
   async function verComprobante(ruta) { const { data, error } = await sb.storage.from('comprobantes').createSignedUrl(ruta, 600); if (error) throw falla(error); return data.signedUrl; }
   /* Precios y datos de cobro: los define el administrador en Supabase (tabla ajustes); sin conexión se usa la última copia. */
   const K_AJ = 'morpheus-ajustes';
@@ -369,7 +389,7 @@ window.Nube = (function () {
 
   return {
     PRUEBA, disponible, iniciar, registrar, entrar, salir, recuperar, nuevaClave, usuario: () => usuario, compartido,
-    estado, estadoCache, reportarPago, verComprobante, misPagos, miClinica, solicitarClinica, clinicaInvitar, clinicaAnular, clinicaQuitar, verInvitacion, aceptarInvitacion, salirClinica, admClinicas, admClinicaAjustar, ajustes, ajustesCache, admAjustes, admPagos, admRevisar, admUsuarios, admExtender, borrarCuenta,
+    estado, estadoCache, reportarPago, verComprobante, misPagos, miClinica, solicitarClinica, clinicaDatos, logoUrl, clinicaInvitar, clinicaAnular, clinicaQuitar, verInvitacion, aceptarInvitacion, salirClinica, admClinicas, admClinicaAjustar, ajustes, ajustesCache, admAjustes, admPagos, admRevisar, admUsuarios, admExtender, borrarCuenta,
     marcar, sincronizar, programar, pendientes, marcarTodo, ultimaSync: () => ultimo || +(ls.get('morpheus-ultsync-' + (usuario && usuario.id)) || 0), ultimoError: () => ultimoError, traducir,
   };
 })();

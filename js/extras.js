@@ -206,6 +206,15 @@ window.Extras = (function () {
       const ix = alinear === 'left' ? x : x + (w - iw) / 2;
       d.addImage(data, p.fileType || 'PNG', ix, y + (h - ih) / 2, iw, ih, undefined, 'FAST'); } catch (e) { console.warn(e); }
   }
+  /* 2.0.1: logo de la clínica o lugar elegido, grande y muy tenue; corona pequeña de Morpheus MD al pie */
+  function marcaAgua(pf, cx, cy, tam) {
+    if (!pf.marcaDoc || !d.GState) return;
+    try { d.saveGraphicsState(); d.setGState(new d.GState({ opacity: 0.07 })); imagen(pf.marcaDoc, cx - tam / 2, cy - tam / 2, tam, tam); d.restoreGraphicsState(); } catch (e) { /* sin transparencia */ }
+  }
+  function corona(x, y, tam = 14) {
+    const c = window.IMGS && IMGS.marcaNegra; if (!c) return;
+    try { if (d.GState) { d.saveGraphicsState(); d.setGState(new d.GState({ opacity: 0.55 })); } imagen(c, x, y, tam, tam); if (d.GState) d.restoreGraphicsState(); } catch (e) { /* nada */ }
+  }
   function whatsapp(x, y, s = 4.2) { // burbuja con auricular, a la izquierda del número
     d.setDrawColor(0); d.setLineWidth(0.7); d.circle(x, y, s, 'S');
     d.setFillColor(255, 255, 255); d.triangle(x - s * 0.95, y + s * 1.25, x - s * 0.55, y + s * 0.55, x - s * 0.05, y + s * 0.95, 'F');
@@ -243,6 +252,7 @@ window.Extras = (function () {
     calcular(v);
     d = new jspdf.jsPDF({ unit: 'pt', format: 'letter' }); conM = fuentes();
     const X1 = 40, X2 = 572, p = v.p || {}, e = v.ef || {};
+    marcaAgua(pf, 306, 430, 360); corona(X2 - 14, 792 - 26);
     membrete(pf, X1 + 6, 22, X2 - X1 - 90, { dir: true });
     txt('VALORACIÓN PREANESTÉSICA', X2, 30, { size: 7, w: 's', align: 'right', c: [90, 90, 90] });
     const fch = fechaTxt(v.fecha).split('/');
@@ -362,7 +372,15 @@ window.Extras = (function () {
     xx = 426 + txt('Plan Analgésico:', 426, y, { w: 'b' }) + 5; const an = v.analg || {};
     xx += opc(xx, y, 'EV', !!an.ev) + 2; xx += opc(xx, y, 'Peri', !!an.peri) + 2; opc(xx, y, 'Reg', !!an.reg);
     y += 11;
-    const wC = txt('Consentimiento Informado:', X1, y, { size: 6.8, w: 'b' }); txt('El Plan Anestésico, opciones, riesgos y beneficios asociados, me han sido explicados y los entiendo.', X1 + wC + 3, y, { size: 6.8, maxw: X2 - X1 - wC - 3 });
+    // Consentimiento informado (2.0.1): resumen breve, redacción propia (no copia el formato de ningún hospital)
+    const CONS = 'Acepto voluntariamente la anestesia propuesta. Se me explicaron la técnica planificada, sus alternativas, beneficios y riesgos; entiendo que puede cambiarse, incluso a anestesia general, si mi seguridad lo requiere, y que tras la cirugía pasaré a recuperación y luego, según mi evolución, a mi casa, a hospitalización o a terapia intensiva. Pude hacer preguntas, entendí las respuestas y los espacios en blanco se llenaron antes de firmar.';
+    const szC = 6.6, wC = txt('Consentimiento informado:', X1, y, { size: szC, w: 'b' }) + 3;
+    F(); d.setFontSize(szC); d.setTextColor(0);
+    const pal = CONS.split(' '); let lin = '', ancho = X2 - X1 - wC, xl = X1 + wC; const lineas = [];
+    pal.forEach((w) => { const prueba = lin ? lin + ' ' + w : w; if (d.getTextWidth(prueba) > ancho && lin) { lineas.push([lin, xl]); lin = w; ancho = X2 - X1; xl = X1; } else lin = prueba; });
+    if (lin) lineas.push([lin, xl]);
+    lineas.forEach(([l, x], k) => d.text(l, x, y + k * 8.2, { baseline: 'alphabetic' }));
+    y += (lineas.length - 1) * 8.2;
     // Firmas
     const yf = y + 32;
     [[X1 + 20, 'PACIENTE'], [X1 + 150, 'TESTIGO']].forEach(([x0, s]) => { linea(x0, yf, x0 + 112, yf, 0.5); txt('Firma y C.I ', x0, yf + 8, { size: 6.2 }); txt(s, x0 + 36, yf + 8, { size: 6.2, w: 'b' }); });
@@ -380,12 +398,9 @@ window.Extras = (function () {
     d = new jspdf.jsPDF({ unit: 'pt', format: [612, 396], orientation: 'landscape' }); conM = fuentes();
     const W = 612, H = 396, M = 18;
     const items = (r.items || []).filter((i) => t(i.med).trim());
-    const logo = pf.marcaNegra || (window.IMGS && IMGS.marcaNegra);
     [0, 1].forEach((lado) => {
       const x0 = lado * W / 2 + M, x1 = (lado + 1) * W / 2 - M, w = x1 - x0;
-      if (logo && d.GState) { // marca de agua muy tenue
-        try { d.saveGraphicsState(); d.setGState(new d.GState({ opacity: 0.05 })); imagen(logo, x0 + w / 2 - 80, 150, 160, 160); d.restoreGraphicsState(); } catch (e) { /* sin transparencia */ }
-      }
+      marcaAgua(pf, x0 + w / 2, 230, 170); corona(x1 - 11, H - 15, 11);
       membrete(pf, x0, M - 2, w, { k: 0.62, dir: true });
       linea(x0, M + 48, x1, M + 48, 0.8);
       let y = M + 61;

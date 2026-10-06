@@ -1,5 +1,5 @@
 /* Morpheus MD: funciona sin internet. Guarda la app en caché la primera vez que se abre. */
-const VERSION = 'morpheus-2.0.0';
+const VERSION = 'morpheus-2.0.1';
 const ARCHIVOS = [
   './',
   'css/app.css',
@@ -91,6 +91,7 @@ self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then(
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  if (new URL(e.request.url).pathname.startsWith('/descargar/')) return; // la APK y su versión siempre de la red
   e.respondWith(caches.match(e.request, { ignoreSearch: true }).then((r) => r || fetch(e.request).then((res) => {
     if (res.ok && new URL(e.request.url).origin === location.origin) { const copia = res.clone(); caches.open(VERSION).then((c) => c.put(e.request, copia)); }
     return res;
