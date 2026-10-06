@@ -391,3 +391,50 @@ ol.guia-items{padding-left:22px}
 #btnAjustes{font-size:21px}
 #btnAjustes.activo{background:rgba(255,255,255,.18);border-radius:8px}
 .aj-tabs{margin:0 0 12px}
+/* 2.0: suscripción y administración */
+.lic-banner{display:block;width:100%;text-align:left;border:1px solid #b9dde3;background:#e8f6f8;color:var(--texto);border-radius:12px;padding:10px 14px;margin:0 0 12px;font:inherit;cursor:pointer}
+.lic-banner b{display:block;color:var(--pri)}
+.lic-banner small{display:block;color:var(--suave);margin-top:2px}
+.lic-banner.lic-mal{background:#fdecea;border-color:#f3b8b2}
+.lic-banner.lic-mal b{color:var(--peligro)}
+.planes{display:flex;gap:10px;flex-wrap:wrap}
+.plan{flex:1;min-width:140px;border:1px solid var(--borde);border-radius:12px;padding:12px;background:#fff}
+.plan b{display:block;color:var(--pri);font-size:16px}
+.plan span{display:block;margin-top:4px}
+.estado-pago{font-size:12px;border-radius:10px;padding:3px 8px;background:#eef2f3;color:var(--suave);white-space:nowrap}
+.estado-pago.aprobado{background:#e6f4ea;color:var(--ok)}
+.estado-pago.rechazado{background:#fdecea;color:var(--peligro)}
+.estado-pago.pendiente{background:#fff4e0;color:#8a5300}
+.adm-bot{display:flex;flex-direction:column;gap:6px}
+/* 2.0 · pago con montos para elegir */
+.sp-medio{text-align:left;cursor:pointer;font:inherit;color:var(--texto)}
+.sp-medio.sel{border-color:var(--pri);box-shadow:0 0 0 2px var(--pri) inset;background:#eef7f8}
+.sp-medio .sp-monto{font-size:19px;font-weight:700;margin-top:6px}
+.sp-medio small{display:block;margin-top:2px}
+.sp-total{border:1px dashed var(--pri);border-radius:12px;padding:12px;background:#f7fbfb}
+.sp-total .sp-grande{font-size:26px;font-weight:800;color:var(--pri)}
+.sp-margen{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+.sp-margen td,.sp-margen th{border-bottom:1px solid var(--borde);padding:5px 4px;text-align:right}
+.sp-margen td:first-child,.sp-margen th:first-child{text-align:left}
+.sp-foto{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:10px 0 4px}
+.sp-foto img{display:block;width:100%;max-height:320px;object-fit:contain;border:1px solid var(--borde);border-radius:8px;background:#fff}
+.sp-datos{display:grid;gap:6px;margin-top:10px}
+.sp-datos>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--borde);padding-top:6px}
+.sp-datos .nota{flex-basis:100%;font-size:13px}
+.sp-datos b{flex:1;overflow-wrap:anywhere;font-size:17px}
+.sp-grande-f{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ap-pg{margin-top:10px}
+.md-dirs{margin-top:12px}
+.md-dirs-t{display:block;font-size:13px;font-weight:600;color:var(--suave,#555);margin-bottom:2px}
+.md-dir{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.md-dir input{flex:1;min-width:0;font:inherit;font-size:16px;padding:10px;border:1px solid var(--borde);border-radius:10px;background:#fff;color:var(--texto)}
+.md-dir input:focus{outline:2px solid var(--pri2);border-color:transparent}
+.md-def{border:1px solid var(--borde);background:#fff;border-radius:50%;width:34px;height:34px;font-size:16px;color:var(--pri);cursor:pointer;flex:none}
+.md-def.sel{background:var(--pri);color:#fff;border-color:var(--pri)}
+/* 2.0 · clínicas */
+a.boton{display:inline-block;text-decoration:none;text-align:center}
+a.primario.boton{color:#fff}
+.tabla-scroll{overflow-x:auto}
+.cl-tabla{width:100%;border-collapse:collapse;font-size:14.5px}
+.cl-tabla th,.cl-tabla td{border-bottom:1px solid var(--borde);padding:8px 6px;text-align:left;vertical-align:top}
+.cl-tabla th{color:var(--pri);font-size:13px;text-transform:uppercase;letter-spacing:.03em}

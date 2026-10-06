@@ -31,13 +31,7 @@
     ['85', 'Recién nacido a término (85 ml/kg)'], ['95', 'Prematuro (95 ml/kg)'],
   ];
   let cfg = Store.config();
-  if (!cfg) {
-    cfg = {
-      sedes: [], sedeActual: '', sedesV2: true, onbPend: true,
-      perfil: { nombre: '', sello: '', firma: '', marcaOn: false },
-    };
-    Store.guardarConfig(cfg);
-  }
+  if (!cfg) cfg = cfgNuevo();
   // Lugares de trabajo precargados solo para instalaciones anteriores a 1.9.12 (las nuevas empiezan vacías y el asistente los pregunta)
   const SEDES_PRE = [
     ['llanosalud', 'LLANOSALUD A.P.S. C.A.', 'CABUDARE, EDO. LARA'],
@@ -77,7 +71,7 @@
   /* ---------- Estado ---------- */
   let H = null;            // historia abierta
   let pantalla = 'inicio';
-  const VERSION = '1.9.13';
+  const VERSION = '2.0.0';
   let seccion = 0;
   let timerGuardar = null;
 
@@ -1280,9 +1274,9 @@
     $('#secciones').hidden = pantalla !== 'editor';
     $('#pie').hidden = pantalla !== 'editor' && pantalla !== 'doc';
     $('#btnMenu').hidden = pantalla === 'login' || pantalla === 'config';
-    $('#btnAjustes').hidden = ['login', 'config', 'bienvenida', 'registro', 'importar'].includes(pantalla);
+    $('#btnAjustes').hidden = ['login', 'config', 'bienvenida', 'registro', 'importar', 'confirmar', 'nuevaclave'].includes(pantalla);
     $('#btnAjustes').classList.toggle('activo', pantalla === 'perfil');
-    $('#btnSOS').hidden = ['login', 'bienvenida', 'registro', 'importar', 'config'].includes(pantalla) || pantalla === 'crisis';
+    $('#btnSOS').hidden = ['login', 'bienvenida', 'registro', 'importar', 'config', 'confirmar', 'nuevaclave'].includes(pantalla) || pantalla === 'crisis';
     $('#btnSOS').classList.toggle('activa', !!(window.Crisis && Crisis.activa()));
     $('#barra').hidden = pantalla === 'bienvenida';
     bordeABorde(pantalla === 'bienvenida');
@@ -1291,6 +1285,14 @@
     if (pantalla === 'inicio') return renderInicio(v);
     if (pantalla === 'sedes') { pantalla = 'perfil'; perfTab = 'lugares'; }
     if (pantalla === 'perfil') return renderPerfil(v);
+    if (NUBE() && pantalla === 'registro') return renderRegistroNube(v);
+    if (NUBE() && pantalla === 'login') return renderLoginNube(v);
+    if (pantalla === 'confirmar') return renderConfirmar(v);
+    if (pantalla === 'nuevaclave') return renderNuevaClave(v);
+    if (pantalla === 'suscripcion') return renderSuscripcion(v);
+    if (pantalla === 'clinicasInfo') return renderClinicasInfo(v);
+    if (pantalla === 'clinica') return renderClinica(v);
+    if (pantalla === 'admin') return renderAdmin(v);
     if (pantalla === 'registro') { $('#btnAtras').hidden = false; return renderRegistro(v); }
     if (pantalla === 'login') { $('#btnAtras').hidden = true; return renderLogin(v); }
     if (pantalla === 'importar') { $('#btnAtras').hidden = false; return renderImportar(v); }
@@ -1318,13 +1320,15 @@
     }
   }
 
+  let invMostrada = false;
   function renderInicio(v) {
+    if (NUBE() && nubeU && !invMostrada && invPendiente()) { invMostrada = true; setTimeout(() => { if (pantalla === 'inicio') usarInvitacion(invPendiente()); }, 700); }
     $('#titulo').textContent = 'Historias de Anestesia';
     const idx = Store.indice().sort((a, b) => b.modificado - a.modificado);
     const q = (renderInicio.q || '').toLowerCase();
     const f = idx.filter((x) => !q || [x.nombre, x.ci, x.interv, x.fecha].join(' ').toLowerCase().includes(q));
     const fechaTxt = (s) => (s ? s.split('-').reverse().join('/') : '');
-    v.innerHTML = `<button class="ex-banner" data-acc="irExtras"><span><b>✦ Extras</b><small>Valoración preanestésica · Récipe</small></span><em>Vista previa 2.0 ›</em></button>` +
+    v.innerHTML = bannerLicencia() + `<button class="ex-banner" data-acc="irExtras"><span><b>✦ Extras</b><small>Valoración preanestésica · Récipe</small></span><em>Abrir ›</em></button>` +
       `<input class="buscar" id="buscar" type="search" placeholder="Buscar por nombre, CI, cirugía o fecha" value="${esc(renderInicio.q || '')}">` +
       (f.length ? `<ul class="lista">${f.map((x) => `<li class="item" data-abrir="${x.id}"><div class="txt"><b>${esc(x.nombre || 'Sin nombre')}</b>
         <small>${[x.ci && 'CI ' + x.ci, fechaTxt(x.fecha)].filter(Boolean).map(esc).join(' · ')}</small><small>${esc(x.interv || '')}</small>
@@ -1337,6 +1341,7 @@
   function abrev(n) { n = n || ''; return n.length > 42 ? n.slice(0, 40) + '…' : n; }
 
   function crear() {
+    if (!puedeCrear()) return;
     const go = (sid) => { H = nuevaHistoria(); if (sid) H.sedeId = sid; Store.guardar(H); pantalla = 'editor'; seccion = 0; render(); window.scrollTo(0, 0); };
     if (cfg.sedes.length > 1) menu(cfg.sedes.map((s) => ({ t: '🏥 ' + esc(s.nombre), f: () => { cfg.sedeActual = s.id; Store.guardarConfig(cfg); go(s.id); } })));
     else go();
@@ -1349,6 +1354,7 @@
     const r = fusion(h, base); Pistas.asegurar(r); return r;
   }
   function duplicar(id, conPaciente) {
+    if (!puedeCrear()) return;
     const h = migrar(Store.cargar(id)); const n = nuevaHistoria();
     const copia = JSON.parse(JSON.stringify(h));
     copia.id = n.id; copia.creado = Date.now();
@@ -1433,11 +1439,29 @@
   /* ---------- Cuenta del médico ---------- */
   const CAMPOS_MED = [['nombre', 'Nombre y apellido', 'Dr. Nombre Apellido'], ['especialidad', 'Especialidad', 'Anestesiología'], ['ci', 'Cédula de identidad', 'V-00000000'],
     ['colegioSigla', 'Siglas del Colegio de Médicos', 'Ej. CML, C.M.'], ['colegio', 'N° Colegio de Médicos', 'Ej. 12345'], ['mpps', 'N° MPPS', 'Ej. 123456'], ['rif', 'RIF', 'V-00000000-0'],
-    ['telefono', 'Teléfono / WhatsApp', '0414-0000000'], ['correo', 'Correo (Gmail)', 'nombre@gmail.com'], ['direccion', 'Consultorio / dirección (membrete)', 'Ej. Centro Médico…, consultorio 12']];
-  function camposMedico(p) {
-    return `<div class="rejilla ancha">${CAMPOS_MED.map(([k, t, ph]) => `<label class="campo"><span>${t}</span><input data-md="${k}" value="${esc(p[k] || (k === 'especialidad' && !p.nombre ? '' : ''))}" placeholder="${esc(ph)}"${k === 'correo' ? ' type="email" autocomplete="email"' : ''}></label>`).join('')}</div>`;
+    ['telefono', 'Teléfono / WhatsApp', '0414-0000000'], ['correo', 'Correo (Gmail)', 'nombre@gmail.com']];
+  /* Consultorios / direcciones del membrete: varias, con una predeterminada; cada documento elige la suya */
+  function direccionesDe(p) { const l = Array.isArray(p.direcciones) ? p.direcciones.filter((x) => String(x || '').trim()) : []; return l.length ? l : (p.direccion ? [p.direccion] : []); }
+  function dirsHtml(p) {
+    const l = Array.isArray(p.direcciones) && p.direcciones.length ? p.direcciones : [p.direccion || ''];
+    return `<div class="md-dirs"><span class="md-dirs-t">Consultorios / direcciones (membrete)</span><p class="nota" style="margin:0 0 6px">Si trabajas en varios lugares, agrégalos: en cada valoración o récipe eliges cuál sale. La marcada ● es la que se usa por defecto.</p>
+      ${l.map((d, i) => `<div class="md-dir"><button type="button" class="md-def${(p.direccion || '') === d && d ? ' sel' : ''}" data-mddef="${i}" title="Usar por defecto">${(p.direccion || '') === d && d ? '●' : '○'}</button><input data-mddir="${i}" value="${esc(d)}" placeholder="Ej. Centro Médico…, consultorio 12">${l.length > 1 ? `<button type="button" class="peligro chico" data-mdquita="${i}">✕</button>` : ''}</div>`).join('')}
+      <button type="button" class="secundario chico" id="mdDirMas">+ Agregar otro lugar</button></div>`;
   }
-  function enlazarMedico(p) { $$('[data-md]').forEach((e) => (e.oninput = () => { p[e.dataset.md] = e.value.trim(); Store.guardarConfig(cfg); })); }
+  function enlazarDirs(p) {
+    const caja = $('.md-dirs'); if (!caja) return;
+    if (!Array.isArray(p.direcciones) || !p.direcciones.length) p.direcciones = [p.direccion || ''];
+    const repintar = () => { caja.outerHTML = dirsHtml(p); enlazarDirs(p); };
+    const fijar = () => { const l = p.direcciones.map((x) => String(x || '').trim()); if (!l.includes(p.direccion)) p.direccion = l.find(Boolean) || ''; Store.guardarConfig(cfg); };
+    $$('[data-mddir]').forEach((e) => (e.oninput = () => { const i = +e.dataset.mddir, era = p.direcciones[i]; p.direcciones[i] = e.value; if (p.direccion === era) p.direccion = e.value.trim(); fijar(); }));
+    $$('[data-mddef]').forEach((b) => (b.onclick = () => { const d = String(p.direcciones[+b.dataset.mddef] || '').trim(); if (!d) return aviso('Escribe primero la dirección'); p.direccion = d; fijar(); repintar(); }));
+    $$('[data-mdquita]').forEach((b) => (b.onclick = () => { p.direcciones.splice(+b.dataset.mdquita, 1); fijar(); repintar(); }));
+    $('#mdDirMas').onclick = () => { p.direcciones.push(''); repintar(); const l = $$('[data-mddir]'); l[l.length - 1].focus(); };
+  }
+  function camposMedico(p) {
+    return `<div class="rejilla ancha">${CAMPOS_MED.map(([k, t, ph]) => `<label class="campo"><span>${t}</span><input data-md="${k}" value="${esc(p[k] || (k === 'especialidad' && !p.nombre ? '' : ''))}" placeholder="${esc(ph)}"${k === 'correo' ? ' type="email" autocomplete="email"' : ''}></label>`).join('')}</div>` + dirsHtml(p);
+  }
+  function enlazarMedico(p) { $$('[data-md]').forEach((e) => (e.oninput = () => { p[e.dataset.md] = e.value.trim(); Store.guardarConfig(cfg); })); enlazarDirs(p); }
   function cajaFirmaSello(p) {
     const fondo = 'background-color:#fff;background-image:linear-gradient(45deg,#eef2f3 25%,transparent 25%,transparent 75%,#eef2f3 75%),linear-gradient(45deg,#eef2f3 25%,transparent 25%,transparent 75%,#eef2f3 75%);background-size:14px 14px;background-position:0 0,7px 7px';
     return (p.firmaSello ? `<img class="firma-img" style="${fondo};max-height:160px" src="${p.firmaSello}" alt="Firma y sello">` : '<p class="nota" style="margin-top:0">Sube una foto o escaneo de tu firma y sello sobre papel blanco. La app le quita el fondo.</p>') +
@@ -1502,6 +1526,7 @@
     fijar(); if (on) setTimeout(() => { if (bab) fijar(); }, 600); // al arrancar, las barras pueden medirse un poco después
   }
   function destinoInicial() {
+    if (NUBE()) return nubeU ? 'inicio' : 'login';
     if (cfg.cuenta && !sesion && !sesionValida()) return 'login';
     if (!cfg.cuenta && !cfg.omitirRegistro) return 'registro';
     return 'inicio';
@@ -1522,6 +1547,11 @@
       : sinCuenta ? `<div class="bv-links2"><button id="bvLogin">Iniciar sesión</button><button id="bvCrear">Crear cuenta</button><button id="bvImportar">Importar cuenta</button></div>`
       : dest === 'login' ? `<div class="bv-links2"><button id="bvOlvido">Olvidé mi contraseña</button><button id="bvImportar">Importar otra cuenta</button><button id="bvOtra">Crear otra cuenta</button></div>`
       : `<p class="bv-ayuda">Sesión iniciada como <b>${esc(cfg.cuenta.usuario)}</b></p><div class="bv-links2"><button id="bvSalir">Cerrar sesión</button><button id="bvImportar">Importar otra cuenta</button><button id="bvOtra">Crear otra cuenta</button></div>`;
+    const nb = NUBE();
+    const etqV = nb ? (nubeU ? 'Entrar' : 'Iniciar sesión') : etq;
+    const botonesV = !nb ? botones : nubeU ? `<p class="bv-ayuda">Sesión iniciada como <b>${esc(nubeU.correo)}</b></p><div class="bv-links2"><button id="bvSalirN">Cerrar sesión</button></div>`
+      : `<div class="bv-fila"><button class="bv-borde" id="bvCrear">Crear cuenta · 7 días gratis</button></div>${invPendiente() ? '<p class="bv-ayuda">🏥 Tienes una invitación de una clínica: inicia sesión o crea tu cuenta con el correo invitado.</p>' : ''}`;
+    const clinBtn = nb ? '<button class="bv-sec" id="bvClin">🏥 Planes para clínicas</button>' : '';
     const titular = p.nombre ? esc(p.nombre) : 'Morpheus MD';
     v.innerHTML = `<div id="bienvenida">
       <div class="bv-foto"><img src="${p.portada || 'img/portada.jpg'}" alt="" onerror="this.remove()"></div>
@@ -1531,7 +1561,7 @@
         <h1 class="bv-titulo">Morpheus<br><i>MD</i></h1>
         <p class="bv-lema">Cada paciente, cada minuto, documentado con precisión.</p>
         <div class="bv-rasgos"><div><b>5 min</b>Grilla transoperatoria</div><div><b>TCI · BIC</b>Calculadora</div><div><b>PDF</b>Listo para imprimir</div></div>
-        <div><button class="bv-entrar" id="bvEntrar">${etq}<span>→</span></button>${botones}</div>
+        <div><button class="bv-entrar" id="bvEntrar">${etqV}<span>→</span></button>${botonesV}${clinBtn}</div>
       </div>
       <footer class="bv-pie">
         <nav class="bv-links"><button data-legal="privacidad">Privacidad</button><button data-legal="terminos">Términos de uso</button><button data-legal="aviso">Aviso médico</button><button data-legal="licencias">Licencias</button></nav>
@@ -1539,8 +1569,11 @@
       </footer></div>`;
     $('#bvEntrar').onclick = () => { if (nuevo) { pantalla = 'login'; render(); window.scrollTo(0, 0); return; }
       if (dest === 'inicio' && cfg.cuenta && !sesion && cfg.sesion) iniciarSesion(true); if (dest === 'registro' || dest === 'inicio') return trasEntrar(); pantalla = dest; render(); window.scrollTo(0, 0); };
+    if (nb) $('#bvEntrar').onclick = () => { if (nubeU) entrarApp(); else { pantalla = 'login'; render(); window.scrollTo(0, 0); } };
+    if ($('#bvSalirN')) $('#bvSalirN').onclick = cerrarSesionNube;
     if ($('#bvLogin')) $('#bvLogin').onclick = () => { pantalla = 'login'; render(); window.scrollTo(0, 0); };
-    if ($('#bvCrear')) $('#bvCrear').onclick = () => { pantalla = 'registro'; render(); window.scrollTo(0, 0); };
+    if ($('#bvCrear')) $('#bvCrear').onclick = () => { regTipo = 'medico'; pantalla = 'registro'; render(); window.scrollTo(0, 0); };
+    if ($('#bvClin')) $('#bvClin').onclick = () => irClinicasInfo();
     if ($('#bvImportar')) $('#bvImportar').onclick = () => irImportar('bienvenida');
     if ($('#bvSalir')) $('#bvSalir').onclick = cerrarSesion;
     if ($('#bvOtra')) $('#bvOtra').onclick = () => { if (!confirm('Este dispositivo ya tiene la cuenta “' + cfg.cuenta.usuario + '”. Si creas otra, la reemplaza aquí (tus historias se conservan). ¿Continuar?')) return; pantalla = 'registro'; render(); window.scrollTo(0, 0); };
@@ -1721,7 +1754,7 @@
         <div class="fila-btn"><label class="secundario chico" style="display:inline-block">Cambiar imagen<input type="file" accept="image/*" id="mcFile" hidden></label>
           ${p.marcaBlanca ? '<button class="secundario chico" id="mcReset">Volver a la original</button>' : ''}</div>
         <p class="nota">Sube tu logo sin fondo (PNG transparente) o sobre fondo liso; la app le quita el fondo sola. También es el logo del membrete de la valoración preanestésica y del récipe.</p>`);
-    v.innerHTML = tabs + ({ datos: () => cDatos() + cCalc(), firma: () => cEsc() + cFirma(), imagenes: () => cMarca() + cPortada(), cuenta: () => cCuenta() }[perfTab] || (() => cDatos() + cCalc()))();
+    v.innerHTML = tabs + ({ datos: () => cDatos() + cCalc(), firma: () => cEsc() + cFirma(), imagenes: () => cMarca() + cPortada(), cuenta: () => (NUBE() && nubeU ? cuentaNubeHtml() : cCuenta()) }[perfTab] || (() => cDatos() + cCalc()))();
     enlTabs();
     if ($('#ptFile')) $('#ptFile').onchange = (e) => { const f = e.target.files[0]; if (!f) return;
       leerImagen(f, 1400, 'image/jpeg').then((d) => { p.portada = d; Store.guardarConfig(cfg); render(); aviso('Portada actualizada'); }).catch(() => aviso('No se pudo leer la imagen')); };
@@ -1818,7 +1851,7 @@
   }
 
 
-  /* ================= Extras (vista previa 2.0): valoración preanestésica y récipe ================= */
+  /* ================= Extras: valoración preanestésica y récipe ================= */
   let docTimer = null;
   function guardarDocPronto() { const e = $('#estadoGuardado'); if (e) e.textContent = 'Guardando…'; clearTimeout(docTimer); docTimer = setTimeout(guardarDocYa, 500); }
   function guardarDocYa() {
@@ -1827,7 +1860,7 @@
     if (e) e.textContent = ok ? 'Guardado ' + new Date().toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }) : '⚠ No se pudo guardar';
   }
   function nuevoDoc(tipo) {
-    const b = { id: uid(), tipo, creado: Date.now(), fecha: hoyISO(), p: {} };
+    const b = { id: uid(), tipo, creado: Date.now(), fecha: hoyISO(), p: {}, dir: (cfg.perfil || {}).direccion || '' };
     if (tipo === 'val') Object.assign(b, { ant: {}, hpb: {}, meds: [], sb: {}, rcri: {}, ef: { obese: {} }, lab: [{}], cv: {}, analg: {}, indicSel: [0, 1] });
     else Object.assign(b, { items: [{}], gen: '', control: '' });
     return b;
@@ -1854,14 +1887,14 @@
     const lista = (tipo) => { const l = docs.filter((x) => x.tipo === tipo); return l.length ? `<ul class="lista">${l.map((x) => `<li class="item" data-acc="docAbrir" data-id="${x.id}"><div class="txt"><b>${esc(x.nombre || 'Sin nombre')}</b>
       <small>${[x.ci && 'CI ' + x.ci, Extras.fechaTxt(x.fecha)].filter(Boolean).map(esc).join(' · ')}</small><small>${esc(x.det || '')}</small></div>
       <button class="icono" style="color:var(--suave)" data-acc="docMas" data-id="${x.id}" aria-label="Opciones">&#8942;</button></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Aún no hay documentos.</p>'; };
-    v.innerHTML = `<section class="tarjeta ex-intro"><div class="ex-marca">Vista previa · versión 2.0</div><h2>Extras</h2>
-        <p class="nota" style="margin:0">Documentos con tu membrete (logo, nombre, registros y teléfono de "Mi perfil"), tu firma y tu sello. Se guardan en este teléfono.</p></section>` +
+    v.innerHTML = `<section class="tarjeta ex-intro"><div class="ex-marca">Documentos</div><h2>Extras</h2>
+        <p class="nota" style="margin:0">Documentos con tu membrete (logo, nombre, registros y teléfono de ⚙ Ajustes › Mis datos), tu firma y tu sello. Se guardan en tu cuenta y puedes verlos, compartirlos o descargarlos en PDF.</p></section>` +
       card('Valoración preanestésica', `<div class="fila-btn" style="margin:0 0 12px"><button class="primario" data-acc="docNuevo" data-t="val">+ Nueva valoración</button></div>` + lista('val')) +
       card('Récipe (media carta)', `<div class="fila-btn" style="margin:0 0 12px"><button class="primario" data-acc="docNuevo" data-t="rx">+ Nuevo récipe</button></div>` + lista('rx')) +
       card('Calculadora TIVA · TCI · BIC', `<p class="nota" style="margin:0 0 10px">Propofol (Roberts o modelos Marsh/Schnider), remifentanilo (Minto), dexmedetomidina y coadyuvantes: IMC, pesos para dosificar, concentración y velocidad en la unidad de tu bomba.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irCalc">🧮 Abrir la calculadora</button></div>`) +
       card('Guías de consulta', `<p class="nota" style="margin:0 0 10px">Tres pestañas: Consulta (fichas de la valoración preanestésica), Crisis (reanimación y crisis en quirófano) y Técnicas. Con fuente y año, sin internet.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irGuias">📖 Abrir las guías (${GG().fichas.length})</button></div>`) +
       card('Bloqueos regionales', `<p class="nota" style="margin:0 0 10px">${BQ().fichas.length} bloqueos: indicaciones, nervios, territorio sensitivo y motor, técnica ecoguiada, volúmenes, mezclas según tu farmacia, imágenes con licencia abierta y calculadora de dosis máxima.</p><div class="fila-btn" style="margin:0"><button class="secundario" data-acc="irBloqueos">💉 Abrir bloqueos</button></div>`) +
-      card('Próximamente en la 2.0', '<ul class="nota" style="margin:0;padding-left:18px;line-height:1.7"><li>Guía de medicación preoperatoria para consultar por fármaco.</li><li>Constancia de reposo e informe médico.</li><li>Más formatos con tu membrete.</li></ul>');
+      card('Próximamente', '<ul class="nota" style="margin:0;padding-left:18px;line-height:1.7"><li>Guía de medicación preoperatoria para consultar por fármaco.</li><li>Constancia de reposo e informe médico.</li><li>Más formatos con tu membrete.</li></ul>');
   }
 
   /* ---- Guías de consulta (fichas en js/guias-datos.js) ---- */
@@ -1902,6 +1935,573 @@
       card('Fuentes', `<ol class="guia-fuentes">${f.fuentes.map((x) => `<li>${esc(x.cita)}${x.doi ? ' ' + enlace('https://doi.org/' + x.doi, 'doi:' + x.doi) : x.url ? ' ' + enlace(x.url, x.url.replace(/^https?:\/\//, '')) : ''}</li>`).join('')}</ol>
         <p class="nota">Revisado: ${esc(f.revisado || '')}. Resumen de consulta: no sustituye el juicio clínico ni los protocolos de tu institución.</p>`);
   }
+
+  /* =================== 2.0: cuenta en línea, suscripción y administración =================== */
+  const NUBE = () => !!(window.Nube && Nube.disponible());
+  let nubeU = null, admTab = 'pagos', suscMsg = '', compPend = null;
+  const espacioDe = (u) => (u ? 'u_' + u.id.replace(/[^a-z0-9]/gi, '').slice(0, 16) + '_' : '');
+  function aplicarCuenta(u) {
+    nubeU = u;
+    Store.usarEspacio(espacioDe(u));
+    cfg = Store.config() || cfgNuevo();
+    if (u) {
+      Store.alCambiar = (t, id, b) => Nube.marcar(t, id, b);
+      const pend = (() => { try { return JSON.parse(localStorage.getItem('morpheus-registro-pend') || 'null'); } catch (e) { return null; } })();
+      if (pend && pend.correo === u.correo) { cfg.perfil = cfg.perfil || {}; if (!cfg.perfil.nombre) cfg.perfil.nombre = pend.nombre; if (!cfg.perfil.correo) cfg.perfil.correo = pend.correo; Store.sinAviso(() => Store.guardarConfig(cfg)); try { localStorage.removeItem('morpheus-registro-pend'); } catch (e) {} }
+    } else Store.alCambiar = null;
+  }
+  function cfgNuevo() {
+    const c = { sedes: [], sedeActual: '', sedesV2: true, onbPend: true, perfil: { nombre: '', sello: '', firma: '', marcaOn: false } };
+    Store.sinAviso(() => Store.guardarConfig(c)); return c;
+  }
+  function configDeLaNube(d) { // llega la configuración guardada en la cuenta (otro dispositivo)
+    if (!d) return; const local = cfg;
+    const n = Object.assign({}, d); delete n._mod;
+    ['cuenta', 'sesion'].forEach((k) => { if (local[k] !== undefined) n[k] = local[k]; });
+    if (local.onbPend && !d.onbPend) delete n.onbPend;
+    cfg = Object.assign({}, local, n); delete cfg.onbPend; Store.guardarConfig(cfg);
+    if (['inicio', 'extras', 'perfil'].includes(pantalla) && $('#capa').hidden) render();
+  }
+  async function entrarApp() {
+    aplicarCuenta(Nube.usuario());
+    aviso('Cargando tu cuenta…', 1500);
+    try { await Nube.estado(true); } catch (e) {}
+    try { await Promise.race([Nube.sincronizar(), new Promise((r) => setTimeout(r, 8000))]); } catch (e) { console.warn(e); }
+    cfg = Store.config() || cfg;
+    if (cfg.onbPend) return irConfiguracion();
+    pantalla = 'inicio'; render(); window.scrollTo(0, 0);
+    if (!invPendiente()) ofrecerLegado();
+  }
+  function ofrecerLegado() { // historias guardadas en este dispositivo antes de las cuentas en línea
+    if (!nubeU || cfg.legadoRevisado) return;
+    let L = null; try { L = Store.legado(); } catch (e) { return; }
+    const nh = (L.historias || []).length, nd = (L.docs || []).length;
+    if (!nh && !nd) { cfg.legadoRevisado = true; Store.guardarConfig(cfg); return; }
+    abrirHoja(`<h2>Historias de este dispositivo</h2><p>Encontramos <b>${nh} historia${nh === 1 ? '' : 's'}</b>${nd ? ` y <b>${nd} documento${nd === 1 ? '' : 's'}</b>` : ''} guardad${nd ? 'os' : nh === 1 ? 'a' : 'as'} aquí antes de la versión 2.0.</p>
+      <p class="nota">Si las pasas a tu cuenta quedarán respaldadas en la nube y las verás en tus otros dispositivos. Solo hazlo si son tuyas.</p>
+      <div class="acciones"><button class="secundario" id="lgNo">Ahora no</button><button class="primario" id="lgSi">Pasar a mi cuenta</button></div>`);
+    $('#lgNo').onclick = () => { cfg.legadoRevisado = true; Store.guardarConfig(cfg); cerrarHoja(); };
+    $('#lgSi').onclick = () => {
+      const perfilAntes = L.config && L.config.perfil;
+      Store.restaurar({ app: L.app, historias: L.historias, docs: L.docs }, false);
+      if (perfilAntes) { ['firma', 'firmaSello', 'sello', 'marcaBlanca', 'marcaNegra', 'portada', 'mpps', 'colegio', 'colegioSigla', 'rif', 'telefono', 'direccion', 'direcciones', 'ci', 'especialidad'].forEach((k) => { if (perfilAntes[k] && !cfg.perfil[k]) cfg.perfil[k] = perfilAntes[k]; }); }
+      if (L.config && (L.config.sedes || []).length && !cfg.sedes.some((s) => s.nombre)) { cfg.sedes = L.config.sedes; cfg.sedeActual = L.config.sedeActual || cfg.sedes[0].id; }
+      cfg.legadoRevisado = true; Store.guardarConfig(cfg); Nube.marcarTodo(); cerrarHoja(); render(); aviso(`${nh} historias pasadas a tu cuenta`);
+    };
+  }
+  function licencia() { return NUBE() && nubeU ? Nube.estadoCache() : null; }
+  function puedeCrear() {
+    if (!NUBE() || !nubeU) return true; const L = licencia();
+    if (L && L.activa) return true;
+    suscMsg = L && L.requiereConexion ? 'Conéctate a internet para verificar tu suscripción (hace más de 14 días que no se verifica).' : 'Tu prueba gratis o tu suscripción terminó. Puedes ver tus historias, generar sus PDF y usar Crisis; para crear nuevas, suscríbete.';
+    irSuscripcion(); return false;
+  }
+  function bannerLicencia() {
+    const L = licencia(); if (!L) return '';
+    if (L.requiereConexion) return `<button class="lic-banner lic-mal" data-acc="irSusc"><b>Conéctate a internet</b><small>Hace más de 14 días que no se verifica tu suscripción.</small></button>`;
+    if (!L.activa) return `<button class="lic-banner lic-mal" data-acc="irSusc"><b>Tu ${L.plan === 'prueba' ? 'prueba gratis' : 'suscripción'} terminó</b><small>Puedes ver tus historias y usar Crisis. Toca para suscribirte.</small></button>`;
+    if (L.estado === 'prueba') return `<button class="lic-banner" data-acc="irSusc"><b>Prueba gratis: te queda${L.dias === 1 ? '' : 'n'} ${L.dias} día${L.dias === 1 ? '' : 's'}</b><small>Suscríbete para seguir usando Morpheus MD sin interrupciones.</small></button>`;
+    if (L.dias <= 5) return `<button class="lic-banner" data-acc="irSusc"><b>Tu suscripción vence en ${L.dias} día${L.dias === 1 ? '' : 's'}</b><small>Renueva para no perder el acceso.</small></button>`;
+    return '';
+  }
+  async function refrescarLicencia() { if (!NUBE() || !nubeU) return; try { const antes = JSON.stringify(licencia()); await Nube.estado(); if (JSON.stringify(licencia()) !== antes && pantalla === 'inicio') render(); } catch (e) {} }
+
+  /* ---- Pantallas de acceso (2.0) ---- */
+  function renderLoginNube(v) {
+    $('#titulo').textContent = 'Morpheus MD'; $('#btnMenu').hidden = true; $('#btnAtras').hidden = false;
+    const comp = compPend != null ? compPend : Nube.compartido();
+    v.innerHTML = `<section class="tarjeta" style="margin-top:24px"><h2>Iniciar sesión</h2>
+      <div class="rejilla ancha"><label class="campo completo"><span>Correo</span><input id="nbCorreo" type="email" autocomplete="username" autocapitalize="none" value="${esc(localStorage.getItem('morpheus-ultimo-correo') || '')}"></label>
+      <label class="campo completo"><span>Contraseña</span><input id="nbClave" type="password" autocomplete="current-password"></label></div>
+      <div class="check"><input type="checkbox" id="nbComp"${comp ? ' checked' : ''}><label for="nbComp" style="flex:1">Equipo compartido (clínica): al cerrar sesión, borrar mis datos de este equipo. Se cierra sola tras 30 min sin uso.</label></div>
+      <div class="fila-btn" style="justify-content:space-between"><button class="secundario chico" id="nbOlvido">Olvidé mi contraseña</button><button class="primario" id="nbEntrar">Entrar</button></div>
+      <p class="nota" style="margin-top:14px">¿No tienes cuenta? <button class="enlace" id="nbCrear">Crea una gratis</button> (7 días de prueba).</p>
+      ${Store.legado && (Store.legado().historias || []).length ? '<p class="nota">Desde la versión 2.0 las cuentas son en línea, con tu correo. Si ya usabas la app en este dispositivo, crea tu cuenta: te ofreceremos pasar tus historias a ella.</p>' : ''}</section>`;
+    const entrar = async () => {
+      const c = $('#nbCorreo').value.trim(), k = $('#nbClave').value; if (!c || !k) { aviso('Escribe tu correo y tu contraseña'); return; }
+      const b = $('#nbEntrar'); b.disabled = true; b.textContent = 'Entrando…';
+      try { await Nube.entrar(c, k, $('#nbComp').checked); try { localStorage.setItem('morpheus-ultimo-correo', c); } catch (e) {} compPend = null; await entrarApp(); }
+      catch (e) { aviso(e.message, 4500); b.disabled = false; b.textContent = 'Entrar'; }
+    };
+    $('#nbEntrar').onclick = entrar; $('#nbClave').onkeydown = (e) => { if (e.key === 'Enter') entrar(); };
+    $('#nbComp').onchange = (e) => { compPend = e.target.checked; };
+    $('#nbCrear').onclick = () => { pantalla = 'registro'; render(); window.scrollTo(0, 0); };
+    $('#nbOlvido').onclick = () => {
+      abrirHoja(`<h2>Recuperar contraseña</h2><label class="campo completo"><span>Tu correo</span><input id="rcCorreo" type="email" autocapitalize="none" value="${esc($('#nbCorreo').value)}"></label>
+        <p class="nota">Te enviaremos un enlace para crear una contraseña nueva (revisa también spam).</p><div class="acciones"><button class="secundario" id="rcNo">Cancelar</button><button class="primario" id="rcOk">Enviar enlace</button></div>`);
+      $('#rcNo').onclick = cerrarHoja;
+      $('#rcOk').onclick = async () => { try { await Nube.recuperar($('#rcCorreo').value); cerrarHoja(); aviso('Listo: revisa tu correo', 4000); } catch (e) { aviso(e.message, 4000); } };
+    };
+  }
+  function renderRegistroNube(v) {
+    $('#titulo').textContent = 'Crear cuenta'; $('#btnMenu').hidden = true; $('#btnAtras').hidden = false;
+    const esCl = regTipo === 'clinica';
+    v.innerHTML = `<section class="tarjeta"><h2>Crea tu cuenta</h2>
+      <div class="opciones" id="rnTipo" style="margin-bottom:10px"><button type="button" class="opcion${esCl ? '' : ' sel'}" data-rntipo="medico">Soy anestesiólogo</button><button type="button" class="opcion${esCl ? ' sel' : ''}" data-rntipo="clinica">🏥 Represento una clínica</button></div>
+      <p class="nota" style="margin-top:0">${esCl ? 'Crea la cuenta del responsable de la clínica (director o coordinador). Después pagas el plan e invitas a tus anestesiólogos. <button class="enlace" id="rnPlanes">Ver planes</button>' : '7 días gratis con todas las funciones. Después eliges un plan. Crisis (SOS) siempre es gratis. Si tu clínica te invitó, regístrate con el correo de la invitación.'}</p>
+      ${esCl ? `<div class="rejilla ancha"><label class="campo completo"><span>Nombre de la clínica</span><input id="rnClNom" placeholder="Ej.: Clínica San Rafael"></label>
+        <label class="campo"><span>RIF</span><input id="rnClRif" placeholder="J-12345678-9"></label><label class="campo"><span>Ciudad</span><input id="rnClCiu"></label>
+        <label class="campo"><span>N.º de anestesiólogos (aprox.)</span><input id="rnClMed" inputmode="numeric"></label></div>` : ''}
+      <div class="rejilla ancha"><label class="campo completo"><span>${esCl ? 'Tu nombre (responsable)' : 'Nombre y apellido'}</span><input id="rnNombre" autocomplete="name" placeholder="${esCl ? 'Nombre y apellido' : 'Dr. Nombre Apellido'}"></label>
+      <label class="campo completo"><span>Correo</span><input id="rnCorreo" type="email" autocomplete="email" autocapitalize="none"></label>
+      <label class="campo"><span>Contraseña (mínimo 8)</span><input id="rnC1" type="password" autocomplete="new-password"></label><label class="campo"><span>Repetir contraseña</span><input id="rnC2" type="password" autocomplete="new-password"></label></div>
+      <div class="check"><input type="checkbox" id="rnAcepto"><label for="rnAcepto" style="flex:1">Acepto los <button class="enlace" data-legal="terminos">Términos de uso</button>, la <button class="enlace" data-legal="privacidad">Política de privacidad</button> y el <button class="enlace" data-legal="aviso">Aviso médico</button>.</label></div>
+      <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="rnOk">Crear mi cuenta</button></div>
+      <p class="nota">¿Ya tienes cuenta? <button class="enlace" id="rnLogin">Inicia sesión</button></p></section>`;
+    $$('#vista [data-legal]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); verLegal(b.dataset.legal); }));
+    $('#rnLogin').onclick = () => { pantalla = 'login'; render(); };
+    $$('#rnTipo [data-rntipo]').forEach((b) => (b.onclick = () => { regTipo = b.dataset.rntipo; renderRegistroNube(v); }));
+    if ($('#rnPlanes')) $('#rnPlanes').onclick = () => irClinicasInfo();
+    $('#rnOk').onclick = async () => {
+      const n = $('#rnNombre').value.trim(), c = $('#rnCorreo').value.trim(), k1 = $('#rnC1').value;
+      let clin = null;
+      if (esCl) { clin = { nombre: $('#rnClNom').value.trim(), rif: $('#rnClRif').value.trim(), ciudad: $('#rnClCiu').value.trim(), medicos: +$('#rnClMed').value || 0 }; if (!clin.nombre) return aviso('Escribe el nombre de la clínica'); }
+      if (!n) return aviso('Escribe tu nombre'); if (!/^\S+@\S+\.\S+$/.test(c)) return aviso('Revisa tu correo');
+      if (k1.length < 8) return aviso('La contraseña debe tener al menos 8 caracteres'); if (k1 !== $('#rnC2').value) return aviso('Las contraseñas no coinciden');
+      if (!$('#rnAcepto').checked) return aviso('Debes aceptar los términos para crear la cuenta');
+      const b = $('#rnOk'); b.disabled = true; b.textContent = 'Creando…';
+      try {
+        try { localStorage.setItem('morpheus-registro-pend', JSON.stringify({ nombre: n, correo: c })); localStorage.setItem('morpheus-ultimo-correo', c); } catch (e) {}
+        const r = await Nube.registrar(c, k1, n, clin);
+        if (r.confirmar) { pantalla = 'confirmar'; render(); return; }
+        await Nube.entrar(c, k1, false); await entrarApp();
+      } catch (e) { aviso(e.message, 4500); b.disabled = false; b.textContent = 'Crear mi cuenta'; }
+    };
+  }
+  function renderConfirmar(v) {
+    $('#titulo').textContent = 'Confirma tu correo'; $('#btnMenu').hidden = true;
+    const c = localStorage.getItem('morpheus-ultimo-correo') || '';
+    v.innerHTML = `<section class="tarjeta" style="margin-top:24px"><h2>Revisa tu correo</h2><p>Te enviamos un enlace de confirmación a <b>${esc(c)}</b>. Ábrelo (revisa también spam o promociones) y luego inicia sesión aquí.</p>
+      <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="cfLogin">Ya confirmé: iniciar sesión</button></div></section>`;
+    $('#cfLogin').onclick = () => { pantalla = 'login'; render(); };
+  }
+  function renderNuevaClave(v) {
+    $('#titulo').textContent = 'Nueva contraseña'; $('#btnMenu').hidden = true;
+    v.innerHTML = `<section class="tarjeta" style="margin-top:24px"><h2>Crea tu contraseña nueva</h2><div class="rejilla ancha">
+      <label class="campo"><span>Contraseña nueva (mínimo 8)</span><input id="ncC1" type="password" autocomplete="new-password"></label><label class="campo"><span>Repetir</span><input id="ncC2" type="password" autocomplete="new-password"></label></div>
+      <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="ncOk">Guardar y entrar</button></div></section>`;
+    $('#ncOk').onclick = async () => {
+      const k = $('#ncC1').value; if (k.length < 8) return aviso('Mínimo 8 caracteres'); if (k !== $('#ncC2').value) return aviso('No coinciden');
+      try { await Nube.nuevaClave(k); aviso('Contraseña actualizada'); await entrarApp(); } catch (e) { aviso(e.message, 4500); }
+    };
+  }
+
+  /* ---- Suscripción ---- */
+  let suscDesde = 'inicio';
+  function irSuscripcion() { if (pantalla !== 'suscripcion') suscDesde = pantalla; pantalla = 'suscripcion'; render(); window.scrollTo(0, 0); }
+  /* Correos y web oficiales (dominio propio) */
+  const CORREO = (k) => ((window.NUBE_CONFIG || {}).correos || {})[k] || '';
+  const mailA = (k, txt) => { const c = CORREO(k); return c ? `<a href="mailto:${esc(c)}">${esc(txt || c)}</a>` : ''; };
+  /* Planes de clínica: Básica (5), Media (8), Plus (12); Institucional se ajusta a mano */
+  const PLANES_CLIN = ['basica', 'media', 'plus'], PUESTOS_CLIN = { basica: 5, media: 8, plus: 12 };
+  const nomClin = (k) => ({ basica: 'Básica', media: 'Media', plus: 'Plus', institucional: 'Institucional' }[k] || k);
+  /* Datos que pide cada medio de cobro (Administración › Precios y cobro) */
+  const CAMPOS_PAGO = {
+    pago_movil: [['banco', 'Banco', 'Ej.: Banesco (0134)'], ['cedula', 'Cédula o RIF', 'Ej.: V-12.345.678'], ['telefono', 'Teléfono', 'Ej.: 0414-1234567']],
+    zelle: [['cuenta', 'Correo o teléfono Zelle', 'Ej.: correo@ejemplo.com'], ['titular', 'Nombre del titular', 'Como aparece en el banco']],
+    binance: [['cuenta', 'Binance ID (UID) o correo', 'Ej.: 123456789'], ['titular', 'Nombre del titular', 'Como aparece en Binance']],
+  };
+  /* Precios y datos de cobro vigentes: los del administrador (Supabase) sobre los de respaldo (nube-config.js). */
+  function AJ() {
+    const C = window.NUBE_CONFIG || {}, r = (window.Nube && Nube.ajustesCache && Nube.ajustesCache()) || {};
+    const PR = {}; ['mensual', 'anual'].forEach((k) => { const b = (C.precios || {})[k] || {}, x = ((r.precios || {})[k]) || {}; PR[k] = { usd: +x.usd || b.usd || 0, bcv: +x.bcv || b.bcv || 0 }; });
+    const PG = {}; Object.entries(C.pagos || {}).forEach(([k, b]) => {
+      const t = (r.pagos || {})[k], def = CAMPOS_PAGO[k] || [], val = {};
+      if (t && typeof t === 'object') def.forEach(([c]) => (val[c] = String(t[c] || '').trim()));
+      else if (typeof t === 'string' && t.trim()) t.trim().split(/\s+[-·|]\s+|\s*·\s*/).forEach((x, i) => { if (def[i]) val[def[i][0]] = x.trim(); });
+      const campos = def.map(([c, l]) => ({ c, l, v: val[c] || '' })), lleno = campos.some((x) => x.v);
+      PG[k] = Object.assign({}, b, { campos, valores: val }, lleno ? { datos: campos.filter((x) => x.v).map((x) => x.l + ': ' + x.v).join(' · ') } : {});
+    });
+    const CL = {}; PLANES_CLIN.forEach((k) => { const b = ((C.precios || {}).clinica || {})[k] || {}, x = (((r.precios || {}).clinica) || {})[k] || {};
+      CL[k] = { puestos: +x.puestos || b.puestos || PUESTOS_CLIN[k] }; ['mensual', 'anual'].forEach((pp) => { const bb = b[pp] || {}, xx = x[pp] || {}; CL[k][pp] = { usd: +xx.usd || bb.usd || 0, bcv: +xx.bcv || bb.bcv || 0 }; }); });
+    const tm = r.tasa || {};
+    return { PR, PG, CL, contacto: (r.contacto || '').trim() || C.contacto || '', tasa: { v: +tm.v || 0, fecha: tm.fecha || '', usar: !!tm.usar } };
+  }
+  /* Montos al estilo venezolano (6.203,22) sin depender del idioma del equipo */
+  const fmtM = (n, d = 2) => { const [e, f] = (Math.round(+n * 10 ** d) / 10 ** d).toFixed(d).split('.'); return e.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (d ? ',' + f : ''); };
+  const numM = (v) => { v = String(v || '').trim(); if (/,/.test(v)) v = v.replace(/\./g, '').replace(',', '.'); else if (/^\d{1,3}(\.\d{3})+$/.test(v)) v = v.replace(/\./g, ''); return v ? parseFloat(v) : NaN; };
+  const fmtUsd = (n) => (Number.isInteger(+n) ? String(+n) : fmtM(n));
+  /* Tasa BCV oficial: se consulta sola (ve.dolarapi.com, fuente BCV); respaldo: la última guardada o la que fije el administrador. */
+  const TASA_K = 'morpheus-tasa-bcv';
+  function tasaBcv() {
+    const m = (AJ().tasa || {});
+    if (m.usar && m.v > 0) return { v: m.v, fecha: m.fecha || '', fuente: 'manual' };
+    try { const c = JSON.parse(localStorage.getItem(TASA_K) || 'null'); if (c && c.v > 0) return c; } catch (e) {}
+    return m.v > 0 ? { v: m.v, fecha: m.fecha || '', fuente: 'manual' } : null;
+  }
+  let tasaPide = null;
+  function refrescarTasa() {
+    if (tasaPide) return tasaPide;
+    const ctl = window.AbortController ? new AbortController() : null; const to = setTimeout(() => ctl && ctl.abort(), 8000);
+    tasaPide = fetch('https://ve.dolarapi.com/v1/dolares/oficial', { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      .then((r) => r.json()).then((j) => {
+        const v = +j.promedio; if (!(v > 0)) throw new Error('sin tasa');
+        const t = { v, fecha: String(j.fechaActualizacion || '').slice(0, 10), fuente: 'BCV', leida: Date.now() };
+        try { localStorage.setItem(TASA_K, JSON.stringify(t)); } catch (e) {} return t;
+      }).finally(() => { clearTimeout(to); setTimeout(() => (tasaPide = null), 60000); });
+    return tasaPide;
+  }
+  const fFecha = (f) => (/^\d{4}-\d{2}-\d{2}$/.test(f || '') ? f.split('-').reverse().join('/') : '');
+  let spSel = { plan: 'mensual', canal: 'pago_movil', clin: 'basica' };
+
+  /* Precio del plan elegido: individual (mensual/anual) o de clínica (básica/plus × mensual/anual) */
+  function precioPlan(A, plan, cl) { return cl ? ((A.CL[spSel.clin] || {})[plan] || { usd: 0, bcv: 0 }) : A.PR[plan]; }
+  /* Tarjetas de pago (las usan Mi suscripción y Mi clínica) */
+  function pagoHtml(A, cl) {
+    const PR = A.PR, ah = PR.mensual.usd ? Math.floor((1 - PR.anual.usd / (PR.mensual.usd * 12)) * 100) : 0;
+    const planes = cl
+      ? `<h3>1. Elige el plan de la clínica</h3><div class="opciones" id="spClin">${Object.entries(A.CL).map(([k, x]) => `<button type="button" class="opcion" data-spclin="${k}">${nomClin(k)} · hasta ${x.puestos} anestesiólogos</button>`).join('')}</div>
+         <div class="opciones" id="spPlanes" style="margin-top:8px">${['mensual', 'anual'].map((k) => `<button type="button" class="opcion" data-spplan="${k}">${k === 'mensual' ? 'Mensual' : 'Anual'}</button>`).join('')}</div>`
+      : `<h3>1. Elige el plan</h3><div class="opciones" id="spPlanes">${['mensual', 'anual'].map((k) => `<button type="button" class="opcion" data-spplan="${k}">${k === 'mensual' ? 'Mensual' : 'Anual'}${k === 'anual' && ah > 0 ? ` · ahorras ${ah} %` : ''}</button>`).join('')}</div>`;
+    return card(cl ? 'Pagar el plan de la clínica' : 'Pagar tu suscripción', `${cl ? '' : `<p class="nota" style="margin-top:0">Incluye historias con PDF, valoración preanestésica, récipe, calculadoras, guías y bloqueos, en el teléfono y en la computadora con la misma cuenta.</p>`}
+        ${planes}
+        <h3>2. Elige cómo pagar</h3><div class="planes" id="spMedios"></div>
+        <p class="nota" id="spTasaInfo" style="margin:8px 0 0"></p>
+        <div id="spTasaManC" hidden><label class="campo completo"><span>No pudimos leer la tasa BCV. Escríbela (la muestra tu banco o bcv.org.ve)</span><input id="spTasa" inputmode="decimal" placeholder="Ej.: 866,56"></label></div>
+        <h3>3. Paga</h3><div class="sp-total" id="spTotal"></div>
+        <h3>4. Reporta el pago</h3><p class="nota" style="margin-top:0">Todos los datos son obligatorios: quedan como registro de tu pago.</p>
+        <div class="rejilla"><label class="campo"><span id="spRefL">Referencia</span><input id="spRef" placeholder="N.º de referencia"></label>
+        <label class="campo" data-spg="bs"><span>Teléfono del remitente</span><input id="spTel" inputmode="tel" placeholder="0414-1234567"></label>
+        <label class="campo" data-spg="bs"><span>Cédula o RIF del remitente</span><input id="spCed" placeholder="V-12345678"></label>
+        <label class="campo" data-spg="bs"><span>Banco de origen</span><input id="spBanco" placeholder="Ej.: Banesco"></label>
+        <label class="campo" data-spg="div"><span id="spCuentaL">Correo o ID del remitente</span><input id="spCuenta"></label>
+        <label class="campo" data-spg="div"><span>Nombre del titular</span><input id="spTitular" placeholder="Como aparece en la cuenta"></label>
+        <label class="campo completo"><span>Nota (opcional)</span><input id="spNota" placeholder="Algo que debamos saber"></label></div>
+        <div class="sp-foto"><label class="secundario chico" style="display:inline-block">📷 Adjuntar captura del pago<input type="file" accept="image/*" id="spFoto" hidden></label><span class="nota" id="spFotoN">Obligatoria</span><img id="spFotoV" alt="" hidden></div>
+        <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="spOk">Enviar reporte</button></div>
+        <p class="nota" style="margin:0">${cl ? 'Activamos el plan de la clínica al confirmar el pago (normalmente el mismo día).' : 'Activamos tu cuenta al confirmar el pago (normalmente el mismo día). Google Play: próximamente en la app de Android.'}</p>`) +
+      card('Calculadora USD ⇄ Bs (tasa BCV)', `<div class="rejilla"><label class="campo"><span>Dólares (USD)</span><input id="spCalcU" inputmode="decimal" placeholder="0,00"></label><label class="campo"><span>Bolívares (Bs)</span><input id="spCalcB" inputmode="decimal" placeholder="0,00"></label></div><p class="nota" id="spCalcT" style="margin:6px 0 0"></p>`) +
+      card(cl ? 'Pagos de la clínica' : 'Mis pagos', '<div id="spLista"><p class="nota" style="margin:0">Cargando…</p></div>') +
+      (A.contacto ? `<p class="nota" style="padding:0 6px 20px">¿Dudas con tu pago? Escríbenos a <a href="mailto:${esc(A.contacto)}">${esc(A.contacto)}</a>.</p>` : '');
+  }
+  function pagoMontar(A, cl, rehacer) {
+    const PG = A.PG, pant = pantalla;
+    if (!PG[spSel.canal]) spSel.canal = Object.keys(PG)[0];
+    if (cl && !A.CL[spSel.clin]) spSel.clin = (cl.plan && A.CL[cl.plan]) ? cl.plan : 'basica';
+    const tasa = () => { const t = tasaBcv(); if (t) return t; const m = numM(($('#spTasa') || {}).value); return m > 0 ? { v: m, fecha: '', fuente: 'escrita' } : null; };
+    const monto = (plan, canal) => { const p = precioPlan(A, plan, cl), x = PG[canal] || {}, t = tasa(); if (x.moneda === 'Bs') return t ? { n: p.bcv * t.v, mon: 'Bs', det: `${fmtUsd(p.bcv)} USD × ${fmtM(t.v)}` } : { n: 0, mon: 'Bs', det: `${fmtUsd(p.bcv)} USD a tasa BCV` }; return { n: p.usd, mon: x.moneda || 'USD', det: '' }; };
+    const nomPlan = () => (cl ? `${nomClin(spSel.clin)} ${spSel.plan}` : spSel.plan);
+    let tasaFallo = false;
+    const pintar = () => {
+      const t = tasa();
+      $$('#spPlanes [data-spplan]').forEach((b) => b.classList.toggle('sel', b.dataset.spplan === spSel.plan));
+      $$('#spClin [data-spclin]').forEach((b) => b.classList.toggle('sel', b.dataset.spclin === spSel.clin));
+      $('#spMedios').innerHTML = Object.entries(PG).map(([k, x]) => { const m = monto(spSel.plan, k);
+        return `<button type="button" class="plan sp-medio${k === spSel.canal ? ' sel' : ''}" data-spcanal="${k}"><b>${esc(x.t)}</b><span class="sp-monto">${m.n ? (m.mon === 'Bs' ? fmtM(m.n) : fmtUsd(m.n)) + ' ' + m.mon : '—'}</span>${m.det ? `<small class="nota">${esc(m.det)}</small>` : ''}</button>`; }).join('');
+      $$('#spMedios [data-spcanal]').forEach((b) => (b.onclick = () => { spSel.canal = b.dataset.spcanal; pintar(); }));
+      const bs = (PG[spSel.canal] || {}).moneda === 'Bs';
+      $('#spTasaInfo').textContent = t ? `Tasa BCV: ${fmtM(t.v)} Bs por USD${t.fecha ? ' · ' + fFecha(t.fecha) : ''}${t.fuente === 'manual' ? ' (fijada por Morpheus MD)' : t.fuente === 'escrita' ? ' (escrita por ti)' : ''}.` : tasaFallo ? 'No pudimos leer la tasa BCV automática.' : 'Buscando la tasa BCV…';
+      $('#spTasaManC').hidden = !!tasaBcv() || !bs;
+      const m = monto(spSel.plan, spSel.canal), x = PG[spSel.canal] || {};
+      $('#spTotal').innerHTML = `<div class="sp-grande-f"><div class="sp-grande">${m.n ? (m.mon === 'Bs' ? fmtM(m.n) : fmtUsd(m.n)) + ' ' + m.mon : 'Falta la tasa BCV'}</div>${m.n ? `<button type="button" class="secundario chico" data-spcopia="${m.mon === 'Bs' ? fmtM(m.n) : fmtUsd(m.n)}">Copiar monto</button>` : ''}</div><small class="nota">Plan ${esc(nomPlan())}${m.det ? ' · ' + esc(m.det) : ''} · por ${esc(x.t || '')}</small>
+        ${(x.campos || []).some((c) => c.v) ? `<div class="sp-datos">${x.campos.filter((c) => c.v).map((c) => `<div><span class="nota">${esc(c.l)}</span><b>${esc(c.v)}</b><button type="button" class="secundario chico" data-spcopia="${esc(c.v)}">Copiar</button></div>`).join('')}</div>` : `<p style="margin:8px 0 0"><b>Datos:</b> ${esc(x.datos || '')}</p>`}`;
+      $$('#spTotal [data-spcopia]').forEach((b) => (b.onclick = () => copiarTexto(b.dataset.spcopia)));
+      $$('#vista [data-spg="bs"]').forEach((e) => (e.hidden = !bs)); $$('#vista [data-spg="div"]').forEach((e) => (e.hidden = bs));
+      $('#spRefL').textContent = { pago_movil: 'Referencia del pago', zelle: 'Código de confirmación Zelle', binance: 'ID de la orden (Order ID)' }[spSel.canal] || 'Referencia';
+      $('#spCuentaL').textContent = spSel.canal === 'binance' ? 'Binance ID o correo del remitente' : 'Correo o teléfono Zelle del remitente';
+      const ct = $('#spCalcT'); if (ct) ct.textContent = t ? `Tasa BCV ${fmtM(t.v)}${t.fecha ? ' del ' + fFecha(t.fecha) : ''}.` : 'Sin tasa BCV todavía.';
+    };
+    $$('#spPlanes [data-spplan]').forEach((b) => (b.onclick = () => { spSel.plan = b.dataset.spplan; pintar(); }));
+    $$('#spClin [data-spclin]').forEach((b) => (b.onclick = () => { spSel.clin = b.dataset.spclin; pintar(); }));
+    if ($('#spTasa')) $('#spTasa').oninput = pintar;
+    let foto = null;
+    $('#spFoto').onchange = async (ev) => {
+      const f = ev.target.files && ev.target.files[0]; if (!f) return;
+      try {
+        const url = await leerImagen(f, 1600, 'image/jpeg'); const bin = atob(url.split(',')[1]), arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        foto = new Blob([arr], { type: 'image/jpeg' }); $('#spFotoV').src = url; $('#spFotoV').hidden = false; $('#spFotoN').textContent = 'Captura lista (' + Math.round(foto.size / 1024) + ' KB)';
+      } catch (e) { foto = null; aviso('No se pudo leer esa imagen. Prueba con otra captura.', 4000); }
+    };
+    $('#spCalcU').oninput = () => { const t = tasa(), u = numM($('#spCalcU').value); $('#spCalcB').value = t && u >= 0 ? fmtM(u * t.v) : ''; };
+    $('#spCalcB').oninput = () => { const t = tasa(), b = numM($('#spCalcB').value); $('#spCalcU').value = t && b >= 0 ? fmtM(b / t.v) : ''; };
+    pintar();
+    if ((AJ().tasa || {}).usar !== true) refrescarTasa().then(() => { if (pantalla === pant) pintar(); }).catch(() => { tasaFallo = true; if (pantalla === pant) pintar(); });
+    $('#spOk').onclick = async () => {
+      const canal = spSel.canal, plan = spSel.plan, x = PG[canal] || {}, t = tasa(), m = monto(plan, canal), bs = x.moneda === 'Bs', val = (id) => $('#' + id).value.trim();
+      const ref = val('spRef'); if (!ref) return aviso('Falta: ' + $('#spRefL').textContent);
+      if (bs && !t) return aviso('Falta la tasa BCV: escríbela para calcular el monto');
+      let remitente;
+      if (bs) {
+        if (val('spTel').replace(/\D/g, '').length < 10) return aviso('Escribe el teléfono del remitente (11 dígitos, p. ej. 0414-1234567)');
+        if (!/^[VEJPG]?-?\d{5,10}(-?\d)?$/i.test(val('spCed').replace(/[\s.]/g, ''))) return aviso('Escribe la cédula o RIF del remitente (p. ej. V-12345678)');
+        if (!val('spBanco')) return aviso('Escribe el banco de origen');
+        remitente = { telefono: val('spTel'), cedula: val('spCed').replace(/[\s.]/g, '').toUpperCase(), banco: val('spBanco') };
+      } else {
+        if (!val('spCuenta')) return aviso('Falta: ' + $('#spCuentaL').textContent);
+        if (!val('spTitular')) return aviso('Escribe el nombre del titular');
+        remitente = { cuenta: val('spCuenta'), titular: val('spTitular') };
+      }
+      if (!foto) return aviso('Adjunta la captura del pago');
+      const pp = precioPlan(A, plan, cl);
+      const nota = [cl ? `Clínica ${cl.nombre} · plan ${nomPlan()}` : '', bs ? `Tasa BCV ${fmtM(t.v)}${t.fecha ? ' (' + fFecha(t.fecha) + ')' : ''} · ${fmtUsd(pp.bcv)} USD BCV` : '', $('#spNota').value.trim()].filter(Boolean).join(' · ');
+      if (!confirm(`¿Reportar el pago de ${m.mon === 'Bs' ? fmtM(m.n) : fmtUsd(m.n)} ${m.mon} (plan ${nomPlan()}) por ${x.t}, referencia ${ref}?`)) return;
+      const bOk = $('#spOk'); bOk.disabled = true; bOk.textContent = 'Enviando…';
+      try {
+        await Nube.reportarPago(Object.assign({ plan, canal, monto: Math.round(m.n * 100) / 100 || null, moneda: m.mon, referencia: ref, nota, remitente, archivo: foto }, cl ? { clinica_id: cl.id, clinica_plan: spSel.clin } : {}));
+        aviso('Pago reportado: te avisaremos al activarlo', 3500); rehacer();
+      } catch (e) { aviso(e.message, 5000); bOk.disabled = false; bOk.textContent = 'Enviar reporte'; }
+    };
+    Nube.misPagos().then((l) => { const e = $('#spLista'); if (!e) return; l = l.filter((p) => (cl ? p.clinica_id === cl.id : !p.clinica_id));
+      e.innerHTML = l.length ? `<ul class="lista">${l.map((p) => `<li class="item"><div class="txt"><b>${p.clinica_plan ? nomClin(p.clinica_plan) + ' ' : ''}${esc(p.plan)} · ${esc((PG[p.canal] || {}).t || p.canal)}${p.monto ? ' · ' + fmtM(p.monto) + ' ' + esc(p.moneda || '') : ''}</b><small>Ref. ${esc(p.referencia)} · ${new Date(p.creado).toLocaleDateString('es-VE')}</small></div><span class="estado-pago ${p.estado}">${{ pendiente: 'Pendiente', aprobado: 'Aprobado', rechazado: 'Rechazado' }[p.estado] || p.estado}</span></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Aún no hay pagos reportados.</p>'; })
+      .catch((er) => { const e = $('#spLista'); if (e) e.innerHTML = `<p class="nota" style="margin:0">${esc(er.message)}</p>`; });
+  }
+
+  function renderSuscripcion(v) {
+    $('#titulo').textContent = 'Mi suscripción';
+    const L = licencia() || {}, A = AJ(), ajVisto = JSON.stringify(A);
+    Nube.ajustes().then(() => { if (pantalla === 'suscripcion' && JSON.stringify(AJ()) !== ajVisto && !$('#spRef').value) renderSuscripcion(v); }).catch(() => {});
+    const fv = (ms) => (ms ? new Date(ms).toLocaleDateString('es-VE', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+    const cm = L.clinica, ca = L.clinicaAdmin, porClin = L.plan === 'clinica' && cm;
+    const est = L.requiereConexion ? 'Hay que verificar con internet' : !L.activa ? 'Vencida' : porClin ? `Activa · plan de ${cm.nombre}` : L.estado === 'prueba' ? `Prueba gratis · quedan ${L.dias} día${L.dias === 1 ? '' : 's'}` : `Activa · plan ${L.plan}`;
+    v.innerHTML = (suscMsg ? `<section class="tarjeta guia-alerta"><p style="margin:0">${esc(suscMsg)}</p></section>` : '') +
+      card('Tu cuenta', `<p style="margin:0"><b>${esc(est)}</b>${L.vence ? `<br><small class="nota">${L.activa ? 'Vence' : 'Venció'} el ${fv(L.vence)}</small>` : ''}</p>
+        ${cm ? `<p class="nota">Perteneces a <b>${esc(cm.nombre)}</b>${cm.vigente ? '' : ' (su plan no está activo ahora)'}. <button class="enlace" id="spSalirCl">Salir de la clínica</button></p>` : ''}
+        <p class="nota">Crisis (SOS) siempre funciona, con o sin suscripción.</p><div class="fila-btn" style="margin:0"><button class="secundario chico" data-acc="suscRefrescar">Actualizar estado</button></div>`) +
+      (porClin ? '' : card('¿Trabajas para una clínica?', `<p class="nota" style="margin-top:0">Si tu clínica tiene un plan de Morpheus MD, te envía una invitación. Ábrela o pega aquí el código.</p>
+        <div class="rejilla"><label class="campo"><span>Código de invitación</span><input id="spCodigo" placeholder="Ej.: 3F9A1C2B" autocapitalize="characters"></label><label class="campo"><span>&nbsp;</span><button class="secundario" id="spCodigoOk">Usar código</button></label></div>
+        <p class="nota" style="margin:6px 0 0">${ca ? `Administras <b>${esc(ca.nombre)}</b>: <button class="enlace" id="spIrClinica">ir a 🏥 Mi clínica</button>` : `¿Representas una clínica? <button class="enlace" id="spVerClin">Ver planes para clínicas</button>`}</p>`)) +
+      pagoHtml(A, null);
+    pagoMontar(A, null, () => renderSuscripcion(v));
+    if ($('#spSalirCl')) $('#spSalirCl').onclick = async () => { if (!confirm(`¿Salir de ${cm.nombre}? Dejarás de estar cubierto por su plan. Tus historias se quedan contigo.`)) return; try { await Nube.salirClinica(); await Nube.estado(true); aviso('Saliste de la clínica'); renderSuscripcion(v); } catch (e) { aviso(e.message, 4500); } };
+    if ($('#spCodigoOk')) $('#spCodigoOk').onclick = () => { const c = $('#spCodigo').value.trim(); if (!c) return aviso('Pega el código de invitación'); usarInvitacion(c); };
+    if ($('#spIrClinica')) $('#spIrClinica').onclick = () => irClinica();
+    if ($('#spVerClin')) $('#spVerClin').onclick = () => irClinicasInfo();
+  }
+
+  /* ---- Clínicas: página de planes, panel "Mi clínica" e invitaciones ---- */
+  let clinInfoDesde = 'bienvenida', regTipo = 'medico';
+  function irClinicasInfo() { clinInfoDesde = pantalla; pantalla = 'clinicasInfo'; render(); window.scrollTo(0, 0); }
+  function irClinica() { pantalla = 'clinica'; render(); window.scrollTo(0, 0); }
+  const webBase = () => (location.origin.startsWith('http') && !/appassets/.test(location.host) ? location.origin + location.pathname : ((window.NUBE_CONFIG || {}).web || 'https://morpheus-md.com/'));
+  const INV_K = 'morpheus-invitacion';
+  function invPendiente() { try { return localStorage.getItem(INV_K) || ''; } catch (e) { return ''; } }
+  function invGuardar(c) { try { if (c) localStorage.setItem(INV_K, c); else localStorage.removeItem(INV_K); } catch (e) {} }
+  function capturarInvitacion() { // enlace …/?invitacion=TOKEN
+    const m = /[?&#]invitacion=([A-Za-z0-9]+)/.exec(location.search + location.hash);
+    if (m) { invGuardar(m[1]); try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+  }
+  async function usarInvitacion(cod) {
+    if (!nubeU) { invGuardar(cod); aviso('Inicia sesión o crea tu cuenta con el correo invitado', 3500); pantalla = 'login'; render(); return; }
+    let x; try { x = await Nube.verInvitacion(cod); } catch (e) { invGuardar(''); return aviso(e.message, 5000); }
+    if (!x.valida) { invGuardar(''); return aviso(x.usada ? 'Esta invitación ya fue usada' : 'La invitación ya no es válida: pide una nueva a tu clínica', 5000); }
+    abrirHoja(`<h2>🏥 Invitación de ${esc(x.clinica)}</h2><p><b>${esc(x.clinica)}</b> te invita a usar Morpheus MD con su plan: no pagas tu suscripción mientras la clínica esté al día.</p>
+      ${x.tuya ? '' : `<p class="guia-alerta" style="padding:8px 10px;border-radius:8px">La invitación es para <b>${esc(x.correo)}</b> y entraste con <b>${esc(nubeU.correo)}</b>. Entra con ese correo o pide a la clínica que te invite con el tuyo.</p>`}
+      <p class="nota">Tus historias siguen siendo tuyas: la clínica no las ve. Puedes salir cuando quieras desde Mi suscripción.</p>
+      <div class="acciones"><button class="secundario" id="invNo">${x.tuya ? 'Ahora no' : 'Cerrar'}</button>${x.tuya ? '<button class="primario" id="invSi">Aceptar invitación</button>' : ''}</div>`);
+    $('#invNo').onclick = () => { if (x.tuya) invGuardar(''); cerrarHoja(); };
+    if ($('#invSi')) $('#invSi').onclick = async () => { try { const r = await Nube.aceptarInvitacion(cod); invGuardar(''); await Nube.estado(true); cerrarHoja(); aviso('Listo: ahora usas el plan de ' + r.clinica, 3500); render(); } catch (e) { aviso(e.message, 5000); } };
+  }
+  function tablaClinicas(A) {
+    const fila = (k, x) => `<tr><td><b>${nomClin(k)}</b><br><small class="nota">hasta ${x.puestos} anestesiólogos</small></td><td>${fmtUsd(x.mensual.usd)} USD<br><small class="nota">o ${fmtUsd(x.mensual.bcv)} USD a tasa BCV</small></td><td>${fmtUsd(x.anual.usd)} USD<br><small class="nota">o ${fmtUsd(x.anual.bcv)} USD a tasa BCV</small></td></tr>`;
+    return `<div class="tabla-scroll"><table class="cl-tabla"><tr><th>Plan</th><th>Mensual</th><th>Anual</th></tr>${Object.entries(A.CL).map(([k, x]) => fila(k, x)).join('')}
+      <tr><td><b>Institucional</b><br><small class="nota">más de ${A.CL.plus.puestos}</small></td><td colspan="2">A convenir: escríbenos a ${mailA('contacto')}</td></tr></table></div>
+      <p class="nota" style="margin:6px 0 0">En divisas: Zelle o USDT. En bolívares: Pago Móvil, a la tasa BCV del día.</p>`;
+  }
+  function renderClinicasInfo(v) {
+    $('#titulo').textContent = 'Para clínicas'; if (!nubeU) { $('#btnMenu').hidden = true; $('#btnAjustes').hidden = true; $('#btnSOS').hidden = true; }
+    const A = AJ(), visto = JSON.stringify(A.CL), ca = (licencia() || {}).clinicaAdmin;
+    Nube.ajustes().then(() => { if (pantalla === 'clinicasInfo' && JSON.stringify(AJ().CL) !== visto) renderClinicasInfo(v); }).catch(() => {});
+    v.innerHTML = card('Morpheus MD para tu clínica', `<ul class="guia-items">
+        <li>Historias de anestesia completas, legibles y en PDF listo para imprimir o archivar.</li>
+        <li>Cada anestesiólogo con su propia cuenta: en la computadora del quirófano y en su teléfono.</li>
+        <li>Modo "equipo compartido": la sesión se cierra sola y no quedan datos en la computadora.</li>
+        <li>Valoración preanestésica, récipe, calculadoras TIVA/TCI, guías, bloqueos y algoritmos de crisis.</li>
+        <li>Una sola suscripción para todo el equipo: tú invitas y retiras anestesiólogos cuando quieras.</li>
+        <li>Privacidad: las historias son de cada médico; la clínica administra los puestos y el pago.</li></ul>`) +
+      card('Planes', tablaClinicas(A)) +
+      card('Cómo empezar', `<ol class="guia-items"><li>El responsable (director o coordinador) crea su cuenta como <b>"Represento una clínica"</b>.</li><li>En 🏥 Mi clínica elige el plan y reporta el pago.</li><li>Al activarse, invita a cada anestesiólogo con su correo y envíale el enlace por WhatsApp o correo para que se una.</li></ol>
+        <div class="fila-btn" style="justify-content:flex-end">${ca ? '<button class="primario" id="ciIr">Ir a 🏥 Mi clínica</button>' : `<button class="primario" id="ciReg">Registrar mi clínica</button>`}</div>
+        <p class="nota" style="margin:0">¿Dudas o más de ${A.CL.plus.puestos} anestesiólogos? Escríbenos a ${mailA('contacto')}.</p>`);
+    if ($('#ciIr')) $('#ciIr').onclick = irClinica;
+    if ($('#ciReg')) $('#ciReg').onclick = () => { if (nubeU) irClinica(); else { regTipo = 'clinica'; pantalla = 'registro'; render(); window.scrollTo(0, 0); } };
+  }
+  function renderClinica(v) {
+    $('#titulo').textContent = 'Mi clínica';
+    v.innerHTML = '<p class="nota" style="padding:12px">Cargando…</p>';
+    Nube.miClinica().then((r) => { if (pantalla === 'clinica') pintarClinica(v, r || {}); }).catch((e) => { v.innerHTML = card('No se pudo cargar', `<p class="nota" style="margin:0">${esc(e.message)}</p>`); });
+  }
+  function pintarClinica(v, r) {
+    const A = AJ(), cl = r.admin, fv = (s) => (s ? new Date(s).toLocaleDateString('es-VE', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+    if (!cl) {
+      v.innerHTML = card('Registra tu clínica', `<p class="nota" style="margin-top:0">Como responsable podrás pagar el plan de la clínica e invitar a sus anestesiólogos. Ellos no pagan su suscripción mientras la clínica esté al día.</p>
+        <div class="rejilla ancha"><label class="campo completo"><span>Nombre de la clínica</span><input id="ciNom" placeholder="Ej.: Clínica San Rafael"></label>
+        <label class="campo"><span>RIF</span><input id="ciRif" placeholder="J-12345678-9"></label><label class="campo"><span>Ciudad</span><input id="ciCiu"></label>
+        <label class="campo"><span>N.º de anestesiólogos (aprox.)</span><input id="ciMed" inputmode="numeric"></label></div>
+        <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="ciOk">Registrar clínica</button></div>`) + card('Planes', tablaClinicas(A));
+      $('#ciOk').onclick = async () => { const n = $('#ciNom').value.trim(); if (!n) return aviso('Escribe el nombre de la clínica');
+        try { await Nube.solicitarClinica({ nombre: n, rif: $('#ciRif').value.trim(), ciudad: $('#ciCiu').value.trim(), medicos: +$('#ciMed').value || 0 }); await Nube.estado(true); aviso('Clínica registrada: ahora elige el plan y paga'); renderClinica(v); } catch (e) { aviso(e.message, 4500); } };
+      return;
+    }
+    const activa = cl.estado === 'activa', usados = (cl.miembros || []).length, pend = (cl.invitaciones || []).length;
+    const estTxt = { solicitud: 'Pendiente de pago: elige el plan y reporta el pago para activarla.', activa: `Activa · plan ${nomClin(cl.plan)} · vence el ${fv(cl.vence)}`, vencida: `Venció el ${fv(cl.vence)}: renueva para que tus anestesiólogos sigan cubiertos.`, cancelada: 'Cancelada.' }[cl.estado] || cl.estado;
+    const link = (i) => webBase() + '?invitacion=' + i.token;
+    const wa = (i) => 'https://wa.me/?text=' + encodeURIComponent(`Hola, te invito a usar Morpheus MD con el plan de ${cl.nombre}. Abre este enlace y crea tu cuenta (o entra) con ${i.correo}: ${link(i)}\nCódigo: ${i.codigo}`);
+    v.innerHTML = card(cl.nombre, `<p style="margin:0"><b>${esc(estTxt)}</b></p><p class="nota">${[cl.rif, cl.ciudad].filter(Boolean).map(esc).join(' · ')}</p>
+        <p style="margin:0">Puestos: <b>${usados}</b> en uso${pend ? ` + ${pend} invitación${pend === 1 ? '' : 'es'} pendiente${pend === 1 ? '' : 's'}` : ''} de <b>${cl.puestos}</b>.</p>`) +
+      card('Anestesiólogos', `${usados ? `<ul class="lista">${cl.miembros.map((m) => `<li class="item"><div class="txt"><b>${esc(m.nombre || m.correo)}</b><small>${esc(m.correo)} · desde ${fv(m.desde)}</small></div><button class="peligro chico" data-clquita="${m.user_id}" data-n="${esc(m.nombre || m.correo)}">Quitar</button></li>`).join('')}</ul>` : '<p class="nota" style="margin-top:0">Todavía no hay anestesiólogos en tu clínica.</p>'}
+        ${pend ? `<h3>Invitaciones pendientes</h3><ul class="lista">${cl.invitaciones.map((i) => `<li class="item"><div class="txt"><b>${esc(i.correo)}</b><small>Código ${esc(i.codigo)} · vence ${fv(i.expira)}</small></div><div class="adm-bot"><button class="secundario chico" data-clcopia="${esc(link(i))}">Copiar enlace</button><a class="secundario chico boton" href="${esc(wa(i))}" target="_blank" rel="noopener">WhatsApp</a><button class="peligro chico" data-clanula="${esc(i.token)}">Anular</button></div></li>`).join('')}</ul>` : ''}
+        <h3>Invitar a un anestesiólogo</h3>${activa ? '' : '<p class="nota" style="margin-top:0">Disponible cuando el plan de la clínica esté activo.</p>'}
+        <div class="rejilla"><label class="campo"><span>Correo del anestesiólogo</span><input id="clCorreo" type="email" autocapitalize="none" placeholder="colega@correo.com"${activa ? '' : ' disabled'}></label><label class="campo"><span>&nbsp;</span><button class="primario" id="clInv"${activa ? '' : ' disabled'}>Invitar</button></label></div>
+        <p class="nota" style="margin:6px 0 0">Se crea un enlace para enviarle por WhatsApp o correo. Debe entrar o registrarse con ese mismo correo. Para usar la app tú también, invítate con tu correo (ocupa un puesto).</p>`) +
+      pagoHtml(A, cl);
+    pagoMontar(A, cl, () => renderClinica(v));
+    $$('[data-clquita]').forEach((b) => (b.onclick = async () => { if (!confirm(`¿Quitar a ${b.dataset.n} de la clínica? Dejará de estar cubierto por el plan; sus historias se quedan con él.`)) return; try { await Nube.clinicaQuitar(b.dataset.clquita); aviso('Anestesiólogo retirado'); renderClinica(v); } catch (e) { aviso(e.message, 4500); } }));
+    $$('[data-clanula]').forEach((b) => (b.onclick = async () => { if (!confirm('¿Anular esta invitación?')) return; try { await Nube.clinicaAnular(b.dataset.clanula); renderClinica(v); } catch (e) { aviso(e.message, 4500); } }));
+    $$('[data-clcopia]').forEach((b) => (b.onclick = () => copiarTexto(b.dataset.clcopia)));
+    $('#clInv').onclick = async () => {
+      const c = $('#clCorreo').value.trim(); if (!/^\S+@\S+\.\S+$/.test(c)) return aviso('Revisa el correo');
+      try {
+        const i = await Nube.clinicaInvitar(c); const l = link(i);
+        abrirHoja(`<h2>Invitación creada</h2><p>Envíale este enlace a <b>${esc(i.correo)}</b>. Vence el ${fv(i.expira)}.</p><p class="sp-total" style="word-break:break-all">${esc(l)}<br><small class="nota">Código: <b>${esc(i.codigo)}</b> (para escribirlo en Mi suscripción, por ejemplo desde la app de Android)</small></p>
+          <div class="acciones"><button class="secundario" id="ivCopia">Copiar enlace</button><a class="primario boton" href="${esc(wa(i))}" target="_blank" rel="noopener">Enviar por WhatsApp</a><button class="secundario" id="ivOk">Listo</button></div>`);
+        $('#ivCopia').onclick = () => copiarTexto(l); $('#ivOk').onclick = () => { cerrarHoja(); renderClinica(v); };
+      } catch (e) { aviso(e.message, 5000); }
+    };
+  }
+  async function admClinicasUI(v) {
+    const cont = $('#admCont'); if (!cont) return; $('#admQ').closest('label').hidden = true;
+    const fv = (s) => (s ? new Date(s).toLocaleDateString('es-VE') : '—');
+    let l = []; try { l = await Nube.admClinicas(); } catch (e) { cont.innerHTML = card('Error', `<p class="nota" style="margin:0">${esc(e.message)}</p>`); return; }
+    cont.innerHTML = card(`Clínicas (${l.length})`, l.length ? `<ul class="lista">${l.map((c) => `<li class="item"><div class="txt"><b>${esc(c.nombre)}</b><small>${esc([c.rif, c.ciudad].filter(Boolean).join(' · '))}${c.medicos_estimados ? ` · ~${c.medicos_estimados} anestesiólogos` : ''}</small>
+        <small>Responsable: ${esc(c.responsable_nombre || '')} ${esc(c.responsable || '')}</small><small>${esc(c.estado)} · plan ${esc(c.plan)} · ${c.usados}/${c.puestos} puestos · vence ${fv(c.vence)}</small></div>
+        <div class="adm-bot"><button class="secundario chico" data-acl="${c.id}" data-d="30">+30 d</button><button class="secundario chico" data-acl="${c.id}" data-d="365">+1 año</button><button class="secundario chico" data-aclp="${c.id}" data-pl="${esc(c.plan)}" data-pu="${c.puestos}">Plan / puestos</button></div></li>`).join('')}</ul>` : '<p class="nota" style="margin:0">Todavía no hay clínicas registradas.</p>');
+    $$('#admCont [data-acl]').forEach((b) => (b.onclick = async () => { if (!confirm(`¿Extender ${b.dataset.d} días el plan de esta clínica?`)) return; try { await Nube.admClinicaAjustar(b.dataset.acl, +b.dataset.d, null, ''); aviso('Clínica extendida'); admClinicasUI(v); } catch (e) { aviso(e.message, 4500); } }));
+    $$('#admCont [data-aclp]').forEach((b) => (b.onclick = async () => {
+      const pl = prompt('Plan: basica, media, plus o institucional', b.dataset.pl); if (pl == null) return; const plan = pl.trim().toLowerCase();
+      if (!['basica', 'media', 'plus', 'institucional'].includes(plan)) return aviso('Plan no válido');
+      const pu = prompt('Número de puestos (anestesiólogos)', (AJ().CL[plan] || {}).puestos || b.dataset.pu); if (pu == null) return;
+      try { await Nube.admClinicaAjustar(b.dataset.aclp, 0, Math.max(0, parseInt(pu, 10) || 0), plan); aviso('Clínica actualizada'); admClinicasUI(v); } catch (e) { aviso(e.message, 4500); }
+    }));
+  }
+
+  /* ---- Administración (solo administradores) ---- */
+  function renderAdmin(v) {
+    $('#titulo').textContent = 'Administración';
+    v.innerHTML = `<section class="tarjeta"><div class="bq-tabs">${[['pagos', 'Pagos'], ['usuarios', 'Usuarios'], ['clinicas', 'Clínicas'], ['precios', 'Precios y cobro']].map(([k, t]) => `<button type="button" class="opcion${admTab === k ? ' sel' : ''}" data-admtab="${k}">${t}</button>`).join('')}</div>
+      <label class="campo completo" style="margin:10px 0 0"><span>Buscar</span><input id="admQ" type="search" placeholder="Correo, nombre o referencia"></label></section><div id="admCont"><p class="nota" style="padding:0 6px">Cargando…</p></div>`;
+    $$('#vista [data-admtab]').forEach((b) => (b.onclick = () => { admTab = b.dataset.admtab; renderAdmin(v); }));
+    if (admTab === 'precios') return admPrecios(v);
+    if (admTab === 'clinicas') return admClinicasUI(v);
+    const fv = (s) => (s ? new Date(s).toLocaleDateString('es-VE') : '');
+    let usuarios = [], pagos = [];
+    const pintar = () => {
+      const q = sinTilde($('#admQ').value), uDe = (id) => usuarios.find((u) => u.user_id === id) || {};
+      const cont = $('#admCont'); if (!cont) return;
+      if (admTab === 'pagos') {
+        const l = pagos.filter((p) => !q || sinTilde([p.referencia, uDe(p.user_id).correo, uDe(p.user_id).nombre, remTxt(p.remitente)].join(' ')).includes(q));
+        const pend = l.filter((p) => p.estado === 'pendiente'), resto = l.filter((p) => p.estado !== 'pendiente');
+        const fila = (p) => { const u = uDe(p.user_id); return `<li class="item"><div class="txt"><b>${esc(u.correo || p.user_id)}</b><small>${esc(u.nombre || '')}</small><small>${p.clinica_plan ? '🏥 Clínica · ' + nomClin(p.clinica_plan) + ' ' : ''}${esc(p.plan)} · ${esc(p.canal)} · ${p.monto ? fmtM(p.monto) + ' ' + esc(p.moneda || '') : 'sin monto'} · Ref. ${esc(p.referencia)} · ${fv(p.creado)}</small>${remTxt(p.remitente) ? `<small>Remitente: ${esc(remTxt(p.remitente))}</small>` : ''}${p.nota ? `<small>${esc(p.nota)}</small>` : ''}${p.comprobante ? `<button class="secundario chico" style="margin-top:6px;align-self:flex-start" data-admcomp="${esc(p.comprobante)}">📷 Ver captura</button>` : '<small style="color:#b3261e">Sin captura</small>'}</div>
+          ${p.estado === 'pendiente' ? `<div class="adm-bot"><button class="primario chico" data-admok="${p.id}">Aprobar</button><button class="peligro chico" data-admno="${p.id}">Rechazar</button></div>` : `<span class="estado-pago ${p.estado}">${p.estado}</span>`}</li>`; };
+        cont.innerHTML = card(`Pendientes (${pend.length})`, pend.length ? `<ul class="lista">${pend.map(fila).join('')}</ul>` : '<p class="nota" style="margin:0">No hay pagos por revisar.</p>') + (resto.length ? card('Revisados', `<ul class="lista">${resto.slice(0, 50).map(fila).join('')}</ul>`) : '');
+      } else {
+        const l = usuarios.filter((u) => !q || sinTilde([u.correo, u.nombre].join(' ')).includes(q));
+        cont.innerHTML = card(`Usuarios (${l.length})`, `<ul class="lista">${l.map((u) => `<li class="item"><div class="txt"><b>${esc(u.correo)}</b><small>${esc(u.nombre || '')} · desde ${fv(u.creado)}</small><small>${esc(u.estado)} · ${esc(u.plan)} · vence ${fv(u.vence)}</small></div>
+          <div class="adm-bot"><button class="secundario chico" data-admext="${u.user_id}" data-d="30">+30 d</button><button class="secundario chico" data-admext="${u.user_id}" data-d="365">+1 año</button></div></li>`).join('')}</ul>`);
+      }
+      $$('#admCont [data-admok],#admCont [data-admno]').forEach((b) => (b.onclick = async () => {
+        const ok = !!b.dataset.admok; if (!confirm(ok ? '¿Aprobar este pago y activar la cuenta?' : '¿Rechazar este pago?')) return;
+        try { await Nube.admRevisar(+(b.dataset.admok || b.dataset.admno), ok); aviso(ok ? 'Pago aprobado: cuenta activada' : 'Pago rechazado'); cargar(); } catch (e) { aviso(e.message, 4500); }
+      }));
+      $$('#admCont [data-admcomp]').forEach((b) => (b.onclick = async () => {
+        try { const url = await Nube.verComprobante(b.dataset.admcomp); abrirHoja(`<h2>Captura del pago</h2><img src="${esc(url)}" alt="Captura del pago" style="width:100%;border-radius:8px;border:1px solid var(--borde)"><div class="fila-btn"><button class="primario" id="compCerrar">Cerrar</button></div>`); $('#compCerrar').onclick = cerrarHoja; }
+        catch (e) { aviso(e.message, 4500); }
+      }));
+      $$('#admCont [data-admext]').forEach((b) => (b.onclick = async () => {
+        if (!confirm(`¿Extender ${b.dataset.d} días a esta cuenta?`)) return;
+        try { await Nube.admExtender(b.dataset.admext, +b.dataset.d, +b.dataset.d >= 365 ? 'anual' : 'mensual'); aviso('Cuenta extendida'); cargar(); } catch (e) { aviso(e.message, 4500); }
+      }));
+    };
+    const cargar = async () => { try { [usuarios, pagos] = await Promise.all([Nube.admUsuarios(), Nube.admPagos()]); pintar(); } catch (e) { const c = $('#admCont'); if (c) c.innerHTML = card('Error', `<p class="nota" style="margin:0">${esc(e.message)}</p>`); } };
+    $('#admQ').oninput = pintar; cargar();
+  }
+
+  function copiarTexto(t) {
+    const ok = () => aviso('Copiado: ' + t, 1800);
+    try { if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(t).then(ok).catch(() => viejo()); } catch (e) {}
+    viejo();
+    function viejo() { const a = document.createElement('textarea'); a.value = t; a.style.position = 'fixed'; a.style.opacity = '0'; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); ok(); } catch (e) { aviso('No se pudo copiar'); } a.remove(); }
+  }
+  const remTxt = (r) => { r = r || {}; return [r.telefono, r.cedula, r.banco, r.cuenta, r.titular].filter(Boolean).join(' · '); };
+  let apPgTab = 'pago_movil';
+  function admPrecios(v) {
+    $('#admQ').closest('label').hidden = true;
+    const pintar = () => {
+      const A = AJ(), c = $('#admCont'); if (!c) return;
+      const n = (id, val, ph) => `<input id="${id}" inputmode="decimal" value="${val ? String(val).replace('.', ',') : ''}" placeholder="${ph}">`;
+      c.innerHTML = card('Precios', `<p class="nota" style="margin-top:0">En divisas: Zelle o USDT. En bolívares: Pago Móvil, en USD a la tasa BCV del día (la app la consulta sola y muestra el monto en Bs).</p>
+        <div class="rejilla"><label class="campo"><span>Mensual · USD (divisas)</span>${n('apMu', A.PR.mensual.usd, '8')}</label><label class="campo"><span>Mensual · USD a tasa BCV</span>${n('apMb', A.PR.mensual.bcv, '9,5')}</label>
+        <label class="campo"><span>Anual · USD (divisas)</span>${n('apAu', A.PR.anual.usd, '60')}</label><label class="campo"><span>Anual · USD a tasa BCV</span>${n('apAb', A.PR.anual.bcv, '68')}</label></div>`) +
+        card('Precios para clínicas', PLANES_CLIN.map((k) => { const x = A.CL[k], K = { basica: 'B', media: 'M', plus: 'P' }[k];
+          return `<h3>${nomClin(k)}</h3><div class="rejilla"><label class="campo"><span>Puestos (anestesiólogos)</span>${n('apC' + K + 'p', x.puestos, '')}</label><span></span>
+            <label class="campo"><span>Mensual · USD (divisas)</span>${n('apC' + K + 'mu', x.mensual.usd, '')}</label><label class="campo"><span>Mensual · USD a tasa BCV</span>${n('apC' + K + 'mb', x.mensual.bcv, '')}</label>
+            <label class="campo"><span>Anual · USD (divisas)</span>${n('apC' + K + 'au', x.anual.usd, '')}</label><label class="campo"><span>Anual · USD a tasa BCV</span>${n('apC' + K + 'ab', x.anual.bcv, '')}</label></div>`; }).join('') +
+          '<p class="nota" style="margin:0">Institucional (más puestos): se ajusta a mano en la pestaña Clínicas.</p>') +
+        card('Tasa BCV', `<p class="nota" style="margin-top:0" id="apTasaAuto">Consultando la tasa BCV automática…</p>
+        <div class="rejilla"><label class="campo"><span>Tasa BCV manual (Bs por USD)</span>${n('apTasa', A.tasa.v, 'Ej.: 866,56')}</label>
+</div><label class="opcion" style="display:inline-flex;gap:8px;align-items:center;margin:4px 0 8px"><input type="checkbox" id="apTasaUsar"${A.tasa.usar ? ' checked' : ''}> Usar la tasa manual</label>
+        <p class="nota" style="margin:0">La app usa la tasa BCV oficial que se actualiza sola. Marca «Usar la manual» solo si la automática falla o está atrasada.</p>
+        <h3>Comprobar margen frente al USDT</h3><p class="nota" style="margin-top:0">Escribe la tasa USDT de hoy: solo se usa para este cálculo, no se guarda ni la ven los colegas.</p>
+        <label class="campo"><span>Tasa USDT (Bs por USDT)</span><input id="apUsdt" inputmode="decimal" placeholder="Ej.: 975,43"></label><div id="apMargen"></div>`) +
+        card('Datos para pagar', `<p class="nota" style="margin-top:0">Lo que verán los colegas en Mi suscripción.</p>
+        <div class="bq-tabs" id="apPgTabs">${Object.entries(A.PG).map(([k, x]) => `<button type="button" class="opcion${k === apPgTab ? ' sel' : ''}" data-appg="${k}">${esc(x.t.replace(/\s*\(.*\)/, ''))}</button>`).join('')}</div>
+        ${Object.entries(A.PG).map(([k, x]) => `<div class="ap-pg" data-appanel="${k}"${k === apPgTab ? '' : ' hidden'}>${(CAMPOS_PAGO[k] || []).map(([c, l, ph]) => `<label class="campo completo"><span>${esc(l)}</span><input data-apc="${k}.${c}" value="${esc((x.valores || {})[c] || '')}" placeholder="${esc(ph)}"></label>`).join('')}</div>`).join('')}
+        <label class="campo completo"><span>Correo para dudas de pago</span><input id="apCont" type="email" value="${esc(A.contacto)}"></label>
+        <div class="fila-btn" style="justify-content:flex-end"><button class="primario" id="apOk">Guardar</button></div>`);
+      $$('#apPgTabs [data-appg]').forEach((b) => (b.onclick = () => { apPgTab = b.dataset.appg; $$('#apPgTabs [data-appg]').forEach((x) => x.classList.toggle('sel', x === b)); $$('#admCont [data-appanel]').forEach((p) => (p.hidden = p.dataset.appanel !== apPgTab)); }));
+      $('#apOk').onclick = async () => {
+        const val = (id) => numM($('#' + id).value);
+        const pr = { mensual: { usd: val('apMu'), bcv: val('apMb') }, anual: { usd: val('apAu'), bcv: val('apAb') } };
+        if (Object.values(pr).some((x) => !(x.usd > 0) || !(x.bcv > 0))) return aviso('Revisa los precios: deben ser números mayores que cero');
+        pr.clinica = {}; for (const [k, K] of [['basica', 'B'], ['media', 'M'], ['plus', 'P']]) {
+          const c = { puestos: Math.round(val('apC' + K + 'p')), mensual: { usd: val('apC' + K + 'mu'), bcv: val('apC' + K + 'mb') }, anual: { usd: val('apC' + K + 'au'), bcv: val('apC' + K + 'ab') } };
+          if (!(c.puestos > 0) || [c.mensual, c.anual].some((x) => !(x.usd > 0) || !(x.bcv > 0))) return aviso('Revisa los precios de clínicas: deben ser números mayores que cero');
+          pr.clinica[k] = c;
+        }
+        const pagos = {}; $$('#admCont [data-apc]').forEach((e) => { const [k, c] = e.dataset.apc.split('.'); (pagos[k] = pagos[k] || {})[c] = e.value.trim(); });
+        if (!confirm('¿Guardar? Los colegas verán estos precios y datos de pago.')) return;
+        const tv = val('apTasa'), usar = $('#apTasaUsar').checked;
+        if (usar && !(tv > 0)) return aviso('Escribe la tasa BCV manual o desmarca «Usar la manual»');
+        const tasa = { v: tv > 0 ? tv : 0, fecha: tv > 0 ? new Date().toISOString().slice(0, 10) : '', usar };
+        try { await Nube.admAjustes({ precios: pr, pagos, contacto: $('#apCont').value.trim(), tasa }); aviso('Precios y datos de cobro guardados'); pintar(); } catch (e) { aviso(e.message, 5000); }
+      };
+      const margen = () => {
+        const u = numM($('#apUsdt').value), t = tasaBcv(), out = $('#apMargen'); if (!out) return;
+        if (!(u > 0) || !t) { out.innerHTML = ''; return; }
+        out.innerHTML = `<table class="sp-margen"><tr><th>Plan</th><th>Pago Móvil (Bs)</th><th>Equivale a USDT</th><th>Precio USDT</th><th>Margen</th></tr>${['mensual', 'anual'].map((k) => { const bcv = val(k === 'mensual' ? 'apMb' : 'apAb') || A.PR[k].bcv, usd = val(k === 'mensual' ? 'apMu' : 'apAu') || A.PR[k].usd, bs = bcv * t.v, eq = bs / u, mg = (eq / usd - 1) * 100;
+          return `<tr><td>${k === 'mensual' ? 'Mensual' : 'Anual'}</td><td>${fmtM(bs)}</td><td>${fmtM(eq)}</td><td>${fmtUsd(usd)}</td><td style="color:${mg < 0 ? '#b3261e' : '#1b6e3a'}"><b>${mg >= 0 ? '+' : ''}${fmtM(mg, 1)} %</b></td></tr>`; }).join('')}</table>
+          <p class="nota" style="margin:6px 0 0">Con tasa BCV ${fmtM(t.v)}${t.fecha ? ' (' + fFecha(t.fecha) + ')' : ''}. Margen negativo: el pago en bolívares vale menos que el precio en USDT; sube el precio a tasa BCV.</p>`;
+      };
+      ['apUsdt', 'apMb', 'apAb', 'apMu', 'apAu'].forEach((id) => ($('#' + id).oninput = margen));
+      const auto = (x) => { const e = $('#apTasaAuto'); if (e) e.innerHTML = x ? `Tasa BCV automática: <b>${fmtM(x.v)} Bs por USD</b>${x.fecha ? ' · ' + fFecha(x.fecha) : ''}.` : 'No se pudo leer la tasa BCV automática ahora. Si persiste, usa la manual.'; margen(); };
+      refrescarTasa().then(auto).catch(() => { let c = null; try { c = JSON.parse(localStorage.getItem(TASA_K) || 'null'); } catch (e) {} auto(c); });
+    };
+    pintar(); Nube.ajustes().then(pintar).catch((e) => aviso(e.message, 4500));
+  }
+
+  /* ---- Ajustes › Cuenta (2.0) ---- */
+  function cuentaNubeHtml() {
+    const L = licencia() || {}, pend = Nube.pendientes(), ult = Nube.ultimaSync(), err = Nube.ultimoError();
+    return card('Mi cuenta', `<p style="margin:0 0 8px">Correo: <b>${esc(nubeU.correo)}</b></p>
+        <p class="nota" style="margin:0 0 8px">Suscripción: <b>${L.activa ? (L.estado === 'prueba' ? `prueba gratis, quedan ${L.dias} días` : `activa (${esc(L.plan)}), quedan ${L.dias} días`) : 'vencida'}</b></p>
+        <div class="fila-btn"><button class="primario" data-acc="irSusc">Mi suscripción</button>${L.admin ? '<button class="secundario" data-acc="irAdmin">Administración</button>' : ''}</div>`) +
+      card('Sincronización', `<p class="nota" style="margin-top:0">Tus historias, documentos y ajustes se guardan en este dispositivo y en tu cuenta. Con la misma cuenta los ves en el teléfono y en la computadora.</p>
+        <p style="margin:0">${pend ? `<b>${pend} cambio${pend === 1 ? '' : 's'} por subir</b>` : 'Todo subido'}${ult ? ` · última vez: ${new Date(ult).toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' })}` : ''}</p>
+        ${err ? `<p class="nota" style="color:var(--peligro)">${esc(err)}</p>` : ''}
+        <div class="fila-btn"><button class="secundario" data-acc="syncYa">Sincronizar ahora</button></div>
+        ${Nube.compartido() ? '<p class="nota">Equipo compartido: al cerrar sesión se borran tus datos de este equipo (quedan en tu cuenta).</p>' : ''}`) +
+      card('Seguridad', `<div class="fila-btn" style="margin-top:0"><button class="secundario" data-acc="nubeClave">Cambiar contraseña</button><button class="secundario" data-acc="nubeSalir">Cerrar sesión</button></div>
+        <div class="fila-btn"><button class="peligro chico" data-acc="nubeBorrar">Borrar mi cuenta y mis datos</button></div>`);
+  }
+  async function cerrarSesionNube() {
+    aviso('Cerrando sesión…', 1500);
+    await Nube.salir(); aplicarCuenta(null); pantalla = 'bienvenida'; render();
+  }
+  // Equipos compartidos: cierre automático tras 30 min sin uso
+  let ultimoUso = Date.now();
+  ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, () => (ultimoUso = Date.now()), { passive: true }));
+  setInterval(() => { if (NUBE() && nubeU && Nube.compartido() && Date.now() - ultimoUso > 30 * 60e3) { ultimoUso = Date.now(); guardarYa(); cerrarSesionNube().then(() => aviso('Sesión cerrada por inactividad', 4000)); } }, 60e3);
+  setInterval(() => refrescarLicencia(), 30 * 60e3);
 
   /* ---- Mi farmacia: qué presentaciones tiene el usuario en su hospital o clínica ---- */
   const FARMACIA = [
@@ -1947,15 +2547,20 @@
 
   /* ---- Asistente de configuración (al crear la cuenta o al entrar sin cuenta por primera vez) ---- */
   let cfgPaso = 0;
-  function irConfiguracion() { cfgPaso = 0; pantalla = 'config'; render(); window.scrollTo(0, 0); }
-  function terminarConfiguracion(conTour) { delete cfg.onbPend; cfg.novVista = VERSION; cfg.tourPend = !!conTour; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); window.scrollTo(0, 0); }
+  function irConfiguracion() { cfgPaso = NUBE() ? -1 : 0; pantalla = 'config'; render(); window.scrollTo(0, 0); }
+  function terminarConfiguracion(conTour) { delete cfg.onbPend; cfg.novVista = VERSION; cfg.tourPend = !!conTour; Store.guardarConfig(cfg); pantalla = 'inicio'; render(); window.scrollTo(0, 0); if (!conTour && NUBE() && nubeU) setTimeout(ofrecerLegado, 300); }
   function renderConfig(v) {
     $('#titulo').textContent = 'Configurar Morpheus MD';
-    $('#btnAtras').hidden = cfgPaso === 0; $('#btnSOS').hidden = true;
-    const pasos = ['Lugares de trabajo', 'Mi farmacia', 'Listo'];
-    const cab = `<div class="cf-pasos">${pasos.map((p, i) => `<span class="${i === cfgPaso ? 'act' : i < cfgPaso ? 'hecho' : ''}">${i + 1}. ${p}</span>`).join('')}</div>`;
+    const k0 = NUBE() ? 1 : 0;
+    $('#btnAtras').hidden = cfgPaso === -k0; $('#btnSOS').hidden = true;
+    const pasos = (k0 ? ['Tus datos'] : []).concat(['Lugares de trabajo', 'Mi farmacia', 'Listo']);
+    const cab = `<div class="cf-pasos">${pasos.map((p, i) => `<span class="${i === cfgPaso + k0 ? 'act' : i < cfgPaso + k0 ? 'hecho' : ''}">${i + 1}. ${p}</span>`).join('')}</div>`;
     const pie = (sig) => `<div class="fila-btn" style="justify-content:space-between"><button class="secundario" id="cfOmitir">Omitir</button><button class="primario" id="cfSig">${sig}</button></div>`;
-    if (cfgPaso === 0) {
+    if (cfgPaso === -1) {
+      v.innerHTML = cab + card('Tus datos profesionales', '<p class="nota" style="margin-top:0">Salen en el membrete y bajo la firma de tus historias, valoraciones y récipes. Puedes completarlos después en ⚙ Ajustes.</p>' + camposMedico(cfg.perfil)) + pie('Siguiente');
+      enlazarMedico(cfg.perfil);
+      $('#cfSig').onclick = () => { Store.guardarConfig(cfg); cfgPaso = 0; render(); window.scrollTo(0, 0); };
+    } else if (cfgPaso === 0) {
       if (!cfg.sedes.length) cfg.sedes.push({ id: uid(), nombre: '', sub: '', logo: '' });
       v.innerHTML = cab + card('¿Dónde trabajas?', `<p class="nota" style="margin-top:0">Agrega los hospitales o clínicas donde trabajas. El lugar que elijas en cada historia sale en el encabezado del PDF. El logo y los demás datos se editan después en ⚙ Ajustes › Lugares de trabajo.</p>
         ${cfg.sedes.map((s, i) => `<div class="med"><div class="rejilla ancha"><label class="campo completo"><span>Hospital o clínica ${i + 1}</span><input data-cfsede="${i}" data-c="nombre" value="${esc(s.nombre)}" placeholder="Nombre del hospital o clínica"></label>
@@ -1986,7 +2591,7 @@
 
   /* ---- Recorrido guiado (A) ---- */
   const TOUR = [
-    { t: 'Bienvenido a Morpheus MD', x: 'Registro anestésico digital y herramientas de consulta para anestesiólogos. Todo lo que escribes se guarda solo en este dispositivo: no se envía a ningún servidor. En 8 pasos te mostramos dónde está cada cosa.' },
+    { t: 'Bienvenido a Morpheus MD', x: 'Registro anestésico digital y herramientas de consulta para anestesiólogos. Lo que escribes se guarda en este dispositivo y en tu cuenta: lo ves en el teléfono y en la computadora, y funciona sin internet. En 8 pasos te mostramos dónde está cada cosa.' },
     { sel: '.fab', t: 'Nueva historia', x: 'Crea la historia de anestesia de un paciente. Se guarda sola mientras escribes. Si trabajas en varios lugares, te pregunta en cuál.' },
     { sel: '#buscar', t: 'Tus historias', x: 'Debajo aparece la lista de historias. Búscalas por nombre, cédula, cirugía o fecha. El botón ⋮ de cada una permite verla en PDF, duplicarla como plantilla o eliminarla.' },
     { sel: '.ex-banner', t: 'Extras', x: 'Valoración preanestésica y récipe con tu membrete, tu firma y tu sello.' },
@@ -1998,7 +2603,7 @@
   let tourPaso = -1;
   function tour(i) {
     let ov = $('#tour');
-    if (i < 0 || i >= TOUR.length) { if (ov) ov.remove(); tourPaso = -1; cfg.tourPend = false; cfg.tourVisto = true; Store.guardarConfig(cfg); return; }
+    if (i < 0 || i >= TOUR.length) { if (ov) ov.remove(); tourPaso = -1; cfg.tourPend = false; cfg.tourVisto = true; Store.guardarConfig(cfg); if (NUBE() && nubeU) setTimeout(ofrecerLegado, 300); return; }
     tourPaso = i; if (!ov) { ov = document.createElement('div'); ov.id = 'tour'; document.body.appendChild(ov); }
     const p = TOUR[i], el = p.sel && $(p.sel), ult = i === TOUR.length - 1;
     let hueco = '', clase = 'centro', estilo = '';
@@ -2039,6 +2644,7 @@
 
   /* ---- Novedades de cada versión ---- */
   const NOVEDADES = [
+    ['2.0.0', ['Cuenta con tu correo: tus historias, documentos y ajustes se guardan en tu cuenta y los ves en el teléfono y en la computadora (web: morpheus-md.com).', 'Si ya usabas la app en este dispositivo, te ofrecemos pasar tus historias a tu cuenta.', 'Equipo compartido: en la computadora de la clínica, al cerrar sesión se borran tus datos de ese equipo y la sesión se cierra sola tras 30 min sin uso.', '7 días de prueba gratis; luego plan mensual o anual en Menú › Mi suscripción: Pago Móvil (monto en Bs a la tasa BCV del día), Zelle o Binance, con captura del pago. Crisis (SOS) siempre es gratis.', 'Planes para clínicas: el responsable paga un solo plan e invita a sus anestesiólogos.', 'Varios consultorios: en ⚙ Ajustes › Mis datos agrega tus direcciones y elige cuál sale en cada valoración o récipe.']],
     ['1.9.13', ['Menú reorganizado por grupos: Documentos, Herramientas clínicas, Configuración y Ayuda.', 'Nuevo botón ⚙ Ajustes arriba: Mis datos, Firma y sello, Imágenes, Lugares de trabajo y Cuenta, en pestañas.', 'Valoración y récipe: en el menú ⋮ del documento, Compartir PDF y Guardar PDF directo, sin pasar por la vista previa.']],
     ['1.9.12', ['Guía de uso (Menú › ❓ Guía de uso) y recorrido guiado para quien entra por primera vez.', 'Mi farmacia: marca los fármacos de tu hospital; las mezclas de bloqueos y la calculadora se adaptan.',
       'Al crear la cuenta, un asistente pregunta tus lugares de trabajo y tu farmacia.', 'Bloqueos: dosis de ropivacaína y levobupivacaína, lidocaína 4 % y 10 % en vía aérea, raquídea con dosis habituales y límites de volumen, PENG con sus acotaciones.',
@@ -2064,9 +2670,9 @@
   let ayudaDesde = 'inicio', ayudaBusca = '';
   function irAyuda() { if (pantalla !== 'ayuda') ayudaDesde = pantalla; pantalla = 'ayuda'; render(); window.scrollTo(0, 0); }
   const AYUDA = [
-    { t: 'Primeros pasos', ir: 'tour', b: 'Ver el recorrido', p: ['Morpheus MD funciona sin internet. Todo lo que escribes se guarda solo en este dispositivo (teléfono o navegador): no se envía a ningún servidor.',
-      'Tu cuenta (usuario y contraseña) también vive en este dispositivo. Para usarla en otro teléfono o en la web: ⚙ Ajustes › Cuenta › Exportar mi cuenta, y en el otro dispositivo “Importar cuenta”.',
-      'Haz un respaldo de tus historias de vez en cuando (Menú › Respaldo), sobre todo antes de cambiar de teléfono.'] },
+    { t: 'Primeros pasos', ir: 'tour', b: 'Ver el recorrido', p: ['Morpheus MD funciona sin internet: lo que escribes se guarda en este dispositivo y, cuando hay conexión, se sincroniza con tu cuenta. Así ves tus historias en el teléfono y en la computadora con el mismo correo.',
+      'Tu cuenta incluye 7 días de prueba gratis; luego eliges un plan en Menú › Mi suscripción. Crisis (SOS) siempre es gratis.',
+      'En una computadora de clínica marca “Equipo compartido” al iniciar sesión: al salir se borran tus datos de ese equipo (quedan en tu cuenta) y la sesión se cierra sola tras 30 minutos sin uso.'] },
     { t: 'Instalar la versión web como app', web: true, p: ['Android (Chrome): menú ⋮ del navegador › “Instalar app” o “Agregar a la pantalla de inicio”.', 'iPhone (Safari): botón Compartir › “Agregar a inicio”.', 'Tus datos quedan en ese navegador: si borras los datos del navegador, se borran. Respáldalos.'] },
     { t: 'Crear una historia de anestesia', ir: 'nueva', b: 'Crear una historia', p: ['En la pantalla de inicio toca “+ Nueva historia”. Si tienes varios lugares de trabajo, elige dónde.',
       'La historia tiene 10 secciones: Paciente, Valoración, Preparación, Inducción y técnica, Vía aérea, Regional, Transoperatorio, Balance y gases, Salida, Notas y firma. Pásalas con la barra de arriba o los botones de abajo.',
@@ -2086,7 +2692,7 @@
     { t: 'Ajustes: perfil, firma y sello', ir: 'perfil', b: 'Abrir Ajustes', p: ['El engranaje ⚙ de arriba abre tus ajustes en pestañas: Mis datos, Firma y sello (dibujada o escaneada), Imágenes (marca de agua y portada), Lugares de trabajo y Cuenta.', 'Aquí también exportas o importas tu cuenta y cambias la contraseña.'] },
     { t: 'Lugares de trabajo', ir: 'sedes', b: 'Abrir Lugares de trabajo', p: ['Están en ⚙ Ajustes › Lugares de trabajo. Cada lugar tiene nombre, ciudad y logo; es el encabezado del PDF de la historia.', 'Al crear una historia eliges el lugar; puedes cambiarlo en la sección Paciente.'] },
     { t: 'Mi farmacia', ir: 'farmacia', b: 'Abrir Mi farmacia', p: ['Marca los anestésicos locales, coadyuvantes y fármacos de rescate que tienes. La app usa esa lista en Bloqueos (mezclas y calculadora) y en Crisis (presentaciones y avisos, p. ej., si no hay emulsión lipídica).'] },
-    { t: 'Respaldo y cambio de teléfono', ir: 'respaldo', b: 'Hacer un respaldo', p: ['Menú › Respaldo exporta todas tus historias y documentos en un archivo; guárdalo fuera del teléfono (correo, nube).', 'Para pasar a otro teléfono: respalda aquí, instala la app allá e importa el archivo.'] },
+    { t: 'Cambio de teléfono y respaldo', ir: 'respaldo', b: 'Hacer un respaldo', p: ['Con tu cuenta no hace falta pasar archivos: en el teléfono o la computadora nuevos inicia sesión con tu correo y tus historias se descargan solas.', 'Si quieres una copia propia, Menú › Respaldo exporta todas tus historias y documentos en un archivo.'] },
   ];
   function renderAyuda(v) {
     $('#titulo').textContent = 'Guía de uso';
@@ -2097,6 +2703,7 @@
       (l.length ? l.map((a, i) => `<details class="tarjeta ay-tema"${q || i === 0 ? ' open' : ''}><summary>${esc(a.t)}</summary><ul class="guia-items">${a.p.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
         ${a.ir ? `<div class="fila-btn" style="margin:6px 0 0"><button class="primario chico" data-acc="ayIr" data-ir="${a.ir}">${esc(a.b)} ›</button></div>` : ''}</details>`).join('')
         : card('Sin resultados', '<p class="nota" style="margin:0">Prueba con otra palabra.</p>')) +
+      card('¿Necesitas ayuda?', `<p class="nota" style="margin:0">Escríbenos a ${mailA('soporte')}: cuéntanos qué pasó y, si puedes, adjunta una captura de pantalla.</p>`) +
       `<p class="nota" style="padding:0 6px 20px">Morpheus MD ${VERSION}. Material de apoyo: no sustituye el juicio clínico ni los protocolos de tu institución.</p>`;
     const inp = $('#ayQ'); inp.oninput = () => { ayudaBusca = inp.value; const pos = inp.selectionStart; renderAyuda(v); const n = $('#ayQ'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} };
   }
@@ -2211,7 +2818,7 @@
         <li>Los textos están redactados con palabras propias a partir de guías, artículos, NYSORA y libros de referencia, que se citan en cada ficha. No se copian textos literales.</li>
         <li>Morpheus MD no reclama la propiedad de ninguna imagen. Todas las imágenes pertenecen a sus autores y editoriales, provienen de artículos publicados con licencia Creative Commons Atribución (CC BY 4.0), que permite compartirlas y adaptarlas citando la fuente, y se muestran con su crédito completo y un enlace al artículo original.</li>
         <li>Las figuras de libros (Miller, Hadzic, Tornero y otros), de NYSORA y de otros sitios web están protegidas por derechos de autor y no se reproducen: cada ficha indica dónde verlas (botón “Ver en NYSORA” y capítulo del libro).</li>
-        <li>Si eres autor o titular de alguna imagen y quieres que se retire o se corrija su atribución, escríbenos y se hará en la siguiente versión.</li></ul>`) +
+        <li>Si eres autor o titular de alguna imagen y quieres que se retire o se corrija su atribución, escríbenos a ${mailA('contacto')} y se hará en la siguiente versión.</li></ul>`) +
       card('Libros y guías de referencia', `<ul class="guia-items"><li>${esc(G.hadzic)}</li>
         <li>El-Boghdadly K, Albrecht E, Wolmarans M, et al. Standardizing nomenclature in regional anesthesia: an ASRA-ESRA Delphi consensus study of upper and lower limb nerve blocks. Reg Anesth Pain Med 2024;49:782–792. ${enlace('https://doi.org/10.1136/rapm-2023-104884', 'doi:10.1136/rapm-2023-104884')}</li>
         <li>El-Boghdadly K, Wolmarans M, Stengel AD, et al. Standardizing nomenclature in regional anesthesia: an ASRA-ESRA Delphi consensus study of abdominal wall, paraspinal, and chest wall blocks. Reg Anesth Pain Med 2021;46:571–580. ${enlace('https://doi.org/10.1136/rapm-2020-102451', 'doi:10.1136/rapm-2020-102451')}</li>
@@ -2339,11 +2946,17 @@
     return D.lab.map((l, i) => `${D.lab.length > 1 ? `<h3>Fecha ${i + 1}</h3>` : ''}<div class="rejilla labs">${LABS.map(([k, tx]) => `<label class="campo${k === 'fecha' ? ' doble' : ''}"><span>${tx}</span><input data-k="lab.${i}.${k}"${k === 'fecha' ? ' type="date"' : ['otros', 'hiv', 'vdrl'].includes(k) ? '' : ' inputmode="decimal"'} value="${esc(l[k] || '')}"></label>`).join('')}</div>`).join('') +
       (D.lab.length < 3 ? '<div class="fila-btn"><button class="secundario chico" data-acc="labMas">+ Otra fecha</button></div>' : '');
   }
+  function dirSel() { // consultorio del membrete para este documento (solo si hay varios)
+    const l = direccionesDe(cfg.perfil || {}); if (D.dir == null) D.dir = (cfg.perfil || {}).direccion || '';
+    if (l.length < 2 && !(D.dir && !l.includes(D.dir))) return '';
+    const ops = l.slice(); if (D.dir && !ops.includes(D.dir)) ops.push(D.dir);
+    return SEL('dir', 'Consultorio / dirección (membrete)', ops.map((x) => [x, x]));
+  }
   function renderVal(v) {
     const X = Extras; X.calcular(D); const p = D.p, au = D._sbAuto || {};
     $('#titulo').textContent = p.nombre || 'Valoración preanestésica';
     v.innerHTML =
-      card('Paciente', rej(T('fecha', 'Fecha de la valoración', { tipo: 'date' }) + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') +
+      card('Paciente', rej(T('fecha', 'Fecha de la valoración', { tipo: 'date' }) + dirSel() + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') +
         SEL('p.sexo', 'Sexo', [['', '—'], ['M', 'Masculino'], ['F', 'Femenino']]) + Nm('p.edad', 'Edad', 'años') + Nm('p.peso', 'Peso', 'kg') + Nm('p.talla', 'Talla', 'm', { ph: '1.65' }) +
         '<label class="campo calc"><span>IMC</span><div class="con-unidad"><input id="vIMC" readonly><em>kg/m²</em></div></label>' + T('p.ocup', 'Ocupación')) +
         rej(T('p.dx', 'Diagnóstico', { full: true }) + T('p.proc', 'Procedimiento a realizar', { full: true }) + T('p.tratante', 'Médico tratante') + T('p.fechaCx', 'Fecha de la cirugía', { tipo: 'date' }), true) +
@@ -2375,7 +2988,7 @@
         rej(TA('indic', 'Otras indicaciones', { alto: 64 }), true) + R('asa', 'ASA', ['I', 'II', 'III', 'IV', 'V', 'I E', 'II E', 'III E', 'IV E', 'V E']) + rej(T('plan', 'Plan anestésico', { full: true }), true) +
         `<div class="opciones">${['Anestesia general balanceada', 'TIVA', 'Anestesia raquídea', 'Anestesia epidural', 'Combinada raquídea-epidural', 'Bloqueo de nervio periférico', 'Sedación'].map((s) => `<button type="button" class="opcion" data-acc="dPlan" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>` +
         '<h3>Plan analgésico</h3>' + C('analg.ev', 'EV') + C('analg.peri', 'Peridural') + C('analg.reg', 'Regional')) +
-      '<p class="nota" style="margin:0 4px 12px">La firma y el sello salen de "Mi perfil". Las conductas de medicación son una referencia (Guía de Manejo de Medicación Preoperatoria 2026) y no sustituyen el juicio clínico.</p>';
+      '<p class="nota" style="margin:0 4px 12px">La firma y el sello salen de ⚙ Ajustes › Firma y sello. Las conductas de medicación son una referencia (Guía de Manejo de Medicación Preoperatoria 2026) y no sustituyen el juicio clínico.</p>';
     pintarCalcVal();
   }
   function pintarCalcVal() {
@@ -2405,7 +3018,7 @@
     $('#titulo').textContent = D.p.nombre || 'Récipe';
     const pl = cfg.rxPlantillas || [];
     if (!D.items || !D.items.length) D.items = [{}];
-    v.innerHTML = card('Paciente', rej(T('fecha', 'Fecha', { tipo: 'date' }) + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') + Nm('p.edad', 'Edad', 'años') + Nm('p.peso', 'Peso', 'kg')) +
+    v.innerHTML = card('Paciente', rej(T('fecha', 'Fecha', { tipo: 'date' }) + dirSel() + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') + Nm('p.edad', 'Edad', 'años') + Nm('p.peso', 'Peso', 'kg')) +
         '<div class="fila-btn"><button class="secundario chico" data-acc="docDeHistoria">Tomar datos de una historia</button></div>') +
       card('Rp / medicamentos', D.items.map((it, i) => `<div class="med"><div class="rejilla ancha"><label class="campo completo"><span>Medicamento y presentación</span><input data-k="items.${i}.med" value="${esc(it.med || '')}" placeholder="Ej. Ketoprofeno 100 mg tabletas"></label>
           <label class="campo"><span>Cantidad</span><input data-k="items.${i}.cant" value="${esc(it.cant || '')}" placeholder="#10 (diez)"></label></div>
@@ -2539,9 +3152,17 @@
     else if (acc === 'bqZoom') bqZoom(a.dataset.src);
     else if (acc === 'bqMas') { bqC.filas.push({ p: (bqPresDisp().find((x) => x[0] === 'lido2') || bqPresDisp()[0])[0], epi: false, ml: '' }); render(); const r = $('#bqRes'); if (r) r.scrollIntoView({ block: 'end' }); }
     else if (acc === 'ayIr') ayudaIr(a.dataset.ir);
+    else if (acc === 'irSusc') { suscMsg = ''; irSuscripcion(); }
+    else if (acc === 'suscRefrescar') { Nube.estado(true).then(() => { render(); aviso('Estado actualizado'); }).catch((e) => aviso(e.message, 4000)); }
+    else if (acc === 'irAdmin') { pantalla = 'admin'; render(); window.scrollTo(0, 0); }
+    else if (acc === 'syncYa') { aviso('Sincronizando…', 1500); Nube.sincronizar().then((r) => { render(); aviso(r ? `Listo · ${r.subidos} subidos, ${r.bajados} recibidos` : 'Listo'); }).catch((e) => { render(); aviso(e.message, 4500); }); }
+    else if (acc === 'nubeSalir') { if (confirm(Nube.pendientes() ? 'Hay cambios sin subir: se intentará subirlos antes de salir. ¿Cerrar sesión?' : '¿Cerrar sesión?')) cerrarSesionNube(); }
+    else if (acc === 'nubeClave') { pantalla = 'nuevaclave'; render(); }
+    else if (acc === 'nubeBorrar') { if (confirm('¿Borrar tu cuenta? Se eliminan tu suscripción y TODAS tus historias y documentos de la nube y de este equipo. No se puede deshacer.') && prompt('Escribe BORRAR para confirmar') === 'BORRAR') Nube.borrarCuenta().then(() => { aplicarCuenta(null); pantalla = 'bienvenida'; render(); aviso('Cuenta borrada'); }).catch((e) => aviso(e.message, 4500)); }
     else if (acc === 'bqFarm') { farmDesde = pantalla; pantalla = 'farmacia'; render(); window.scrollTo(0, 0); }
     else if (acc === 'bqQuitar') { bqC.filas.splice(+a.dataset.i, 1); render(); }
     else if (acc === 'guiaAbrir') { guiaId = a.dataset.id; pantalla = 'guia'; render(); window.scrollTo(0, 0); }
+    else if (acc === 'docNuevo' && !puedeCrear()) return;
     else if (acc === 'docNuevo') { const x = nuevoDoc(a.dataset.t); Store.guardarDoc(x); abrirDoc(x); }
     else if (acc === 'docAbrir') { const x = Store.cargarDoc(a.dataset.id); if (x) abrirDoc(migrarDoc(x)); else aviso('No se pudo abrir'); }
     else if (acc === 'docMas') { const id = a.dataset.id; menu([
@@ -2623,23 +3244,32 @@
         { t: '📖 Guías de consulta', f: () => { guiaDesde = pantalla; pantalla = 'guias'; render(); window.scrollTo(0, 0); } },
         { sec: 'Configuración' },
         { t: '💊 Mi farmacia', f: () => { farmDesde = pantalla; pantalla = 'farmacia'; render(); window.scrollTo(0, 0); } },
+        ...(NUBE() && nubeU ? [{ t: '⭐ Mi suscripción', f: () => { suscMsg = ''; irSuscripcion(); } }] : []),
+        ...(NUBE() && nubeU && (licencia() || {}).clinicaAdmin ? [{ t: '🏥 Mi clínica', f: irClinica }] : []),
+        ...(NUBE() && nubeU && (licencia() || {}).admin ? [{ t: '🛠 Administración', f: () => { pantalla = 'admin'; render(); window.scrollTo(0, 0); } }] : []),
         { t: '🗂 Respaldo (exportar / importar)', f: respaldo },
         { sec: 'Ayuda' },
         { t: '❓ Guía de uso', f: irAyuda },
-        { t: 'ℹ Acerca de', f: () => { abrirHoja(`<h2>Morpheus MD</h2><p>Versión ${VERSION} · Registro anestésico digital</p><p class="nota">${window.Nativo ? 'Todo se guarda solo en este teléfono; la app no tiene acceso a Internet.' : 'Todo se guarda solo en este navegador, en este equipo; tus historias no se envían a ningún servidor.'} Usa “Respaldo” de vez en cuando para no perder tus historias si cambias o pierdes el teléfono.</p>
+        { t: 'ℹ Acerca de', f: () => { abrirHoja(`<h2>Morpheus MD</h2><p>Versión ${VERSION} · Registro anestésico digital</p><p class="nota">${NUBE() && nubeU ? 'Tus datos se guardan en este dispositivo y se sincronizan con tu cuenta (' + esc(nubeU.correo) + ').' : 'Tus datos se guardan en este dispositivo.'} Ver la Política de privacidad para más detalles.</p>
+          <p class="nota">Web: <a href="https://morpheus-md.com/">morpheus-md.com</a><br>Soporte: ${mailA('soporte')}<br>Pagos: ${mailA('pagos')}<br>Clínicas y otros temas: ${mailA('contacto')}</p>
           <div class="fila-btn">${Object.entries(LEGAL.TEXTOS).map(([k, x]) => `<button class="secundario chico" data-legal="${k}">${x.t}</button>`).join('')}</div>
           <div class="acciones"><button class="primario" id="acCerrar">Cerrar</button></div>`);
           $('#acCerrar').onclick = cerrarHoja; $$('#capa [data-legal]').forEach((b) => (b.onclick = () => verLegal(b.dataset.legal))); } },
-        ...(cfg.cuenta ? [{ t: '🔒 Cerrar sesión', f: cerrarSesion }] : []),
+        ...(NUBE() && nubeU ? [{ t: '🔒 Cerrar sesión', f: () => { if (confirm('¿Cerrar sesión?')) cerrarSesionNube(); } }] : cfg.cuenta ? [{ t: '🔒 Cerrar sesión', f: cerrarSesion }] : []),
       ]);
     }
   };
 
   function atras() {
+    if (pantalla === 'suscripcion') { pantalla = ['extras', 'perfil', 'editor', 'doc'].includes(suscDesde) && (suscDesde !== 'editor' || H) && (suscDesde !== 'doc' || D) ? suscDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'admin' || pantalla === 'clinica') { if (!$('#capa').hidden) { cerrarHoja(); return true; } pantalla = 'inicio'; render(); return true; }
+    if (pantalla === 'clinicasInfo') { if (!$('#capa').hidden) { cerrarHoja(); return true; } pantalla = nubeU ? (['suscripcion', 'clinica'].includes(clinInfoDesde) ? clinInfoDesde : 'inicio') : (['login', 'registro'].includes(clinInfoDesde) ? clinInfoDesde : 'bienvenida'); render(); window.scrollTo(0, 0); return true; }
+    if (pantalla === 'confirmar' || pantalla === 'nuevaclave') { pantalla = nubeU ? 'perfil' : 'login'; render(); return true; }
+    if (NUBE() && (pantalla === 'login' || pantalla === 'registro')) { pantalla = 'bienvenida'; render(); return true; }
     if ($('#tour')) { tour(-1); return true; }
     if (pantalla === 'ayuda') { pantalla = ['editor', 'extras', 'guias', 'bloqueos', 'calc'].includes(ayudaDesde) && (ayudaDesde !== 'editor' || H) ? ayudaDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
     if (pantalla === 'farmacia') { pantalla = ['ayuda', 'bloqueos', 'bloqueo', 'extras', 'editor'].includes(farmDesde) && (farmDesde !== 'editor' || H) ? farmDesde : 'inicio'; render(); window.scrollTo(0, 0); return true; }
-    if (pantalla === 'config') { if (cfgPaso > 0) { cfgPaso--; render(); window.scrollTo(0, 0); } return true; }
+    if (pantalla === 'config') { if (cfgPaso > (NUBE() ? -1 : 0)) { cfgPaso--; render(); window.scrollTo(0, 0); } return true; }
     if (window.Visor && Visor.abierto()) { Visor.cerrar(); return true; }
     if (!$('#capa').hidden) { cerrarHoja(); return true; }
     if (pantalla === 'editor') { guardarYa(); H = null; pantalla = 'inicio'; render(); return true; }
@@ -2664,8 +3294,11 @@
     }
     return false;
   }
-  window.app = { version: VERSION, atras: () => atras(), pausa: () => guardarYa(), _estado: () => ({ H, cfg }) };
+  window.app = { version: VERSION, atras: () => atras(), pausa: () => guardarYa(), _estado: () => ({ H, cfg, D }) };
   document.addEventListener('visibilitychange', () => { if (document.hidden) guardarYa(); });
   pantalla = 'bienvenida';
+  capturarInvitacion();
+  if (window.Nube) Nube.iniciar({ recuperar: () => { pantalla = 'nuevaclave'; render(); }, config: configDeLaNube,
+    usuario: (u) => { if (!u && nubeU) { aplicarCuenta(null); pantalla = 'bienvenida'; render(); } } }).then((u) => { if (u) { aplicarCuenta(u); refrescarLicencia(); } if (pantalla === 'bienvenida') render(); });
   render();
 })();

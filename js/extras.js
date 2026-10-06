@@ -1,4 +1,4 @@
-/* Extras (vista previa de la versión 2.0): valoración preanestésica y récipe.
+/* Extras: valoración preanestésica y récipe.
    Datos clínicos, catálogo de conciliación de medicación y generación de los PDF con membrete del médico. */
 window.Extras = (function () {
   'use strict';
@@ -239,6 +239,7 @@ window.Extras = (function () {
 
   /* ---------- Valoración preanestésica (carta vertical) ---------- */
   function pdfValoracion(v, pf) {
+    if (typeof v.dir === 'string' && v.dir.trim()) pf = Object.assign({}, pf, { direccion: v.dir.trim() }); // consultorio elegido en el documento
     calcular(v);
     d = new jspdf.jsPDF({ unit: 'pt', format: 'letter' }); conM = fuentes();
     const X1 = 40, X2 = 572, p = v.p || {}, e = v.ef || {};
@@ -375,6 +376,7 @@ window.Extras = (function () {
 
   /* ---------- Récipe: media carta apaisada (8,5 × 5,5 in) · Rp a la izquierda, indicaciones a la derecha ---------- */
   function pdfRecipe(r, pf) {
+    if (typeof r.dir === 'string' && r.dir.trim()) pf = Object.assign({}, pf, { direccion: r.dir.trim() }); // consultorio elegido en el documento
     d = new jspdf.jsPDF({ unit: 'pt', format: [612, 396], orientation: 'landscape' }); conM = fuentes();
     const W = 612, H = 396, M = 18;
     const items = (r.items || []).filter((i) => t(i.med).trim());
