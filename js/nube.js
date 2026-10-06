@@ -74,6 +74,8 @@ window.Nube = (function () {
           const id = 'u' + Math.random().toString(16).slice(2, 10) + '-0000-4000-8000-000000000000';
           d.users[email] = { id, password, nombre: (options && options.data && options.data.nombre) || '', admin: !Object.keys(d.users).length, creado: ahora() };
           d.subs[id] = { estado: 'prueba', plan: 'prueba', canal: 'prueba', inicio: ahora(), vence: new Date(Date.now() + 7 * 864e5).toISOString() };
+          const cl = options && options.data && options.data.clinica;
+          if (cl && cl.nombre) { d.clinicas = d.clinicas || []; d.clinicas.push({ id: 'c' + Math.random().toString(16).slice(2, 10), nombre: cl.nombre, rif: cl.rif || '', ciudad: cl.ciudad || '', medicos_estimados: +cl.medicos || 0, admin_id: id, plan: 'basica', puestos: 0, estado: 'solicitud', vence: null, creado: ahora() }); }
           save(d); return { data: { user: { id, email }, session: null }, error: null };
         },
         async signInWithPassword({ email, password }) {
@@ -88,13 +90,62 @@ window.Nube = (function () {
       },
       from: tabla,
       async rpc(fn, a) {
-        const d = db(), u = yo(); if (!u) return err('permission denied');
-        if (fn === 'mi_estado') return { data: estadoJson(d, u.id), error: null };
+        const d = db(), u = yo();
         if (fn === 'ajustes') return { data: d.ajustes || null, error: null };
-        if (!esAdmin(d) && fn !== 'borrar_mi_cuenta') return err('Solo administradores');
+        if (!u) return err('permission denied');
+        d.clinicas = d.clinicas || []; d.miembros = d.miembros || []; d.invs = d.invs || [];
+        const vig = (c) => c && c.estado === 'activa' && c.vence && Date.parse(c.vence) > Date.now();
+        const correoDe = (id) => Object.keys(d.users).find((k) => d.users[k].id === id);
+        const miAdm = () => d.clinicas.find((c) => c.admin_id === u.id), miMem = () => { const m = d.miembros.find((x) => x.user_id === u.id); return m && d.clinicas.find((c) => c.id === m.clinica_id); };
+        const estC = (c) => (c.estado === 'activa' && !vig(c) ? 'vencida' : c.estado);
+        const pendientes = (c) => d.invs.filter((i) => i.clinica_id === c.id && !i.usado_por && !i.anulada && Date.parse(i.expira) > Date.now());
+        const buscarInv = (k) => d.invs.find((i) => i.token === String(k).trim().toLowerCase() || i.codigo === String(k).trim().toUpperCase());
+        if (fn === 'mi_estado') {
+          const e = estadoJson(d, u.id), s = d.subs[u.id], cm = miMem(), ca = miAdm(), propia = Date.parse(s.vence) > Date.now();
+          const porClin = cm && vig(cm) && (!propia || s.estado === 'prueba' || Date.parse(cm.vence) > Date.parse(s.vence));
+          if (porClin) Object.assign(e, { estado: 'activa', plan: 'clinica', canal: 'clinica', vence: cm.vence });
+          e.clinica = cm ? { id: cm.id, nombre: cm.nombre, vigente: vig(cm), vence: cm.vence } : null;
+          e.clinica_admin = ca ? { id: ca.id, nombre: ca.nombre, estado: estC(ca), plan: ca.plan, puestos: ca.puestos, usados: d.miembros.filter((m) => m.clinica_id === ca.id).length, vence: ca.vence } : null;
+          return { data: e, error: null };
+        }
+        if (fn === 'solicitar_clinica') { let c = miAdm(); if (!a.p_nombre) return err('Escribe el nombre de la clínica'); if (!c) { c = { id: 'c' + Math.random().toString(16).slice(2, 10), admin_id: u.id, plan: 'basica', puestos: 0, estado: 'solicitud', vence: null, creado: ahora() }; d.clinicas.push(c); } Object.assign(c, { nombre: a.p_nombre, rif: a.p_rif || '', ciudad: a.p_ciudad || '', medicos_estimados: a.p_medicos || 0 }); save(d); return { data: c.id, error: null }; }
+        if (fn === 'mi_clinica') {
+          const ca = miAdm(), cm = miMem();
+          return { data: { admin: ca ? Object.assign({}, ca, { estado: estC(ca), miembros: d.miembros.filter((m) => m.clinica_id === ca.id).map((m) => ({ user_id: m.user_id, correo: correoDe(m.user_id), nombre: (d.users[correoDe(m.user_id)] || {}).nombre, desde: m.desde })), invitaciones: pendientes(ca).map((i) => ({ token: i.token, codigo: i.codigo, correo: i.correo, expira: i.expira })) }) : null,
+            miembro: cm ? { id: cm.id, nombre: cm.nombre, vigente: vig(cm), vence: cm.vence } : null }, error: null };
+        }
+        if (fn === 'clinica_invitar') {
+          const ca = miAdm(), c = String(a.p_correo || '').trim().toLowerCase(); if (!ca) return err('No administras ninguna clínica');
+          if (!vig(ca)) return err('La clínica no tiene un plan activo: paga el plan para invitar anestesiólogos');
+          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c)) return err('Revisa el correo del anestesiólogo');
+          if (d.miembros.some((m) => m.clinica_id === ca.id && correoDe(m.user_id) === c)) return err('Ese anestesiólogo ya está en tu clínica');
+          d.invs.filter((i) => i.clinica_id === ca.id && i.correo === c && !i.usado_por).forEach((i) => (i.anulada = true));
+          const ocup = d.miembros.filter((m) => m.clinica_id === ca.id).length + pendientes(ca).length;
+          if (ocup >= ca.puestos) return err(`No quedan puestos libres (${ocup} de ${ca.puestos}). Quita a alguien, anula una invitación o cambia a un plan mayor.`);
+          const tk = Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2), inv = { token: tk, codigo: tk.slice(0, 8).toUpperCase(), clinica_id: ca.id, correo: c, creado: ahora(), expira: new Date(Date.now() + 14 * 864e5).toISOString(), usado_por: null, anulada: false };
+          d.invs.push(inv); save(d); return { data: { token: inv.token, codigo: inv.codigo, correo: c, expira: inv.expira, clinica: ca.nombre }, error: null };
+        }
+        if (fn === 'clinica_anular_invitacion') { const ca = miAdm(), i = d.invs.find((x) => x.token === a.p_token); if (ca && i && i.clinica_id === ca.id && !i.usado_por) i.anulada = true; save(d); return { data: null, error: null }; }
+        if (fn === 'clinica_quitar') { const ca = miAdm(); if (ca) d.miembros = d.miembros.filter((m) => !(m.clinica_id === ca.id && m.user_id === a.p_user)); save(d); return { data: null, error: null }; }
+        if (fn === 'ver_invitacion') { const i = buscarInv(a.p_codigo); if (!i) return err('Invitación no encontrada: revisa el código'); const c = d.clinicas.find((x) => x.id === i.clinica_id); return { data: { clinica: c.nombre, correo: i.correo, tuya: i.correo === correoDe(u.id), valida: !i.usado_por && !i.anulada && Date.parse(i.expira) > Date.now() && vig(c), usada: !!i.usado_por, expira: i.expira }, error: null }; }
+        if (fn === 'aceptar_invitacion') {
+          const i = buscarInv(a.p_codigo); if (!i) return err('Invitación no encontrada: revisa el código');
+          if (i.anulada) return err('La clínica anuló esta invitación'); if (i.usado_por) return err('Esta invitación ya fue usada');
+          if (Date.parse(i.expira) <= Date.now()) return err('La invitación venció: pide una nueva a tu clínica');
+          if (i.correo !== correoDe(u.id)) return err(`Esta invitación es para ${i.correo}. Entra con ese correo o pide a la clínica que te invite con el tuyo.`);
+          const c = d.clinicas.find((x) => x.id === i.clinica_id); if (!vig(c)) return err('La clínica no tiene el plan activo en este momento');
+          const ya = d.miembros.find((m) => m.user_id === u.id); if (ya && ya.clinica_id !== c.id) return err('Ya perteneces a otra clínica: sal de ella primero (Mi suscripción).');
+          if (!ya && d.miembros.filter((m) => m.clinica_id === c.id).length >= c.puestos) return err('La clínica no tiene puestos libres');
+          if (!ya) d.miembros.push({ clinica_id: c.id, user_id: u.id, desde: ahora() }); i.usado_por = u.id; save(d); return { data: { clinica: c.nombre, vence: c.vence }, error: null };
+        }
+        if (fn === 'salir_de_clinica') { d.miembros = d.miembros.filter((m) => m.user_id !== u.id); save(d); return { data: null, error: null }; }
+        if (!esAdmin(d) && fn !== 'borrar_mi_cuenta') return err('Solo administradores'); // (las funciones de clínica ya respondieron arriba)
+        if (fn === 'admin_clinicas') return { data: d.clinicas.map((c) => ({ id: c.id, nombre: c.nombre, rif: c.rif, ciudad: c.ciudad, medicos_estimados: c.medicos_estimados, responsable: correoDe(c.admin_id), responsable_nombre: (d.users[correoDe(c.admin_id)] || {}).nombre, plan: c.plan, puestos: c.puestos, usados: d.miembros.filter((m) => m.clinica_id === c.id).length, estado: estC(c), vence: c.vence, creado: c.creado })), error: null };
+        if (fn === 'admin_clinica_ajustar') { const c = d.clinicas.find((x) => x.id === a.p_id); if (c) { if (['basica', 'plus', 'institucional'].includes(a.p_plan)) c.plan = a.p_plan; c.puestos = a.p_puestos != null ? a.p_puestos : a.p_plan === 'basica' ? 5 : a.p_plan === 'plus' ? 12 : c.puestos; if (a.p_dias > 0) { c.estado = 'activa'; c.vence = new Date(Math.max(Date.parse(c.vence || 0), Date.now()) + a.p_dias * 864e5).toISOString(); } save(d); } return { data: null, error: null }; }
         if (fn === 'revisar_pago') {
           const p = d.pagos.find((x) => x.id === a.p_id); if (!p || p.estado !== 'pendiente') return err('Ese pago ya fue revisado');
           p.estado = a.p_aprobar ? 'aprobado' : 'rechazado';
+          if (a.p_aprobar && p.clinica_id) { const c = d.clinicas.find((x) => x.id === p.clinica_id); const pz = (((d.ajustes || {}).precios || {}).clinica || {})[p.clinica_plan] || {}; Object.assign(c, { estado: 'activa', plan: p.clinica_plan, puestos: Math.max(+pz.puestos || (p.clinica_plan === 'plus' ? 12 : 5), c.plan === 'institucional' ? c.puestos : 0), vence: new Date(Math.max(Date.parse(c.vence || 0), Date.now()) + (p.plan === 'anual' ? 365 : 30) * 864e5).toISOString() }); save(d); return { data: {}, error: null }; }
           if (a.p_aprobar) { const s = d.subs[p.user_id]; const base = Math.max(Date.parse(s.vence), Date.now()); Object.assign(s, { estado: 'activa', plan: p.plan, canal: p.canal, vence: new Date(base + (p.plan === 'anual' ? 365 : 30) * 864e5).toISOString() }); }
           save(d); return { data: {}, error: null };
         }
@@ -152,8 +203,9 @@ window.Nube = (function () {
       });
     } catch (e) { console.error(e); }
   }
-  async function registrar(correo, clave, nombre) {
-    const { data, error } = await sb.auth.signUp({ email: correo.trim(), password: clave, options: { data: { nombre }, emailRedirectTo: destinoWeb() } });
+  async function registrar(correo, clave, nombre, clinica) {
+    const meta = { nombre }; if (clinica && clinica.nombre) meta.clinica = clinica;
+    const { data, error } = await sb.auth.signUp({ email: correo.trim(), password: clave, options: { data: meta, emailRedirectTo: destinoWeb() } });
     if (error) throw falla(error);
     if (data && data.user && Array.isArray(data.user.identities) && !data.user.identities.length) throw falla('already registered');
     return { confirmar: !(data && data.session) };
@@ -192,7 +244,7 @@ window.Nube = (function () {
     if (forzar || !c || Date.now() - c.chequeado > 10 * 60e3) {
       try {
         const { data, error } = await sb.rpc('mi_estado'); if (error) throw error;
-        if (data) { c = { estado: data.estado, plan: data.plan, canal: data.canal, vence: Date.parse(data.vence), admin: !!data.admin, desfase: Date.parse(data.ahora) - Date.now(), chequeado: Date.now() }; ls.set(kLic(), JSON.stringify(c)); }
+        if (data) { c = { estado: data.estado, plan: data.plan, canal: data.canal, vence: Date.parse(data.vence), admin: !!data.admin, clinica: data.clinica || null, clinicaAdmin: data.clinica_admin || null, desfase: Date.parse(data.ahora) - Date.now(), chequeado: Date.now() }; ls.set(kLic(), JSON.stringify(c)); }
       } catch (e) { if (c) c.offline = true; else return { estado: 'desconocido', activa: false, offline: true, error: traducir(e) }; }
     }
     return efectivo(c);
@@ -204,9 +256,23 @@ window.Nube = (function () {
     const ruta = usuario.id + '/' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + Math.random().toString(36).slice(2, 7) + '.jpg';
     const sub = await sb.storage.from('comprobantes').upload(ruta, p.archivo, { contentType: p.archivo.type || 'image/jpeg', upsert: false });
     if (sub.error) throw falla(sub.error);
-    const { error } = await sb.from('pagos').insert({ user_id: usuario.id, plan: p.plan, canal: p.canal, monto: p.monto || null, moneda: p.moneda || 'USD', referencia: p.referencia, nota: p.nota || '', remitente: p.remitente || {}, comprobante: ruta });
+    const fila = { user_id: usuario.id, plan: p.plan, canal: p.canal, monto: p.monto || null, moneda: p.moneda || 'USD', referencia: p.referencia, nota: p.nota || '', remitente: p.remitente || {}, comprobante: ruta };
+    if (p.clinica_id) Object.assign(fila, { clinica_id: p.clinica_id, clinica_plan: p.clinica_plan });
+    const { error } = await sb.from('pagos').insert(fila);
     if (error) throw falla(error);
   }
+  /* ---------- Clínicas ---------- */
+  const rpc = async (fn, args) => { const { data, error } = await sb.rpc(fn, args || {}); if (error) throw falla(error); return data; };
+  const miClinica = () => rpc('mi_clinica');
+  const solicitarClinica = (x) => rpc('solicitar_clinica', { p_nombre: x.nombre, p_rif: x.rif || '', p_ciudad: x.ciudad || '', p_medicos: +x.medicos || 0 });
+  const clinicaInvitar = (correo) => rpc('clinica_invitar', { p_correo: correo });
+  const clinicaAnular = (token) => rpc('clinica_anular_invitacion', { p_token: token });
+  const clinicaQuitar = (uid) => rpc('clinica_quitar', { p_user: uid });
+  const verInvitacion = (cod) => rpc('ver_invitacion', { p_codigo: cod });
+  const aceptarInvitacion = (cod) => rpc('aceptar_invitacion', { p_codigo: cod });
+  const salirClinica = () => rpc('salir_de_clinica');
+  const admClinicas = () => rpc('admin_clinicas');
+  const admClinicaAjustar = (id, dias, puestos, plan) => rpc('admin_clinica_ajustar', { p_id: id, p_dias: dias || 0, p_puestos: puestos == null ? null : puestos, p_plan: plan || '' });
   async function verComprobante(ruta) { const { data, error } = await sb.storage.from('comprobantes').createSignedUrl(ruta, 600); if (error) throw falla(error); return data.signedUrl; }
   /* Precios y datos de cobro: los define el administrador en Supabase (tabla ajustes); sin conexión se usa la última copia. */
   const K_AJ = 'morpheus-ajustes';
@@ -303,7 +369,7 @@ window.Nube = (function () {
 
   return {
     PRUEBA, disponible, iniciar, registrar, entrar, salir, recuperar, nuevaClave, usuario: () => usuario, compartido,
-    estado, estadoCache, reportarPago, verComprobante, misPagos, ajustes, ajustesCache, admAjustes, admPagos, admRevisar, admUsuarios, admExtender, borrarCuenta,
+    estado, estadoCache, reportarPago, verComprobante, misPagos, miClinica, solicitarClinica, clinicaInvitar, clinicaAnular, clinicaQuitar, verInvitacion, aceptarInvitacion, salirClinica, admClinicas, admClinicaAjustar, ajustes, ajustesCache, admAjustes, admPagos, admRevisar, admUsuarios, admExtender, borrarCuenta,
     marcar, sincronizar, programar, pendientes, marcarTodo, ultimaSync: () => ultimo || +(ls.get('morpheus-ultsync-' + (usuario && usuario.id)) || 0), ultimoError: () => ultimoError, traducir,
   };
 })();

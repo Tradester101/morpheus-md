@@ -4,7 +4,13 @@ window.NUBE_CONFIG = {
   key: 'sb_publishable_MPeIjLOaHulRexpMl9mNyA_aveHpTpd', // Publishable key (sb_publishable_…) o anon public de Supabase
   // Valores de respaldo. Los vigentes los define el administrador en la app (Administración › Precios y cobro) y se guardan en Supabase.
   // usd = pago en divisas (Zelle, USDT); bcv = pago en bolívares, en USD a la tasa BCV del día.
-  precios: { mensual: { usd: 8, bcv: 9.5 }, anual: { usd: 60, bcv: 68 } },
+  precios: {
+    mensual: { usd: 8, bcv: 9.5 }, anual: { usd: 60, bcv: 68 },
+    clinica: { // planes para clínicas: puestos = anestesiólogos que puede invitar
+      basica: { puestos: 5, mensual: { usd: 30, bcv: 36 }, anual: { usd: 300, bcv: 356 } },
+      plus: { puestos: 12, mensual: { usd: 60, bcv: 71 }, anual: { usd: 600, bcv: 712 } },
+    },
+  },
   pagos: {
     pago_movil: { t: 'Pago Móvil', datos: 'Banco: por configurar · Teléfono: por configurar · CI/RIF: por configurar', moneda: 'Bs' },
     zelle: { t: 'Zelle', datos: 'Correo: por configurar · Titular: por configurar', moneda: 'USD' },

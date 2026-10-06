@@ -1,5 +1,5 @@
 /* Morpheus MD: funciona sin internet. Guarda la app en caché la primera vez que se abre. */
-const VERSION = 'morpheus-2.0.0-b6';
+const VERSION = 'morpheus-2.0.0-b8';
 const ARCHIVOS = [
   './',
   'css/app.css',
