@@ -3347,7 +3347,10 @@
     $('#titulo').textContent = D.p.nombre || 'Récipe';
     const pl = cfg.rxPlantillas || [];
     if (!D.items || !D.items.length) D.items = [{}];
-    v.innerHTML = card('Paciente', rej(T('fecha', 'Fecha', { tipo: 'date' }) + dirSel() + marcaSel() + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') + Nm('p.edad', 'Edad', 'años') + Nm('p.peso', 'Peso', 'kg')) +
+    if (!D.papel) D.papel = cfg.rxPapel || 'media';
+    v.innerHTML = card('Tamaño de hoja', R('papel', '', [['media', 'Media carta'], ['carta', 'Carta completa (horizontal)']]) +
+        '<p class="nota" style="margin:4px 0 0">Elige según el papel de tu impresora. Carta completa es el mismo récipe, más grande. Se recuerda para los próximos.</p>') +
+      card('Paciente', rej(T('fecha', 'Fecha', { tipo: 'date' }) + dirSel() + marcaSel() + T('p.nombre', 'Nombre y apellido', { full: true }) + T('p.ci', 'CI') + Nm('p.edad', 'Edad', 'años') + Nm('p.peso', 'Peso', 'kg')) +
         '<div class="fila-btn"><button class="secundario chico" data-acc="docDeHistoria">Tomar datos de una historia</button></div>') +
       card('Rp / medicamentos', D.items.map((it, i) => `<div class="med"><div class="rejilla ancha"><label class="campo completo"><span>Medicamento y presentación</span><input data-k="items.${i}.med" value="${esc(it.med || '')}" placeholder="Ej. Ketoprofeno 100 mg tabletas"></label>
           <label class="campo"><span>Cantidad</span><input data-k="items.${i}.cant" value="${esc(it.cant || '')}" placeholder="#10 (diez)"></label></div>
@@ -3436,8 +3439,9 @@
   document.addEventListener('click', (e) => {
     const r = e.target.closest('[data-r]');
     if (r && obj()) {
-      const o = obj(), k = r.dataset.r; const nuevo = getP(o, k) === r.dataset.v && k !== 'p.formPmp' && k !== 'to.cierre' ? '' : r.dataset.v; setP(o, k, nuevo);
+      const o = obj(), k = r.dataset.r; const nuevo = getP(o, k) === r.dataset.v && k !== 'p.formPmp' && k !== 'to.cierre' && k !== 'papel' ? '' : r.dataset.v; setP(o, k, nuevo);
       if (k === 'to.cierre') { cfg.cierre = nuevo; Store.guardarConfig(cfg); }
+      if (o === D && k === 'papel') { cfg.rxPapel = nuevo; Store.guardarConfig(cfg); }
       if (o === H && RE_RENDER.includes(k)) {
         if (k === 'tec.p' && H.tec.comb === tecPrincipal(H.tec)) H.tec.comb = '';
         if (k.startsWith('tec.')) enlazarRegional();

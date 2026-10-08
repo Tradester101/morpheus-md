@@ -395,49 +395,51 @@ window.Extras = (function () {
   /* ---------- Récipe: media carta apaisada (8,5 × 5,5 in) · Rp a la izquierda, indicaciones a la derecha ---------- */
   function pdfRecipe(r, pf) {
     if (typeof r.dir === 'string' && r.dir.trim()) pf = Object.assign({}, pf, { direccion: r.dir.trim() }); // consultorio elegido en el documento
-    d = new jspdf.jsPDF({ unit: 'pt', format: [612, 396], orientation: 'landscape' }); conM = fuentes();
-    const W = 612, H = 396, M = 18;
+    // 2.0.1: media carta (8,5 × 5,5 in) o carta completa horizontal (11 × 8,5 in): el mismo diseño, más grande (K)
+    const carta = r.papel === 'carta', W = carta ? 792 : 612, H = carta ? 612 : 396, K = W / 612, M = 18 * K;
+    d = new jspdf.jsPDF({ unit: 'pt', format: [W, H], orientation: 'landscape' }); conM = fuentes();
     const items = (r.items || []).filter((i) => t(i.med).trim());
     [0, 1].forEach((lado) => {
       const x0 = lado * W / 2 + M, x1 = (lado + 1) * W / 2 - M, w = x1 - x0;
-      marcaAgua(pf, x0 + w / 2, 230, 170); corona(x1 - 11, H - 15, 11);
-      membrete(pf, x0, M - 2, w, { k: 0.62, dir: true });
-      linea(x0, M + 48, x1, M + 48, 0.8);
-      let y = M + 61;
-      campo('Paciente:', r.p && r.p.nombre, x0, y, x1 - 88, { size: 7.5, vsize: 8 }); campo('Fecha:', fechaTxt(r.fecha), x1 - 84, y, x1, { size: 7.5, vsize: 8 }); y += 12;
-      campo('CI:', r.p && r.p.ci, x0, y, x0 + 110, { size: 7.5, vsize: 8 }); campo('Edad:', r.p && r.p.edad ? r.p.edad + ' años' : '', x0 + 116, y, x0 + 180, { size: 7.5, vsize: 8 });
-      campo('Peso:', r.p && r.p.peso ? r.p.peso + ' kg' : '', x0 + 186, y, x1, { size: 7.5, vsize: 8 });
-      y += 16;
+      marcaAgua(pf, x0 + w / 2, H * 0.58, 170 * K); corona(x1 - 11 * K, H - 15 * K, 11 * K);
+      membrete(pf, x0, M - 2 * K, w, { k: 0.62 * K, dir: true });
+      linea(x0, M + 48 * K, x1, M + 48 * K, 0.8 * K);
+      let y = M + 61 * K; const cs = { size: 7.5 * K, vsize: 8 * K };
+      campo('Paciente:', r.p && r.p.nombre, x0, y, x1 - 88 * K, cs); campo('Fecha:', fechaTxt(r.fecha), x1 - 84 * K, y, x1, cs); y += 12 * K;
+      campo('CI:', r.p && r.p.ci, x0, y, x0 + 110 * K, cs); campo('Edad:', r.p && r.p.edad ? r.p.edad + ' años' : '', x0 + 116 * K, y, x0 + 180 * K, cs);
+      campo('Peso:', r.p && r.p.peso ? r.p.peso + ' kg' : '', x0 + 186 * K, y, x1, cs);
+      y += 16 * K;
       if (lado === 0) { // Rp/
         // ℞: R con el trazo cruzado en la pierna
-        F('b'); d.setFontSize(24); d.setTextColor(0); d.text('R', x0, y + 12);
-        const rw = d.getTextWidth('R'); linea(x0 + rw * 0.55, y + 16, x0 + rw * 1.2, y + 6, 1.8);
-        txt('p/', x0 + rw + 5, y + 12, { size: 13, w: 'b' });
-        y += 28;
+        F('b'); d.setFontSize(24 * K); d.setTextColor(0); d.text('R', x0, y + 12 * K);
+        const rw = d.getTextWidth('R'); linea(x0 + rw * 0.55, y + 16 * K, x0 + rw * 1.2, y + 6 * K, 1.8 * K);
+        txt('p/', x0 + rw + 5 * K, y + 12 * K, { size: 13 * K, w: 'b' });
+        y += 28 * K;
         items.forEach((it, i) => {
-          dato((i + 1) + '. ' + t(it.med), x0 + 6, y, { size: 9, w: 's', maxw: w - 70 });
-          if (it.cant) dato(t(it.cant), x1, y, { size: 8.5, align: 'right' });
-          y += 16;
+          dato((i + 1) + '. ' + t(it.med), x0 + 6 * K, y, { size: 9 * K, w: 's', maxw: w - 70 * K });
+          if (it.cant) dato(t(it.cant), x1, y, { size: 8.5 * K, align: 'right' });
+          y += 16 * K;
         });
       } else {
-        txt('INDICACIONES', x0 + w / 2, y + 6, { size: 10.5, w: 'b', align: 'center', cs: 1.2 });
-        y += 20;
+        txt('INDICACIONES', x0 + w / 2, y + 6 * K, { size: 10.5 * K, w: 'b', align: 'center', cs: 1.2 * K });
+        y += 20 * K;
         items.forEach((it, i) => {
           if (!t(it.ind).trim()) return;
-          y = parrafo((i + 1) + '. ' + t(it.med).split(/\s+\d/)[0] + ': ' + t(it.ind), x0 + 4, y - 7, x1, y + 30, { size: 8.3 }) + 9;
+          y = parrafo((i + 1) + '. ' + t(it.med).split(/\s+\d/)[0] + ': ' + t(it.ind), x0 + 4 * K, y - 7 * K, x1, y + 30 * K, { size: 8.3 * K }) + 9 * K;
         });
-        if (t(r.gen).trim()) { y = parrafo(r.gen, x0 + 4, y - 3, x1, H - 92, { size: 8.3 }) + 4; }
-        if (r.control) dato('Próximo control: ' + r.control, x0 + 4, Math.min(y + 8, H - 84), { size: 8.3, w: 's' });
+        if (t(r.gen).trim()) { y = parrafo(r.gen, x0 + 4 * K, y - 3 * K, x1, H - 92 * K, { size: 8.3 * K }) + 4 * K; }
+        if (r.control) dato('Próximo control: ' + r.control, x0 + 4 * K, Math.min(y + 8 * K, H - 84 * K), { size: 8.3 * K, w: 's' });
       }
       // firma y sello
-      const fy = H - 78; firma(pf, r, x1 - 150, fy - 6, 150, 56);
-      linea(x1 - 140, fy + 50, x1 - 10, fy + 50, 0.5); txt('Firma y sello', x1 - 75, fy + 58, { size: 6.5, align: 'center' });
-      if (pf.direccion) txt(pf.direccion, x0, H - 12, { size: 6, c: [90, 90, 90], maxw: w - 4 });
-      if (lado === 0 && r.valido) txt('Válido por ' + r.valido + ' a partir de la fecha de emisión', x0, H - 24, { size: 6.5, w: 's', c: [60, 60, 60] });
+      const fy = H - 78 * K; firma(pf, r, x1 - 150 * K, fy - 6 * K, 150 * K, 56 * K);
+      linea(x1 - 140 * K, fy + 50 * K, x1 - 10 * K, fy + 50 * K, 0.5); txt('Firma y sello', x1 - 75 * K, fy + 58 * K, { size: 6.5 * K, align: 'center' });
+      if (pf.direccion) txt(pf.direccion, x0, H - 12 * K, { size: 6 * K, c: [90, 90, 90], maxw: w - 4 });
+      if (lado === 0 && r.valido) txt('Válido por ' + r.valido + ' a partir de la fecha de emisión', x0, H - 92 * K, { size: 6.5 * K, w: 's', c: [60, 60, 60] });
     });
     d.setLineDashPattern([3, 3], 0); linea(W / 2, 8, W / 2, H - 8, 0.4, [150, 150, 150]); d.setLineDashPattern([], 0);
     return d;
   }
+
 
   return { ANT, ANT_EXTRA, MEDS, ACC, RCRI, RCRI_RIESGO, SB, SUGERENCIAS, calcular, indicacion, ultimaDosis, fechaTxt, pdfValoracion, pdfRecipe };
 })();
